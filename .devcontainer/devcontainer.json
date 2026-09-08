@@ -1,0 +1,57 @@
+{
+  "name": "UD Drone VIP (portable)",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "remoteUser": "ros",
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/${localWorkspaceFolderBasename},type=bind",
+  "runArgs": [
+    "--shm-size=2g",
+    "--ipc=host"
+  ],
+  "containerEnv": {
+    "DISPLAY": "${localEnv:DISPLAY}",
+    "QT_X11_NO_MITSHM": "1",
+    "LIBGL_ALWAYS_SOFTWARE": "0",
+    "ROS_DOMAIN_ID": "0",
+    "RMW_IMPLEMENTATION": "rmw_fastrtps_cpp",
+    "QT_QPA_PLATFORM": "xcb",
+    "XDG_RUNTIME_DIR": "/tmp/runtime-ros"
+  },
+  "mounts": [
+    "source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind,consistency=cached"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-vscode.cpptools",
+        "ms-vscode.cmake-tools",
+        "ms-iot.vscode-ros",
+        "redhat.vscode-yaml",
+        "ms-azuretools.vscode-docker"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "python.defaultInterpreterPath": "/usr/bin/python3",
+        "files.associations": {
+          "*.sdf": "xml",
+          "*.world": "xml",
+          "*.urdf": "xml"
+        }
+      }
+    },
+    "zed": {
+      "extensions": [
+        "python",
+        "cpp",
+        "toml",
+        "docker"
+      ]
+    }
+  },
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "waitFor": "postCreateCommand"
+}
