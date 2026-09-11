@@ -1,0 +1,123 @@
+# =============================================================================
+# The one and only service definition.
+#
+# There used to be three dev container configurations layering compose
+# overrides on top of this (native X11 for Linux, WSLg for Windows, browser for
+# everyone else). They are gone. The GUI now always goes to the browser at
+# localhost:6080, on every OS, and VirtualGL keeps it GPU-accelerated where a
+# GPU exists. That removed the config picker, the per-distro X11 access-control
+# handling, the WSLg mount fragility, and a failure mode where the forwarded
+# 6080 port was shown in VS Code with nothing listening behind it.
+#
+# Values below come from .devcontainer/.env when it exists. It is optional.
+# =============================================================================
+name: drone-vip
+
+services:
+  dev:
+    # If DRONE_IMAGE names an image that already exists (locally or on a
+    # registry) it is used as-is. Otherwise Compose builds from the Dockerfile
+    # and tags it with this name. Set DRONE_IMAGE in .env to a published
+    # ghcr.io image to skip the ~30 minute first build entirely.
+    image: ${DRONE_IMAGE:-drone-vip:jazzy-local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PREBUILD_PX4: ${PREBUILD_PX4:-1}
+
+    # GPU. `runtime` is the mechanism that degrades gracefully: hosts without
+    # the NVIDIA container toolkit leave DOCKER_RUNTIME unset and get plain
+    # runc. Using `deploy.resources.devices` instead would make the container
+    # FAIL TO START on every machine without an NVIDIA GPU, which is most of
+    # the team's laptops and every Mac.
+    runtime: ${DOCKER_RUNTIME:-runc}
+    environment:
+      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-}
+      NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-}
+      DRONE_VNC_GEOMETRY: ${DRONE_VNC_GEOMETRY:-1600x900}
+      # The container listens on 6080 internally no matter what. This is the
+      # HOST-side port it got published on, passed in purely so the startup
+      # message can print a URL that actually works when someone has remapped
+      # it in .env.
+      DRONE_NOVNC_HOST_PORT: ${DRONE_NOVNC_PORT:-6080}
+      XDG_RUNTIME_DIR: /tmp/runtime-ros
+      QT_X11_NO_MITSHM: "1"
+      QT_QPA_PLATFORM: xcb
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+      RMW_IMPLEMENTATION: ${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
+
+    # Gazebo and Qt want more than Docker's 64 MB default or they die with
+    # confusing X/shm errors partway through loading a world.
+    shm_size: ${DRONE_SHM_SIZE:-2gb}
+
+    volumes:
+      # The repo itself. Fixed container path so the workspace layout is
+      # identical for everyone regardless of what they named their clone dir.
+      - ..:/workspaces/DroneSwarming:cached
+
+      # colcon output goes to named volumes, NOT into the bind mount.
+      #
+      # This is a correctness-preserving performance fix for macOS and Windows,
+      # where bind mounts cross a VM boundary (virtiofs / gRPC-FUSE / 9p) and
+      # small-file write traffic is an order of magnitude slower than native.
+      # A colcon build writes tens of thousands of small files. Keeping them on
+      # a container-local volume is the difference between a usable build and
+      # one people give up on. These are gitignored build artifacts, so nothing
+      # you need to read or commit lives here.
+      - colcon-build:/workspaces/DroneSwarming/build
+      - colcon-install:/workspaces/DroneSwarming/install
+      - colcon-log:/workspaces/DroneSwarming/log
+
+      # Survives container rebuilds, so a rebuild is minutes not half an hour.
+      - ccache:/home/ros/.cache/ccache
+
+    # Publishing here is the ONE mechanism that exposes the browser desktop.
+    #
+    # devcontainer.json deliberately does NOT also list these in forwardPorts.
+    # Having both is a real bug and we shipped it once: VS Code would bind the
+    # host port for its own forward, compose would then fail to bind the same
+    # port, and you would get either a container that refuses to start with
+    # "address already in use", or a Ports tab listing ports that nothing was
+    # actually serving. Compose publishing is used rather than forwardPorts
+    # because it also works for the devcontainer CLI and for editors other
+    # than VS Code, which do not implement forwardPorts at all.
+    #
+    # Bound to 127.0.0.1 on purpose: the desktop has no password by default and
+    # must not be reachable from the network you happen to be sitting on.
+    #
+    # If something else on your machine already owns 6080, set DRONE_NOVNC_PORT
+    # in .devcontainer/.env rather than editing this file.
+    ports:
+      - "127.0.0.1:${DRONE_NOVNC_PORT:-6080}:6080"
+      - "127.0.0.1:${DRONE_VNC_PORT:-5901}:5901"
+
+    # Starts the browser desktop, then keeps the container alive.
+    #
+    # This is the container's own command rather than a devcontainer
+    # postStartCommand hook, because hooks can silently fail to run and the
+    # symptom when that happens is 6080 forwarded with nothing behind it.
+    #
+    # It prefers the copy in the bind-mounted repo over the one baked into the
+    # image, so editing these scripts takes effect on the next container start
+    # with NO image rebuild. The /opt fallback covers running the image
+    # standalone, and the bare `sleep infinity` at the end guarantees the
+    # container still comes up even if both are missing, so you always have a
+    # shell to debug from.
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        for entry in /workspaces/DroneSwarming/.devcontainer/scripts/container-entry.sh \
+                     /opt/drone-vip/scripts/container-entry.sh; do
+            [ -r "$$entry" ] && exec /bin/bash "$$entry"
+        done
+        echo "[entry] no container-entry.sh found, GUI not started" >&2
+        exec sleep infinity
+    init: true
+
+volumes:
+  colcon-build:
+  colcon-install:
+  colcon-log:
+  ccache:

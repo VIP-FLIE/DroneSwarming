@@ -1,0 +1,12 @@
+{
+    "python.autoComplete.extraPaths": [
+        "/workspaces/DroneSwarming/install/drone_vip/lib/python3.12/site-packages",
+        "/home/ros/ros2_ws/install/px4_msgs/lib/python3.12/site-packages",
+        "/opt/ros/jazzy/lib/python3.12/site-packages"
+    ],
+    "python.analysis.extraPaths": [
+        "/workspaces/DroneSwarming/install/drone_vip/lib/python3.12/site-packages",
+        "/home/ros/ros2_ws/install/px4_msgs/lib/python3.12/site-packages",
+        "/opt/ros/jazzy/lib/python3.12/site-packages"
+    ]
+}

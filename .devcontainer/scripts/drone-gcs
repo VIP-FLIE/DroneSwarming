@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+"""Ground control station link for SITL.
+
+WHY THIS EXISTS, AND WHY IT IS NOT A SHORTCUT
+---------------------------------------------
+PX4's gz_x500 airframe ships `param set-default NAV_DLL_ACT 2`, meaning "on
+datalink loss, Return". With that failsafe armed, PX4 refuses to arm at all
+until it can actually see a ground control station, which is correct and is
+what a real aircraft does. Without a GCS you get:
+
+    WARN [commander] Arming denied: Resolve system health failures first
+    WARN [health_and_arming_checks] Preflight Fail: No connection to the
+         ground control station
+
+The tempting fix is `param set NAV_DLL_ACT 0`, which turns the failsafe off.
+Do NOT do that. It makes the simulator arm, and in exchange your simulated
+vehicle no longer has a datalink-loss failsafe, so its behaviour on losing
+telemetry stops matching the real X500 entirely. That is exactly the kind of
+divergence that does not survive the trip to hardware.
+
+This provides the thing PX4 is asking for instead: a real MAVLink GCS link,
+the same role QGroundControl plays. The failsafe stays armed at 2. Verified:
+with NAV_DLL_ACT still 2, arming goes from denied to "Armed by internal
+command" once this is running.
+
+Killing this process is a legitimate and useful test: it is how you exercise
+the datalink-loss failsafe and watch the vehicle Return, which is behaviour
+you want to have seen in simulation before you see it in a field.
+
+Run QGroundControl against udp 14550 instead of this if you prefer a real GCS.
+"""
+import sys
+import time
+
+from pymavlink import mavutil
+
+BIND = "udpin:0.0.0.0:14550"
+
+
+def main() -> int:
+    link = mavutil.mavlink_connection(
+        BIND,
+        source_system=255,  # 255 is the conventional GCS system id
+        source_component=mavutil.mavlink.MAV_COMP_ID_MISSIONPLANNER,
+    )
+    print(f"GCS link listening on {BIND}, waiting for PX4...", flush=True)
+    if link.wait_heartbeat(timeout=90) is None:
+        print("No heartbeat from PX4 after 90s. Is the simulator running?",
+              file=sys.stderr, flush=True)
+        return 1
+    print(f"Linked to PX4 system {link.target_system}. "
+          f"Datalink failsafe is satisfied; the vehicle can arm.", flush=True)
+    print("Leave this running. Ctrl-C to drop the link "
+          "(which is how you test the datalink-loss failsafe).", flush=True)
+
+    while True:
+        link.mav.heartbeat_send(
+            mavutil.mavlink.MAV_TYPE_GCS,
+            mavutil.mavlink.MAV_AUTOPILOT_INVALID,
+            0, 0,
+            mavutil.mavlink.MAV_STATE_ACTIVE,
+        )
+        time.sleep(1.0)
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        print("\nGCS link dropped.", flush=True)
+        sys.exit(0)
