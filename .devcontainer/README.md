@@ -1,227 +1,151 @@
-# Dev Container Setup
+# How the dev container works
 
-One container, same toolchain for everyone, regardless of your laptop's OS or editor. Nothing gets installed on your machine except Docker and an editor of your choice.
+_This is the 'why is it built like this' doc. If you just want to get running, go to [docs/SETUP.md](../docs/SETUP.md) instead, you do not need any of this to use the thing._
 
----
+One container, same toolchain for everybody, regardless of what laptop you have. The only things that end up on your actual machine are Docker and an editor.
 
-## Pinned versions
+## The three configs:
+When you reopen in a container, VS Code asks which one you want. They all run the exact same image and the exact same code. The only thing that differs is how the GUI gets from the container to your eyeballs.
 
-Every version is fixed on purpose. Changing one means checking the others.
+- 'Universal (browser GUI)' works on anything, and it is where you should start. The container runs its own X server and publishes it over HTTP, so the window shows up at <http://localhost:6080> and there is nothing whatsoever to install on your side. No XQuartz, no VcXsrv, no WSLg. This is the only option that works on a Mac and it is the one I would recommend on Windows too.
+- 'Linux (native X11 + GPU)' draws straight onto your desktop using your real X server, with your real GPU. Works on X11 and Wayland sessions both. Fastest option if you are on Linux.
+- 'Windows (WSLg native display)' is the equivalent optional fast path on Windows.
+
+The last two are speed optimizations, nothing more. If the host display turns out to be unreachable they quietly fall back to the browser GUI rather than leaving you staring at nothing, so picking the wrong one costs you frame rate and not a working setup.
+
+## Why the base image had to change:
+The obvious base image for this stack is `osrf/ros:jazzy-desktop-full`, and the original container used it. We cannot, because it is amd64 only:
+
+```console
+$ docker manifest inspect osrf/ros:jazzy-desktop-full | grep architecture
+    "architecture": "amd64"          # one entry, that is it
+
+$ docker manifest inspect ros:jazzy-ros-base | grep architecture
+    "architecture": "amd64",
+    "architecture": "arm64",         # manifest list
+```
+
+On an Apple Silicon Mac an amd64 only base means the whole stack runs through qemu emulation, and PX4 SITL plus Gazebo physics under emulation is not 'a bit slow', it is unusable. That would have quietly made every M series laptop on the team a second class citizen, which is exactly the thing this whole effort was supposed to prevent.
+
+So the image starts from `ros:jazzy-ros-base`, which is a proper manifest list, and layers the desktop tooling on with apt instead. Both `ros-jazzy-desktop` and `gz-harmonic` publish arm64 packages for noble, so Apple Silicon gets a native image.
+
+## Pinned versions:
+Every version is fixed deliberately. If you change one, you are signing up to check the others.
 
 | Component | Version | Why this one |
 |---|---|---|
 | ROS 2 | Jazzy | Current LTS, supported to May 2029. Humble expires May 2027 |
 | Ubuntu | 24.04 | Comes with Jazzy. PX4's `ubuntu.sh` supports 22.04 and 24.04 |
-| Gazebo | Harmonic | The version [ROS 2 Jazzy officially pairs with](https://github.com/gazebosim/ros_gz). Installed via `ros-jazzy-ros-gz` |
-| PX4 | v1.16.1 | Latest [stable release](https://github.com/PX4/PX4-Autopilot/releases/tag/v1.16.1) |
-| px4_msgs | `release/1.16` | [Matched to the PX4 version.](https://github.com/PX4/px4_msgs) Mismatched messages fail in confusing ways |
-| Micro XRCE-DDS Agent | **v2.4.3** | PX4's docs say v2.4.2, but that version cannot build. Its superbuild pins Fast DDS branch `2.12.x`, which eProsima deleted ([issue #370](https://github.com/eProsima/Micro-XRCE-DDS-Agent/issues/370)). v2.4.3 pins Fast DDS `2.14.x` and Fast CDR `2.2.x`, both of which exist, and keeps the 2.x client protocol PX4 v1.16.1 speaks. **Do not use v3.0.1**: agent 3.x is incompatible with clients older than v3.0.0 |
+| Gazebo | Harmonic | The version [ROS 2 Jazzy officially pairs with](https://github.com/gazebosim/ros_gz) |
+| PX4 | v1.16.1 | What this team has validated. v1.17.0 is stable now, see below |
+| px4_msgs | `release/1.16` | [Matched to the PX4 version.](https://github.com/PX4/px4_msgs) Mismatched messages fail in genuinely confusing ways |
+| Micro XRCE-DDS Agent | v2.4.3 | PX4's docs say v2.4.2, but that version cannot build. Its superbuild pins Fast DDS branch `2.12.x`, which eProsima deleted ([issue #370](https://github.com/eProsima/Micro-XRCE-DDS-Agent/issues/370)). v2.4.3 pins Fast DDS `2.14.x` and Fast CDR `2.2.x`, which both still exist, and keeps the 2.x client protocol PX4 v1.16.1 speaks. Do NOT jump to v3.0.1, agent 3.x will not talk to clients older than v3.0.0 |
 
-**All versions live in one place: the `ARG` defaults at the top of the Dockerfile.** Do not add a `build.args` block to `devcontainer.json`. Those values override the Dockerfile's `ARG` defaults, and the two drift apart silently. `smoke-test.sh` now checks for exactly this.
+All of those live in exactly one place, the `ARG` defaults at the top of the Dockerfile. Do not add a `build.args` block to `devcontainer.json` or to compose for them, because those values silently override the Dockerfile defaults and then the two drift apart without anybody noticing. `smoke-test.sh` checks for that specific mistake.
 
-**Gazebo pinning matters.** PX4's docs note that on Ubuntu 24.04 the "latest installed release" of Gazebo is used by default, which could be Harmonic, Ionic, or Jetty. We install `gz-harmonic` explicitly so everyone runs the same thing.
+On upgrading PX4: v1.17.0 has been stable since May 2026 and `px4_msgs` has a matching `release/1.17` branch. The pin was left at v1.16.1 on purpose so the cross platform work could be tested against a known good baseline. Upgrading is three lines in the Dockerfile, but do it as its own commit so that if something breaks we know which change broke it.
 
-**One known tension, disclosed.** PX4's ROS 2 User Guide still names ROS 2 Humble on Ubuntu 22.04 as its supported platform. Their `ubuntu.sh` setup script supports 24.04 and installs Gazebo Harmonic, and px4_msgs CI covers Jazzy, so the combination works. If Jazzy causes trouble, switching is a two-line change in the Dockerfile: set the base image to `osrf/ros:humble-desktop-full` and `PX4_MSGS_BRANCH` stays the same. That flexibility is the point of using a container.
+## How one image manages to serve every OS:
+The GUI transport gets picked when the container starts, not when the image is built. That is the trick that makes a single image work everywhere, and it lives in `scripts/start-display.sh`:
 
----
-
-## Setup by operating system
-
-### Linux (easiest)
-
-1. Install [Docker Engine](https://docs.docker.com/engine/install/ubuntu/) and run the [post-install steps](https://docs.docker.com/engine/install/linux-postinstall/) so you can use Docker without `sudo`
-2. Install [VS Code](https://code.visualstudio.com/) and the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
-3. Allow the container to open windows on your display:
-   ```bash
-   xhost +local:docker
-   ```
-4. **NVIDIA GPU owners:** install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html), then pick the **GPU** config in step 5
-5. Open the repo in VS Code, press `F1`, run **Dev Containers: Reopen in Container**. Choose "UD Drone VIP (NVIDIA GPU)" if you did step 4, otherwise the portable one
-
-### Windows
-
-1. Install [WSL 2](https://learn.microsoft.com/en-us/windows/wsl/install) with Ubuntu
-2. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and enable the WSL 2 backend
-3. Install [VS Code](https://code.visualstudio.com/) and the Dev Containers extension
-4. **Clone the repo inside WSL**, not on the Windows filesystem. Something under `\\wsl$\` or `/home/you/` in the WSL terminal. Cloning onto `C:\` makes file access painfully slow
-5. Open in VS Code from the WSL terminal with `code .`, then **Reopen in Container**
-
-GUI windows work through WSLg with no extra setup. Gazebo Harmonic now supports GPU acceleration under WSLg, so the old `LIBGL_ALWAYS_SOFTWARE=1` workaround is no longer needed.
-
-Known WSLg issues: some laptops with Intel integrated graphics report black windows, and corporate VPN software can break WSL networking.
-
-### macOS
-
-Works, with caveats. There is no GPU passthrough, so Gazebo runs on software rendering.
-
-1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-2. Install [XQuartz](https://www.xquartz.org/), then in XQuartz preferences under Security, enable **Allow connections from network clients**. Log out and back in
-3. Before opening the container:
-   ```bash
-   xhost + 127.0.0.1
-   ```
-4. Open in VS Code and **Reopen in Container** (portable config)
-
-**Try it before assuming it is too slow.** One drone in Gazebo on an M-series chip may be perfectly usable, which covers weeks 1 through 6 of the plan. If it is not, you have two options: run headless for development and use someone else's machine for visuals, or ask Dan for access to his box.
-
----
-
----
-
-## Editors other than VS Code
-
-The [Dev Container spec](https://containers.dev/) is an open standard, not a VS Code feature. Our config works with any tool that implements it.
-
-### Zed
-
-Supported since **Zed v0.218 (7 January 2026)**. See [Zed's dev container docs](https://zed.dev/docs/dev-containers) and the [announcement post](https://zed.dev/blog/dev-containers).
-
-1. Install Docker and make sure `docker` is in your PATH
-2. Open the repo in Zed. It prompts to open in the container
-3. Or use the command palette: **Project: Open Remote**, then **Connect Dev Container**
-
-Zed delegates the build to the official `devcontainer` CLI, so `runArgs`, `mounts`, `containerEnv`, `build.dockerfile`, and `postCreateCommand` all apply exactly as they do under VS Code. GUI apps like Gazebo work the same way, because the X11 socket is mounted by the container runtime and has nothing to do with which editor attached.
-
-Known Zed limitations as of v0.218:
-
-| Limitation | Impact on us |
-|---|---|
-| `forwardPorts` not supported (upstream CLI issue) | None. We do not use it |
-| Zed extensions in `devcontainer.json` not yet honored | Minor. Install your Zed extensions normally |
-| Editing `devcontainer.json` does not trigger a rebuild | Restart the container manually after changes |
-| Only reads `.devcontainer/devcontainer.json` | The GPU config in `gpu/` may not be offered. Use the CLI method below to select it |
-
-To use the GPU config from Zed, start the container with the CLI first, then attach:
-
-```bash
-devcontainer up --workspace-folder . --config .devcontainer/gpu/devcontainer.json
+```
+container starts
+      |
+      +-- is DISPLAY set AND can xdpyinfo actually reach it?
+      |         |
+      |        yes ------> native mode. Draw on the host X server.
+      |         |
+      |         no ------> vnc mode. Start Xvfb + x11vnc + noVNC,
+      |                    serve the desktop on port 6080.
+      |
+      +-- write /tmp/drone-display.env
+                |
+                +-- every shell sources that from ~/.bashrc, so
+                    VS Code's integrated terminal gets the right
+                    DISPLAY too, even though it starts much later.
 ```
 
-### Any editor, or no editor
+Testing with `xdpyinfo` rather than just checking whether `DISPLAY` is set matters more than it looks. `DISPLAY` gets inherited from the host through `containerEnv` even when no socket was mounted, so the variable existing proves nothing at all. Actually trying the connection is what makes the fallback trustworthy.
 
-The reference [`devcontainer` CLI](https://github.com/devcontainers/cli) works standalone:
+## X11 access control on Linux:
+If GUI apps come back with `cannot open display`, this is why. There are two mechanisms out there and the setup handles both, so you should not have to care, but here is what is going on:
 
-```bash
-npm install -g @devcontainers/cli
+1. `SI:localuser` is the modern default on Wayland and XWayland sessions. The X server authorizes based on the connecting process's uid, so no cookie exists and none is needed. The container gets in because VS Code remaps its user to your uid automatically. Run `xhost` and if you see `SI:localuser:<you>`, this is you.
+2. `MIT-MAGIC-COOKIE` is the traditional Xorg way, and it does need the cookie file. `scripts/doctor.sh` pulls one out to `/tmp/.docker.xauth` and points `XAUTH_FILE` at it.
 
-devcontainer up --workspace-folder .           # build and start
-devcontainer exec --workspace-folder . bash    # get a shell inside
+Do NOT use `xhost +local:` to work around a display problem. It is the advice you will find on every forum post about this, and it turns off X access control for every local process on your machine rather than just this container. What is set up here is strictly better.
+
+## Per machine settings live in `.devcontainer/.env`:
+That file is gitignored, which is the entire point. It lets the repo stay byte for byte identical for everybody while still adapting to each laptop. `scripts/doctor.sh --write` generates it and `.env.example` lists every option.
+
+The GPU setting is the one that actually matters:
+
+```ini
+DOCKER_RUNTIME=nvidia          # ONLY if `docker info` lists an nvidia runtime
+NVIDIA_VISIBLE_DEVICES=all
+NVIDIA_DRIVER_CAPABILITIES=all
 ```
 
-From there use Neovim, Emacs, or a plain terminal. To pick the GPU config, add `--config .devcontainer/gpu/devcontainer.json`.
+That is done with `runtime:` rather than compose's `deploy.resources.devices` on purpose. With `devices`, a machine that has no Nvidia GPU fails to start the container at all, and that is most of the team's laptops plus every Mac. With `runtime:` those machines just get the default `runc` and carry on.
 
-### Other supported tools
+## Why `build/` looks empty on your host:
+`compose.yaml` mounts named volumes over `build/`, `install/` and `log/`.
 
-Per the [spec's support list](https://containers.dev/supporting): VS Code, Visual Studio 2022, IntelliJ IDEA, Emacs via [devcontainer.el](https://github.com/emacs-devcontainer/devcontainer.el), plus GitHub Codespaces, DevPod, CodeSandbox, and Ona.
+This is a performance thing for Mac and Windows, where bind mounts have to cross a VM boundary and small file writes are roughly an order of magnitude slower than native. A colcon build writes tens of thousands of small files, so keeping them on a container local volume is the difference between a build that takes a minute and one people give up on.
 
-**Team position: use whatever editor you like.** The container is the shared thing, not the editor.
-
-## First run
-
-Two phases, deliberately separated.
-
-**Phase 1, image build: roughly 5 to 10 minutes.** Downloads the base image, installs Gazebo and the XRCE agent, clones PX4 and px4_msgs. No compiling happens here.
-
-**Phase 2, first container start: 10 to 30 minutes.** `postCreateCommand` runs `.devcontainer/build-workspace.sh`, which compiles PX4 SITL and the ROS 2 workspace. Progress prints live in the VS Code terminal with elapsed-time markers.
-
-**Why compiling is not in the Dockerfile.** BuildKit caps each RUN step's output at 1 MiB. PX4's build blows past that, and hitting the cap terminates the build with exit code 7 while hiding the output that would explain why ([docker/buildx#484](https://github.com/docker/buildx/issues/484)). A failure also discards the entire image. Building at first start gives live output, no cap, and a retry that costs minutes instead of an hour:
+The side effect is that those directories look empty from your host file manager. They are gitignored build artifacts, so there is nothing in there you need to read or commit. If you want to wipe them:
 
 ```bash
-bash .devcontainer/build-workspace.sh          # resumes, skips what is done
-bash .devcontainer/build-workspace.sh --force  # rebuild everything
+docker volume rm drone-vip_colcon-build drone-vip_colcon-install drone-vip_colcon-log
 ```
 
-**Parallel jobs are capped by RAM, not core count.** PX4's C++ build is memory hungry, and an over-parallel build swaps itself to death in a way that looks exactly like a hang. The script allocates roughly one job per 2 GB and prints what it chose.
+## Skipping the 30 minute build:
+CI builds a multi arch image and pushes it to GHCR. Once that has run on the repo, put this in `.devcontainer/.env`:
 
-Once phase 2 finishes, verify the whole stack:
+```ini
+DRONE_IMAGE=ghcr.io/YOUR-ORG/DroneSwarming-dev:jazzy
+```
+
+Now reopening in a container pulls a finished image with PX4 already compiled instead of building one. The tag is a manifest list, so that same line is correct on Intel and on Apple Silicon, nobody has to think about it.
+
+Without that line the image builds locally the first time you use it. That works fine, it just costs you 20 to 40 minutes once.
+
+## When something breaks:
+Run the smoke test first. It checks the toolchain, the version pins, ROS 2, a headless SITL launch and the display path, and it will tell you which one is unhappy:
 
 ```bash
 ./smoke-test.sh
 ```
 
-Twelve checks covering toolchain presence, version pinning, ROS 2 messages, and an actual headless SITL launch. All twelve should pass.
-
----
-
-## Set your ROS_DOMAIN_ID
-
-Ask Dan for your number. Edit `.devcontainer/devcontainer.json`:
-
-```json
-"ROS_DOMAIN_ID": "your number here"
-```
-
-Rebuild the container. If two people run simulations under the same ID on the same network, their nodes discover each other and behave inexplicably. [Background](https://docs.ros.org/en/jazzy/Concepts/Intermediate/About-Domain-ID.html).
-
----
-
-## Fly a drone
-
-Three terminals inside the container.
-
-```bash
-# Terminal 1: the PX4 <-> ROS 2 bridge
-MicroXRCEAgent udp4 -p 8888
-
-# Terminal 2: the simulator
-cd ~/PX4-Autopilot
-make px4_sitl gz_x500
-# add HEADLESS=1 in front of make to skip the 3D window
-
-# Terminal 3: confirm ROS 2 sees the drone
-ros2 topic list | grep fmu
-ros2 topic echo /fmu/out/vehicle_local_position
-```
-
-In the PX4 console (terminal 2):
-
-```
-commander takeoff
-commander land
-```
-
-If that works, your environment is finished and you can start on the tutorials.
-
----
-
-## Troubleshooting
-
-| Symptom | Fix |
+| Symptom | What is going on |
 |---|---|
-| `cannot open display` or no Gazebo window | Linux: `xhost +local:docker`. macOS: `xhost + 127.0.0.1` with XQuartz running. Windows: should be automatic, check WSLg is working with `wsl --update` |
-| Gazebo window is black | Usually a graphics driver problem. Try `LIBGL_ALWAYS_SOFTWARE=1 gz sim` to confirm it renders at all, then report your GPU to Dan |
-| **Wayland desktop** (Pop!_OS, Fedora, recent Ubuntu) | Already handled. `QT_QPA_PLATFORM=xcb` is set in `devcontainer.json`, which forces Qt through XWayland. Gazebo's own [troubleshooting page](https://gazebosim.org/docs/harmonic/troubleshooting/) documents an Ogre and Qt interaction that breaks native Wayland, so this is the supported path. You still need `xhost +local:docker` |
-| Build fails with `usermod: group 'render' does not exist` | Old Dockerfile. The base image has no `render` group. The current version creates any missing group before adding the user |
-| Build fails inside `Tools/setup/ubuntu.sh` with a `usermod` usage error | Old Dockerfile. PX4's setup script runs `sudo usermod -aG dialout $USER`, and Docker leaves `USER` unset. The current version sets `ENV USER` explicitly |
-| Build fails at the XRCE agent with `invalid reference: 2.12.x` | Agent v2.4.2 is unbuildable: eProsima deleted the Fast DDS `2.12.x` branch it pins ([upstream issue #370](https://github.com/eProsima/Micro-XRCE-DDS-Agent/issues/370)). You need v2.4.3. Check the top of the build log for `--build-arg XRCE_AGENT_VERSION=`. If it says v2.4.2, something is passing a stale `build.args`, which overrides the Dockerfile |
-| Build fails downloading packages | Campus network or VPN interference. Try off the VPN |
-| Everything is extremely slow on Windows | You cloned onto `C:\` instead of inside WSL. Re-clone in the WSL filesystem |
-| `px4_msgs` not found | Run `source ~/ros2_ws/install/setup.bash`, which `.bashrc` should already do |
-| Out of disk space | The image is large. `docker system prune -a` clears old layers |
-| Build appears frozen with no output for a long time | If during the **image build**, you may be hitting BuildKit's 1 MiB log cap. The current Dockerfile does no compiling, so this should not happen. If during **first container start**, check the elapsed-time markers: the PX4 stage genuinely runs 10 to 30 minutes |
-| `postCreateCommand` failed | The container still exists and `post-create.sh` always exits 0, so you get a shell. Run `bash .devcontainer/build-workspace.sh` to see the real error and retry |
-| A script prints its header then dies with exit 1 | Classic `set -u` bug. ROS 2 `setup.bash` references unset variables internally, and under `set -u` that terminates the shell **even with `\|\| true` attached**. Neither of our scripts uses `set -u`. If you add a script, do not use it, or guard the source with `set +u` |
-| Machine becomes unresponsive during the build | Too many parallel jobs for available RAM. The script caps at one job per 2 GB, but you can force lower: `JOBS=2 bash .devcontainer/build-workspace.sh --force` |
-| Container starts as root | You changed `remoteUser`. Set it back to `ros` |
+| No window, nothing at :6080 | `cat /tmp/drone-display.log`, then `bash /opt/drone-vip/scripts/start-display.sh` |
+| `cannot open display` on Linux | X access control, see above. Re-run `./scripts/doctor.sh --write` |
+| Gazebo very slow | Check section 5 of the smoke test for the renderer. `llvmpipe` means software rendering. Use `HEADLESS=1` for heavy runs |
+| 3D view is blank grey | Not a fault. PX4's default world is untextured grey and the camera starts far out. Scroll to zoom, and check the Entity Tree lists `x500_0` |
+| Container will not start, mentions nvidia | You have `DOCKER_RUNTIME=nvidia` in `.env` without the NVIDIA Container Toolkit. Delete that line |
+| colcon permission errors | Named volume ownership. Re-run `bash .devcontainer/scripts/post-create.sh` |
+| Build dies, machine swaps | `JOBS=2 bash .devcontainer/scripts/build-workspace.sh` |
+| Smoke test says the image is stale | Somebody changed a version pin. Rebuild the container |
+| Windows WSLg config shows no window | Check WSLg itself first with `wsl -- xclock`. If that fails, use the Universal config |
 
----
-
-## Structure
-
+## What is where:
 ```
 .devcontainer/
-  Dockerfile            the image. All version pins live here
-  devcontainer.json     portable config. Works everywhere, no GPU
-  gpu/devcontainer.json NVIDIA config. Linux and WSL2 with the container toolkit
-  post-create.sh        prints versions on first start
-  README.md             this file
-smoke-test.sh           verifies the stack
+  devcontainer.json              Universal (browser GUI), the default
+  linux-x11/devcontainer.json    Linux native display
+  windows-wslg/devcontainer.json Windows native display
+  compose.yaml                   shared service definition
+  compose.linux-x11.yaml         X socket + /dev/dri overlay
+  compose.windows-wslg.yaml      WSLg overlay
+  Dockerfile                     the multi arch image
+  .env.example                   every per machine option
+  scripts/
+    start-display.sh             picks the GUI transport at runtime
+    post-create.sh               first run setup
+    build-workspace.sh           compiles anything not baked into the image
+scripts/
+  doctor.sh / doctor.ps1         host side environment check
 ```
 
----
-
-## Later: prebuilt images
-
-Right now everyone builds the image locally, which takes 20 to 40 minutes once. When the team grows or the image changes often, build it once in GitHub Actions, push to [GitHub Container Registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry), and change `devcontainer.json` from `"build"` to `"image": "ghcr.io/<org>/<repo>:latest"`. Students then pull a finished image instead of compiling PX4.
-
-Not worth setting up until the current approach hurts.
+One gotcha worth knowing: `scripts/` also gets copied into the image at `/opt/drone-vip/scripts/`, and `postStartCommand` runs the copy from there so the display still comes up even if the workspace mount is not ready yet. So if you edit `start-display.sh`, you need to rebuild the container for it to take effect, or run your edited copy directly to test it.

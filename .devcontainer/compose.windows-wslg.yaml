@@ -1,0 +1,35 @@
+# =============================================================================
+# Overlay: Windows 11, draw on the host desktop through WSLg.
+# Layered on top of compose.yaml. Do not use this file on its own.
+#
+# READ THIS BEFORE USING IT
+# -------------------------
+# The default (browser) configuration is the RECOMMENDED path on Windows. It
+# has no host dependencies and it always works. This overlay is the "I want
+# native speed and I am willing to debug it" option.
+#
+# The fragility is real and documented upstream: Docker Desktop's own WSL
+# distro exposes WSLg at /run/desktop/mnt/host/wslg, NOT at the /mnt/wslg path
+# that Microsoft's WSLg container docs tell you to use
+# (devcontainers/discussions#173). If Docker Desktop changes that layout, this
+# overlay breaks and the browser configuration does not. Both paths are
+# overridable from .env so you can correct it without editing this file.
+#
+# Requires: Windows 11, Docker Desktop on the WSL2 backend, WSLg working in a
+# normal WSL distro first (test with `wsl -- xclock` before blaming this file).
+# =============================================================================
+services:
+  dev:
+    environment:
+      DISPLAY: ${DISPLAY:-:0}
+      WAYLAND_DISPLAY: ${WAYLAND_DISPLAY:-wayland-0}
+      PULSE_SERVER: ${PULSE_SERVER:-/mnt/wslg/PulseServer}
+      # WSL's GPU userspace drivers (d3d12 mesa, and NVIDIA's WSL libs) live
+      # here. Without this on the search path you silently get llvmpipe.
+      LD_LIBRARY_PATH: /usr/lib/wsl/lib
+      DRONE_DISPLAY_MODE: ${DRONE_DISPLAY_MODE:-native}
+
+    volumes:
+      - ${WSLG_X11_DIR:-/run/desktop/mnt/host/wslg/.X11-unix}:/tmp/.X11-unix
+      - ${WSLG_DIR:-/run/desktop/mnt/host/wslg}:/mnt/wslg
+      - ${WSL_LIB_DIR:-/usr/lib/wsl}:/usr/lib/wsl

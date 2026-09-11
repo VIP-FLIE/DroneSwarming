@@ -1,27 +1,34 @@
+// =============================================================================
+// UD Drone VIP - DEFAULT configuration. Start here.
+//
+// Works on every supported host with NO host-side setup at all:
+//   Windows 11 (with or without an NVIDIA GPU), macOS Intel, macOS Apple
+//   Silicon, any Linux distro, and headless/SSH machines.
+//
+// The GUI is served BY THE CONTAINER over HTTP. After the container starts,
+// open http://localhost:6080 and the Gazebo/rviz windows are there.
+// No XQuartz, no VcXsrv, no WSLg, no X forwarding.
+//
+// Rendering is Mesa llvmpipe (software). That costs GUI framerate, but NOT
+// simulation accuracy: physics is CPU-bound and still runs at a real-time
+// factor of ~1.0 for the worlds this team uses.
+//
+// Want native speed? Use the "Linux (native X11)" or "Windows (WSLg)"
+// configuration instead. Run ./scripts/doctor.sh and it will tell you which
+// one your machine can support.
+// =============================================================================
 {
-  "name": "UD Drone VIP (portable)",
-  "build": {
-    "dockerfile": "Dockerfile"
-  },
+  "name": "Drone VIP - Universal (browser GUI)",
+  "dockerComposeFile": ["compose.yaml"],
+  "service": "dev",
+  "workspaceFolder": "/workspaces/DroneSwarming",
+  "overrideCommand": false,
   "remoteUser": "ros",
-  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
-  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/${localWorkspaceFolderBasename},type=bind",
-  "runArgs": [
-    "--shm-size=2g",
-    "--ipc=host"
-  ],
-  "containerEnv": {
-    "DISPLAY": "${localEnv:DISPLAY}",
-    "QT_X11_NO_MITSHM": "1",
-    "LIBGL_ALWAYS_SOFTWARE": "0",
-    "ROS_DOMAIN_ID": "0",
-    "RMW_IMPLEMENTATION": "rmw_fastrtps_cpp",
-    "QT_QPA_PLATFORM": "xcb",
-    "XDG_RUNTIME_DIR": "/tmp/runtime-ros"
+  "forwardPorts": [6080, 5901],
+  "portsAttributes": {
+    "6080": { "label": "Simulation GUI (browser)", "onAutoForward": "notify" },
+    "5901": { "label": "Simulation GUI (VNC client)", "onAutoForward": "silent" }
   },
-  "mounts": [
-    "source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind,consistency=cached"
-  ],
   "customizations": {
     "vscode": {
       "extensions": [
@@ -30,8 +37,7 @@
         "ms-vscode.cpptools",
         "ms-vscode.cmake-tools",
         "ms-iot.vscode-ros",
-        "redhat.vscode-yaml",
-        "ms-azuretools.vscode-docker"
+        "redhat.vscode-yaml"
       ],
       "settings": {
         "terminal.integrated.defaultProfile.linux": "bash",
@@ -42,16 +48,9 @@
           "*.urdf": "xml"
         }
       }
-    },
-    "zed": {
-      "extensions": [
-        "python",
-        "cpp",
-        "toml",
-        "docker"
-      ]
     }
   },
-  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "postCreateCommand": "bash .devcontainer/scripts/post-create.sh",
+  "postStartCommand": "bash /opt/drone-vip/scripts/start-display.sh",
   "waitFor": "postCreateCommand"
 }

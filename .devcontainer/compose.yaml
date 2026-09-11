@@ -1,0 +1,87 @@
+# =============================================================================
+# Base service. Shared by ALL three dev container configurations.
+#
+# The per-platform configs (linux-x11/, windows-wslg/) layer a second compose
+# file on top of this one. Everything common lives here exactly once, so the
+# platform files stay short enough to actually read.
+#
+# Values below come from .devcontainer/.env when it exists. Copy .env.example
+# to .env, or run ./scripts/doctor.sh which writes one for you.
+# =============================================================================
+name: drone-vip
+
+services:
+  dev:
+    # If DRONE_IMAGE names an image that already exists (locally or on a
+    # registry) it is used as-is. Otherwise Compose builds from the Dockerfile
+    # and tags it with this name. Set DRONE_IMAGE in .env to a published
+    # ghcr.io image to skip the ~30 minute first build entirely.
+    image: ${DRONE_IMAGE:-drone-vip:jazzy-local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PREBUILD_PX4: ${PREBUILD_PX4:-1}
+
+    # GPU. `runtime` is the mechanism that degrades gracefully: hosts without
+    # the NVIDIA container toolkit leave DOCKER_RUNTIME unset and get plain
+    # runc. Using `deploy.resources.devices` instead would make the container
+    # FAIL TO START on every machine without an NVIDIA GPU, which is most of
+    # the team's laptops and every Mac.
+    runtime: ${DOCKER_RUNTIME:-runc}
+    environment:
+      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-}
+      NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-}
+      # auto | native | vnc  (see scripts/start-display.sh)
+      DRONE_DISPLAY_MODE: ${DRONE_DISPLAY_MODE:-auto}
+      DRONE_VNC_GEOMETRY: ${DRONE_VNC_GEOMETRY:-1600x900}
+      XDG_RUNTIME_DIR: /tmp/runtime-ros
+      QT_X11_NO_MITSHM: "1"
+      QT_QPA_PLATFORM: xcb
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+      RMW_IMPLEMENTATION: ${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
+
+    # Gazebo and Qt want more than Docker's 64 MB default or they die with
+    # confusing X/shm errors partway through loading a world.
+    shm_size: ${DRONE_SHM_SIZE:-2gb}
+
+    volumes:
+      # The repo itself. Fixed container path so the workspace layout is
+      # identical for everyone regardless of what they named their clone dir.
+      - ..:/workspaces/DroneSwarming:cached
+
+      # colcon output goes to named volumes, NOT into the bind mount.
+      #
+      # This is a correctness-preserving performance fix for macOS and Windows,
+      # where bind mounts cross a VM boundary (virtiofs / gRPC-FUSE / 9p) and
+      # small-file write traffic is an order of magnitude slower than native.
+      # A colcon build writes tens of thousands of small files. Keeping them on
+      # a container-local volume is the difference between a usable build and
+      # one people give up on. These are gitignored build artifacts, so nothing
+      # you need to read or commit lives here.
+      - colcon-build:/workspaces/DroneSwarming/build
+      - colcon-install:/workspaces/DroneSwarming/install
+      - colcon-log:/workspaces/DroneSwarming/log
+
+      # Survives container rebuilds, so a rebuild is minutes not half an hour.
+      - ccache:/home/ros/.cache/ccache
+
+    # Publish the browser-GUI ports explicitly rather than relying only on
+    # devcontainer.json's forwardPorts. forwardPorts is a VS Code feature; the
+    # devcontainer CLI and other editors do not implement it, and without this
+    # the browser desktop would be unreachable for them. Bound to 127.0.0.1 on
+    # purpose -- the VNC desktop has no password by default and must not be
+    # exposed to the network you are sitting on.
+    ports:
+      - "127.0.0.1:${DRONE_NOVNC_PORT:-6080}:6080"
+      - "127.0.0.1:${DRONE_VNC_PORT:-5901}:5901"
+
+    # Keeps the container alive for VS Code to attach to.
+    command: sleep infinity
+    init: true
+
+volumes:
+  colcon-build:
+  colcon-install:
+  colcon-log:
+  ccache:

@@ -41,6 +41,7 @@ arg_default() {
 # ---------------------------------------------------------------------------
 SECTION="toolchain check"
 echo "=== 1. Toolchain present ==="
+echo "  info  architecture: $(uname -m)"
 
 ROS_SETUP=/opt/ros/jazzy/setup.bash
 if [ -f "$ROS_SETUP" ]; then
@@ -69,7 +70,7 @@ PX4_BIN="$HOME/PX4-Autopilot/build/px4_sitl_default/bin/px4"
 if [ -x "$PX4_BIN" ]; then
     ok "PX4 SITL built"
 else
-    no "PX4 SITL not built. Run: bash .devcontainer/build-workspace.sh"
+    no "PX4 SITL not built. Run: bash .devcontainer/scripts/build-workspace.sh"
 fi
 
 # ---------------------------------------------------------------------------
@@ -130,7 +131,7 @@ fi
 
 ROS_PKGS=$(ros2 pkg list 2>/dev/null)
 grep -q '^px4_msgs$' <<< "$ROS_PKGS" && ok "px4_msgs importable" \
-  || no "px4_msgs not built. Run: bash .devcontainer/build-workspace.sh"
+  || no "px4_msgs not built. Run: bash .devcontainer/scripts/build-workspace.sh"
 ros2 interface show px4_msgs/msg/VehicleLocalPosition >/dev/null 2>&1 \
   && ok "VehicleLocalPosition message" || no "VehicleLocalPosition message"
 
@@ -159,13 +160,16 @@ else
     # Leaving it unset is what makes PX4 launch Gazebo itself.
     : > /tmp/sitl.log
     if command -v setsid >/dev/null; then
+        # </dev/null matters: PX4 drops into its interactive `pxh>` shell and
+        # redraws that prompt forever when stdin is a tty. Left attached, a
+        # 3 minute smoke test writes a multi-hundred-megabyte log file.
         setsid timeout "$SITL_BUDGET" env HEADLESS=1 \
-            make px4_sitl gz_x500 > /tmp/sitl.log 2>&1 &
+            make px4_sitl gz_x500 </dev/null > /tmp/sitl.log 2>&1 &
         SITL_PID=$!
         SITL_GROUP=1
     else
         timeout "$SITL_BUDGET" env HEADLESS=1 \
-            make px4_sitl gz_x500 > /tmp/sitl.log 2>&1 &
+            make px4_sitl gz_x500 </dev/null > /tmp/sitl.log 2>&1 &
         SITL_PID=$!
         SITL_GROUP=0
     fi
@@ -212,6 +216,70 @@ else
         kill -KILL "$SITL_PID" 2>/dev/null
     fi
     wait "$SITL_PID" 2>/dev/null
+fi
+
+# ---------------------------------------------------------------------------
+SECTION="display check"
+echo "=== 5. GUI display path ==="
+# The whole point of this project's container setup is that a GUI reaches you
+# on any OS. This section reports WHICH transport is live and proves it works,
+# so "Gazebo opens no window" is a diagnosis instead of a mystery.
+
+[ -f /tmp/drone-display.env ] && source /tmp/drone-display.env
+
+MODE="${DRONE_DISPLAY_ACTIVE:-unknown}"
+case "$MODE" in
+    native) echo "  info  mode: native (drawing on the host X server)" ;;
+    vnc)    echo "  info  mode: vnc (browser desktop)" ;;
+    *)      echo "  info  mode: unknown - start-display.sh may not have run" ;;
+esac
+
+if [ -z "${DISPLAY:-}" ]; then
+    no "DISPLAY is not set"
+elif timeout 10 xdpyinfo -display "$DISPLAY" >/dev/null 2>&1; then
+    RES=$(xdpyinfo -display "$DISPLAY" 2>/dev/null | awk '/dimensions:/{print $2; exit}')
+    ok "X server reachable on DISPLAY=$DISPLAY (${RES:-unknown})"
+else
+    no "cannot reach an X server on DISPLAY=$DISPLAY"
+    echo "        Try:  bash /opt/drone-vip/scripts/start-display.sh"
+    echo "        Log:  /tmp/drone-display.log"
+fi
+
+# Which renderer are we actually getting? This is the single most useful number
+# for "why is it slow" questions, and it is invisible unless you ask.
+if command -v glxinfo >/dev/null 2>&1 && [ -n "${DISPLAY:-}" ]; then
+    RENDERER=$(timeout 20 glxinfo -B 2>/dev/null | sed -n 's/^OpenGL renderer string: //p')
+    GLVER=$(timeout 20 glxinfo -B 2>/dev/null | sed -n 's/^OpenGL version string: //p' | cut -d' ' -f1)
+    if [ -n "$RENDERER" ]; then
+        ok "OpenGL renderer: $RENDERER"
+        case "$RENDERER" in
+            *llvmpipe*|*softpipe*|*swrast*)
+                echo "        Software rendering. Physics still runs at full speed;"
+                echo "        only GUI framerate is affected. Expected on macOS and"
+                echo "        on any machine without a GPU passed into the container." ;;
+            *)
+                echo "        Hardware accelerated." ;;
+        esac
+        # ogre2, Gazebo's render engine, requires OpenGL 3.3 or newer.
+        if [ -n "$GLVER" ]; then
+            if awk -v v="$GLVER" 'BEGIN{split(v,a,"."); exit !(a[1]>3 || (a[1]==3 && a[2]>=3))}'; then
+                ok "OpenGL $GLVER (Gazebo ogre2 needs 3.3+)"
+            else
+                no "OpenGL $GLVER is below the 3.3 that Gazebo's ogre2 requires"
+            fi
+        fi
+    else
+        skip "could not query the GL renderer"
+    fi
+fi
+
+if [ "$MODE" = "vnc" ]; then
+    # Prove the browser really has something to connect to.
+    if timeout 10 bash -c 'exec 3<>/dev/tcp/127.0.0.1/6080' 2>/dev/null; then
+        ok "noVNC is listening on 6080  ->  http://localhost:6080"
+    else
+        no "noVNC is NOT listening on 6080 (see /tmp/drone-display.log)"
+    fi
 fi
 
 # ---------------------------------------------------------------------------

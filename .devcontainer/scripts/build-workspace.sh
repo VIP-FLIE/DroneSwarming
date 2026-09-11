@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Compiles PX4 SITL and the ROS 2 workspace.
+# Compiles anything that is not already baked into the image.
 #
-# Runs on first container start, not during the image build. Building inside
-# the Dockerfile hits BuildKit's 1 MiB per-step log limit, which kills the
-# build with exit code 7 and hides the reason (docker/buildx#484).
+# With the published image (PREBUILD_PX4=1) PX4 and px4_msgs are already built,
+# so this only compiles THIS repo's packages and finishes in seconds. If you
+# built the image yourself with PREBUILD_PX4=0, this is where PX4 gets built.
 #
 # NOTE: no `set -u`. ROS 2 setup.bash references unset variables internally,
 # and under `set -u` that terminates the shell even with `|| true` attached.
@@ -16,6 +16,7 @@ FORCE=0
 
 PX4_DIR="${PX4_DIR:-$HOME/PX4-Autopilot}"
 WS_DIR="${WS_DIR:-$HOME/ros2_ws}"
+REPO_WS="${REPO_WS:-/workspaces/DroneSwarming}"
 START=$(date +%s)
 
 # Parallel jobs capped by memory, not core count. PX4's C++ build is memory
@@ -35,8 +36,7 @@ stage "Build environment"
 echo "    CPUs available : $CPUS"
 echo "    RAM            : ${MEM_GB} GB"
 echo "    Parallel jobs  : $JOBS  (capped by RAM. override with JOBS=n)"
-echo "    PX4            : $PX4_DIR"
-echo "    ROS workspace  : $WS_DIR"
+echo "    Architecture   : $(uname -m)"
 
 # ROS setup files are not safe under `set -e` or `set -u`. Guard the source.
 set +eu
@@ -45,27 +45,38 @@ set -e
 
 # ---------------------------------------------------------------------------
 stage "PX4 SITL"
-# px4_sitl_default builds only. `make px4_sitl gz_x500` would build AND launch
-# Gazebo, which is not what we want here.
 if [ -x "$PX4_DIR/build/px4_sitl_default/bin/px4" ] && [ "$FORCE" -eq 0 ]; then
-    echo "    Already built. Pass --force to rebuild."
+    echo "    Already built (baked into the image). Pass --force to rebuild."
 else
     cd "$PX4_DIR"
-    echo "    This is the long one. Expect 10 to 30 minutes on first run."
+    echo "    This is the long one. Expect 10 to 30 minutes."
     make px4_sitl_default -j"$JOBS"
     echo "    PX4 built."
 fi
 
 # ---------------------------------------------------------------------------
-stage "ROS 2 workspace (px4_msgs)"
+stage "px4_msgs"
 if [ -f "$WS_DIR/install/setup.bash" ] && [ "$FORCE" -eq 0 ]; then
-    echo "    Already built. Pass --force to rebuild."
+    echo "    Already built (baked into the image). Pass --force to rebuild."
 else
     cd "$WS_DIR"
-    colcon build --symlink-install \
-        --parallel-workers "$JOBS" \
+    colcon build --symlink-install --parallel-workers "$JOBS" \
         --event-handlers console_cohesion+
-    echo "    Workspace built."
+    echo "    px4_msgs built."
+fi
+
+# ---------------------------------------------------------------------------
+stage "This repo's packages"
+set +eu
+[ -f "$WS_DIR/install/setup.bash" ] && source "$WS_DIR/install/setup.bash"
+set -e
+if [ -d "$REPO_WS/src" ]; then
+    cd "$REPO_WS"
+    colcon build --symlink-install --parallel-workers "$JOBS" \
+        --event-handlers console_cohesion+
+    echo "    Repo packages built."
+else
+    echo "    No src/ directory at $REPO_WS, nothing to build."
 fi
 
 stage "Done"

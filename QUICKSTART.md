@@ -29,12 +29,38 @@ A Gazebo window opens with an X500 quadrotor on the ground, and the terminal
 drops into PX4's own shell, the `pxh>` prompt. First launch takes longer
 because Gazebo is loading model and world assets.
 
-If the window is painfully slow, your machine is doing software rendering.
-Run it without a GUI instead:
+Where that window actually shows up depends on which container config you
+opened. On the Universal (browser GUI) one, which is the default and the only
+option on a Mac, it opens inside the container's own desktop, so you go to
+<http://localhost:6080> in your browser to see it. VS Code will usually offer
+to forward that port on its own, and the Ports tab will do it if it does not.
+On the Linux native X11 or Windows WSLg configs it just opens on your real
+desktop like any other application.
+
+If you are not sure which one you ended up on, run `echo $DRONE_DISPLAY_ACTIVE`
+and it will say `native` or `vnc`. Section 5 of `./smoke-test.sh` tells you the
+same thing with more detail.
+
+If the 3D view looks like a blank grey rectangle, it almost certainly has not
+broken. PX4's default world is an untextured grey ground under a grey sky, and
+the camera starts far enough back that an X500 is only a few pixels wide, so
+there is genuinely not much to look at until you scroll in. If you want to
+confirm something is actually there, look at the Entity Tree panel on the
+right. If `x500_0` is in that list, the drone spawned and you are fine.
+
+If the window is painfully slow, your machine is doing software rendering,
+which `./smoke-test.sh` will confirm (a renderer of `llvmpipe` means software).
+That is expected on a Mac, or anywhere there is no GPU handed to the container,
+and it does not change how the drone flies, only how smoothly you get to watch
+it. For anything heavy, skip drawing altogether:
 
 ```bash
 HEADLESS=1 make px4_sitl gz_x500
 ```
+
+That is also how you want to run multi drone swarm scenarios. Past a handful of
+vehicles you would much rather the CPU spend its time on physics than on
+rendering something nobody is watching.
 
 **Terminal 3, your side:**
 
