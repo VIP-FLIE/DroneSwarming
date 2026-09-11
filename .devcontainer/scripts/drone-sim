@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# drone-sim   Launch PX4 SITL with the x500 in Gazebo, set up correctly.
+#
+# This exists because `gz sim` on its own does NOT start the drone. It opens
+# Gazebo's "quick start" world chooser, which lists demo worlds (NAO, Panda,
+# Prius, Tugbot) and has nothing to do with PX4. The PX4 vehicle is spawned by
+# PX4's own build target, which is what this runs.
+set -o pipefail
+
+[ -f /tmp/drone-display.env ] && source /tmp/drone-display.env
+export PX4_DIR="${PX4_DIR:-$HOME/PX4-Autopilot}"
+export GZ_SIM_RESOURCE_PATH="$PX4_DIR/Tools/simulation/gz/models:$PX4_DIR/Tools/simulation/gz/worlds"
+
+# PX4 treats this variable as present-or-absent, not 1-or-0, so even
+# PX4_GZ_STANDALONE=0 makes PX4 sit waiting for a Gazebo server nothing started.
+unset PX4_GZ_STANDALONE
+
+MODEL="${1:-gz_x500}"
+
+if ! (exec 3<>/dev/tcp/127.0.0.1/6080) 2>/dev/null; then
+    echo "The browser desktop is not up yet. Starting it..."
+    drone-gui >/dev/null 2>&1
+fi
+
+echo "Launching PX4 SITL with $MODEL."
+echo "Watch it at http://localhost:${DRONE_NOVNC_HOST_PORT:-6080}"
+echo "First launch takes a minute while Gazebo loads its assets."
+echo
+cd "$PX4_DIR" || exit 1
+exec make px4_sitl "$MODEL"

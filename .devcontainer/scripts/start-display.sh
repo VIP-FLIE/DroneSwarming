@@ -1,147 +1,107 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Decides HOW the GUI reaches your eyes, at container start.
+# Brings up the desktop that the GUI draws on, and publishes it over HTTP.
 #
-# This is the piece that lets ONE image work on Windows, macOS and Linux.
-# The choice is made at RUNTIME, not at image build time, so a container that
-# was handed a host X socket uses it, and the exact same container started on
-# a Mac quietly falls back to its own built-in desktop instead of failing.
+# There is ONE display path and every machine uses it: an X server inside the
+# container (Xvfb), exported over VNC and noVNC, reachable in a browser at
+# http://localhost:6080. Nothing is installed or configured on the host, on any
+# operating system.
 #
-# Modes (set DRONE_DISPLAY_MODE to force one):
-#   native  Draw on the host's X server via a mounted socket.
-#           Fast, GPU-accelerated. Linux (X11 or Wayland/XWayland) and
-#           Windows via WSLg.
-#   vnc     Draw on the container's own Xvfb, publish it over noVNC.
-#           Reachable at http://localhost:6080 from any browser.
-#           Needs NOTHING installed on the host. The only option on macOS.
-#   auto    (default) Try native, fall back to vnc.
+# An earlier version of this tried to detect a usable host X socket and draw on
+# the real desktop instead, falling back to VNC. That was removed on purpose.
+# It produced three dev container configurations, needed X11 access control to
+# be handled differently per distro, was documented-fragile on Windows/WSLg,
+# and its worst failure mode was silent: in native mode nothing listened on
+# 6080, so the forwarded port was visible in VS Code but refused connections.
 #
-# Writes /tmp/drone-display.env, which every shell sources from ~/.bashrc.
-# That indirection matters: DISPLAY has to be correct in VS Code's integrated
-# terminal, which is spawned long after this script runs.
+# Hardware acceleration is NOT lost by doing it this way. VirtualGL renders
+# through the GPU via EGL (see the Dockerfile), so the browser desktop is
+# GPU-accelerated wherever a GPU exists and silently falls back to software
+# where one does not.
 #
 # NOTE: no `set -u`. ROS 2 setup files reference unset variables internally.
 set -o pipefail
 
 VNC_DISPLAY=":1"
 VNC_GEOMETRY="${DRONE_VNC_GEOMETRY:-1600x900}"
-VNC_DEPTH=24
-NOVNC_PORT="${DRONE_NOVNC_PORT:-6080}"
+NOVNC_PORT=6080                       # inside the container, always
+HOST_PORT="${DRONE_NOVNC_HOST_PORT:-6080}"   # what it maps to on your machine
 VNC_PORT="${DRONE_VNC_PORT:-5901}"
-MODE="${DRONE_DISPLAY_MODE:-auto}"
 ENV_FILE=/tmp/drone-display.env
 LOG=/tmp/drone-display.log
 
 : > "$LOG"
 log() { echo "[display] $*" | tee -a "$LOG"; }
 
-# --- can we actually talk to the display we were handed? --------------------
-# Merely having DISPLAY set proves nothing: the variable is inherited from the
-# host through containerEnv even when no socket was mounted. xdpyinfo is the
-# only honest test.
-host_display_works() {
-    [ -n "${DISPLAY:-}" ] || return 1
-    command -v xdpyinfo >/dev/null 2>&1 || return 1
-    timeout 5 xdpyinfo -display "$DISPLAY" >/dev/null 2>&1
-}
+export DISPLAY="$VNC_DISPLAY"
+mkdir -p "${XDG_RUNTIME_DIR:-/tmp/runtime-ros}" 2>/dev/null
+chmod 700 "${XDG_RUNTIME_DIR:-/tmp/runtime-ros}" 2>/dev/null
 
-start_vnc_desktop() {
-    export DISPLAY="$VNC_DISPLAY"
+# Idempotent: postStartCommand runs on every container start, including after
+# a plain restart where these may already be up.
+if pgrep -f "Xvfb $VNC_DISPLAY" >/dev/null 2>&1; then
+    log "desktop already running on $VNC_DISPLAY"
+else
+    log "starting Xvfb on $VNC_DISPLAY (${VNC_GEOMETRY}x24)"
+    Xvfb "$VNC_DISPLAY" -screen 0 "${VNC_GEOMETRY}x24" -nolisten tcp >>"$LOG" 2>&1 &
 
-    # Already running from a previous start? Do not stack a second stack.
-    if pgrep -f "Xvfb $VNC_DISPLAY" >/dev/null 2>&1; then
-        log "VNC desktop already running on $VNC_DISPLAY"
-        return 0
-    fi
-
-    mkdir -p "${XDG_RUNTIME_DIR:-/tmp/runtime-ros}" 2>/dev/null
-    chmod 700 "${XDG_RUNTIME_DIR:-/tmp/runtime-ros}" 2>/dev/null
-
-    log "starting Xvfb on $VNC_DISPLAY (${VNC_GEOMETRY}x${VNC_DEPTH})"
-    Xvfb "$VNC_DISPLAY" -screen 0 "${VNC_GEOMETRY}x${VNC_DEPTH}" \
-         -nolisten tcp >>"$LOG" 2>&1 &
-
-    # Wait for the server to accept connections instead of sleeping blind.
+    # Wait for it to accept connections rather than sleeping blind.
     for _ in $(seq 1 40); do
         xdpyinfo -display "$VNC_DISPLAY" >/dev/null 2>&1 && break
         sleep 0.25
     done
     if ! xdpyinfo -display "$VNC_DISPLAY" >/dev/null 2>&1; then
         log "ERROR: Xvfb did not come up. See $LOG"
-        return 1
+        exit 0
     fi
 
-    log "starting openbox window manager"
+    log "starting openbox"
     openbox >>"$LOG" 2>&1 &
+fi
 
-    # x11vnc binds 0.0.0.0 because Docker port publishing cannot reach a
-    # service bound to the container's loopback. Exposure is still limited:
-    # the dev container forwards these ports to the HOST's localhost only.
-    local pw_args=(-nopw)
+# x11vnc binds 0.0.0.0 because Docker port publishing cannot reach a service on
+# the container's loopback. Exposure is still limited: compose publishes these
+# to 127.0.0.1 on the host only.
+if ! pgrep -f "x11vnc .*-rfbport $VNC_PORT" >/dev/null 2>&1; then
+    pw_args=(-nopw)
     if [ -n "${DRONE_VNC_PASSWORD:-}" ]; then
         mkdir -p "$HOME/.vnc"
         x11vnc -storepasswd "$DRONE_VNC_PASSWORD" "$HOME/.vnc/passwd" >>"$LOG" 2>&1
         pw_args=(-rfbauth "$HOME/.vnc/passwd")
         log "VNC password auth enabled"
     fi
-
     log "starting x11vnc on :$VNC_PORT"
     x11vnc -display "$VNC_DISPLAY" -forever -shared -rfbport "$VNC_PORT" \
            -noxdamage "${pw_args[@]}" >>"$LOG" 2>&1 &
+fi
 
+if ! pgrep -f "websockify.*$NOVNC_PORT" >/dev/null 2>&1; then
     log "starting noVNC on :$NOVNC_PORT"
-    websockify --web=/usr/share/novnc "$NOVNC_PORT" "localhost:$VNC_PORT" \
-        >>"$LOG" 2>&1 &
+    websockify --web=/usr/share/novnc "$NOVNC_PORT" "localhost:$VNC_PORT" >>"$LOG" 2>&1 &
+fi
 
-    return 0
-}
+# Confirm something is actually listening before claiming success. The old
+# version reported a URL it had not verified, which is how a dead port got
+# advertised to people as if it were working.
+READY=0
+for _ in $(seq 1 40); do
+    if (exec 3<>/dev/tcp/127.0.0.1/"$NOVNC_PORT") 2>/dev/null; then READY=1; break; fi
+    sleep 0.25
+done
 
-# --- decide ------------------------------------------------------------------
-CHOSEN=""
-case "$MODE" in
-    native)
-        if host_display_works; then
-            CHOSEN="native"
-        else
-            log "DRONE_DISPLAY_MODE=native but DISPLAY='${DISPLAY:-unset}' is not reachable."
-            log "Falling back to the built-in desktop so you are not left with no GUI."
-            start_vnc_desktop && CHOSEN="vnc"
-        fi
-        ;;
-    vnc)
-        start_vnc_desktop && CHOSEN="vnc"
-        ;;
-    auto|*)
-        if host_display_works; then
-            CHOSEN="native"
-        else
-            start_vnc_desktop && CHOSEN="vnc"
-        fi
-        ;;
-esac
-
-# --- publish the result to every future shell --------------------------------
 {
     echo "# Generated by start-display.sh. Do not edit."
+    echo "export DISPLAY=$VNC_DISPLAY"
     echo "export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/tmp/runtime-ros}"
     echo "export QT_X11_NO_MITSHM=1"
-    # Gazebo and rviz are Qt apps; xcb keeps them on X11 (incl. XWayland),
-    # which is the only transport that works uniformly across our hosts.
     echo "export QT_QPA_PLATFORM=xcb"
-    if [ "$CHOSEN" = "native" ]; then
-        echo "export DISPLAY=$DISPLAY"
-        echo "export DRONE_DISPLAY_ACTIVE=native"
-    else
-        echo "export DISPLAY=$VNC_DISPLAY"
-        echo "export DRONE_DISPLAY_ACTIVE=vnc"
-        echo "export DRONE_NOVNC_URL=http://localhost:${NOVNC_PORT}/vnc.html?autoconnect=1&resize=remote"
-    fi
+    echo "export DRONE_NOVNC_URL=http://localhost:${HOST_PORT}/vnc.html?autoconnect=1&resize=remote"
 } > "$ENV_FILE"
 
-if [ "$CHOSEN" = "native" ]; then
-    log "MODE: native  ->  drawing on host X server at DISPLAY=$DISPLAY"
+if [ "$READY" -eq 1 ]; then
+    log "desktop is up  ->  http://localhost:${HOST_PORT}"
 else
-    log "MODE: vnc     ->  open http://localhost:${NOVNC_PORT}/vnc.html?autoconnect=1&resize=remote"
+    log "WARNING: nothing is listening on ${NOVNC_PORT} inside the container. See $LOG"
 fi
 
 exit 0

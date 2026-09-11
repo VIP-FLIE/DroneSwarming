@@ -1,12 +1,15 @@
 # =============================================================================
-# Base service. Shared by ALL three dev container configurations.
+# The one and only service definition.
 #
-# The per-platform configs (linux-x11/, windows-wslg/) layer a second compose
-# file on top of this one. Everything common lives here exactly once, so the
-# platform files stay short enough to actually read.
+# There used to be three dev container configurations layering compose
+# overrides on top of this (native X11 for Linux, WSLg for Windows, browser for
+# everyone else). They are gone. The GUI now always goes to the browser at
+# localhost:6080, on every OS, and VirtualGL keeps it GPU-accelerated where a
+# GPU exists. That removed the config picker, the per-distro X11 access-control
+# handling, the WSLg mount fragility, and a failure mode where the forwarded
+# 6080 port was shown in VS Code with nothing listening behind it.
 #
-# Values below come from .devcontainer/.env when it exists. Copy .env.example
-# to .env, or run ./scripts/doctor.sh which writes one for you.
+# Values below come from .devcontainer/.env when it exists. It is optional.
 # =============================================================================
 name: drone-vip
 
@@ -32,9 +35,12 @@ services:
     environment:
       NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-}
       NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-}
-      # auto | native | vnc  (see scripts/start-display.sh)
-      DRONE_DISPLAY_MODE: ${DRONE_DISPLAY_MODE:-auto}
       DRONE_VNC_GEOMETRY: ${DRONE_VNC_GEOMETRY:-1600x900}
+      # The container listens on 6080 internally no matter what. This is the
+      # HOST-side port it got published on, passed in purely so the startup
+      # message can print a URL that actually works when someone has remapped
+      # it in .env.
+      DRONE_NOVNC_HOST_PORT: ${DRONE_NOVNC_PORT:-6080}
       XDG_RUNTIME_DIR: /tmp/runtime-ros
       QT_X11_NO_MITSHM: "1"
       QT_QPA_PLATFORM: xcb
@@ -66,18 +72,48 @@ services:
       # Survives container rebuilds, so a rebuild is minutes not half an hour.
       - ccache:/home/ros/.cache/ccache
 
-    # Publish the browser-GUI ports explicitly rather than relying only on
-    # devcontainer.json's forwardPorts. forwardPorts is a VS Code feature; the
-    # devcontainer CLI and other editors do not implement it, and without this
-    # the browser desktop would be unreachable for them. Bound to 127.0.0.1 on
-    # purpose -- the VNC desktop has no password by default and must not be
-    # exposed to the network you are sitting on.
+    # Publishing here is the ONE mechanism that exposes the browser desktop.
+    #
+    # devcontainer.json deliberately does NOT also list these in forwardPorts.
+    # Having both is a real bug and we shipped it once: VS Code would bind the
+    # host port for its own forward, compose would then fail to bind the same
+    # port, and you would get either a container that refuses to start with
+    # "address already in use", or a Ports tab listing ports that nothing was
+    # actually serving. Compose publishing is used rather than forwardPorts
+    # because it also works for the devcontainer CLI and for editors other
+    # than VS Code, which do not implement forwardPorts at all.
+    #
+    # Bound to 127.0.0.1 on purpose: the desktop has no password by default and
+    # must not be reachable from the network you happen to be sitting on.
+    #
+    # If something else on your machine already owns 6080, set DRONE_NOVNC_PORT
+    # in .devcontainer/.env rather than editing this file.
     ports:
       - "127.0.0.1:${DRONE_NOVNC_PORT:-6080}:6080"
       - "127.0.0.1:${DRONE_VNC_PORT:-5901}:5901"
 
-    # Keeps the container alive for VS Code to attach to.
-    command: sleep infinity
+    # Starts the browser desktop, then keeps the container alive.
+    #
+    # This is the container's own command rather than a devcontainer
+    # postStartCommand hook, because hooks can silently fail to run and the
+    # symptom when that happens is 6080 forwarded with nothing behind it.
+    #
+    # It prefers the copy in the bind-mounted repo over the one baked into the
+    # image, so editing these scripts takes effect on the next container start
+    # with NO image rebuild. The /opt fallback covers running the image
+    # standalone, and the bare `sleep infinity` at the end guarantees the
+    # container still comes up even if both are missing, so you always have a
+    # shell to debug from.
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        for entry in /workspaces/DroneSwarming/.devcontainer/scripts/container-entry.sh \
+                     /opt/drone-vip/scripts/container-entry.sh; do
+            [ -r "$$entry" ] && exec /bin/bash "$$entry"
+        done
+        echo "[entry] no container-entry.sh found, GUI not started" >&2
+        exec sleep infinity
     init: true
 
 volumes:

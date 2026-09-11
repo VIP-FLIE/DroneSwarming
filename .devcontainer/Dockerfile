@@ -118,6 +118,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # makes this work on machines with no usable GPU (every Mac, and any Windows
 # box without an NVIDIA card).
 # ---------------------------------------------------------------------------
+ARG VIRTUALGL_VERSION=3.1.1
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
       xvfb x11vnc novnc websockify openbox xterm \
       x11-utils x11-xserver-utils xauth dbus-x11 \
@@ -125,6 +127,77 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libxcb-cursor0 libxkbcommon-x11-0 \
     && rm -rf /var/lib/apt/lists/* \
  && ln -sf /usr/share/novnc/vnc.html /usr/share/novnc/index.html
+
+# ---------------------------------------------------------------------------
+# VirtualGL. This is what makes the browser desktop hardware accelerated.
+#
+# Xvfb on its own only ever gives you Mesa llvmpipe, even when a GPU is passed
+# into the container: GLX inside a virtual framebuffer has no path to the card.
+# VirtualGL intercepts GLX calls, renders them on the GPU through EGL, and
+# hands the result back to the X server.
+#
+# Measured on an RTX 3070, gz sim with shapes.sdf:
+#     plain Xvfb          llvmpipe          real-time factor 0.81
+#     vglrun -d egl       RTX 3070          real-time factor 1.00
+#
+# The reason this can be applied unconditionally is that on a machine with NO
+# usable GPU (every Mac, any laptop without one) `vglrun -d egl` falls back to
+# llvmpipe and exits 0. So there is one code path, not two, and nothing to
+# detect or configure.
+# ---------------------------------------------------------------------------
+RUN ARCH="$(dpkg --print-architecture)" \
+ && curl -sfL -o /tmp/virtualgl.deb \
+      "https://github.com/VirtualGL/virtualgl/releases/download/${VIRTUALGL_VERSION}/virtualgl_${VIRTUALGL_VERSION}_${ARCH}.deb" \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends /tmp/virtualgl.deb \
+ && rm -f /tmp/virtualgl.deb \
+ && rm -rf /var/lib/apt/lists/*
+
+# Wrappers so GUI programs pick up GPU acceleration without anyone having to
+# remember to type `vglrun`. PATH puts /usr/local/bin ahead of /usr/bin, and
+# the wrappers exec the ABSOLUTE path of the real binary so they cannot
+# recurse into themselves. Set DRONE_VGL=0 to bypass.
+RUN for prog in gz rviz2; do \
+      printf '%s\n' \
+        '#!/usr/bin/env bash' \
+        "REAL=/usr/bin/${prog}" \
+        'if [ "${DRONE_VGL:-1}" = "1" ] && command -v vglrun >/dev/null 2>&1; then' \
+        '    exec vglrun -d egl "$REAL" "$@"' \
+        'fi' \
+        'exec "$REAL" "$@"' \
+        > "/usr/local/bin/${prog}"; \
+      chmod +x "/usr/local/bin/${prog}"; \
+    done
+
+# ---------------------------------------------------------------------------
+# Wrap ROS's vendored gz entry point as well.
+#
+# PATH ordering alone is not good enough here, and this bit the project for
+# real. ROS 2 ships its OWN gz-tools at /opt/ros/jazzy/opt/gz_tools_vendor/bin,
+# and `source /opt/ros/jazzy/setup.bash` prepends that directory. Every script
+# that sources ROS (smoke-test.sh, PX4 tooling, anything a student writes) puts
+# ROS's gz back in front of /usr/local/bin and silently drops VirtualGL, so you
+# lose the GPU with nothing reporting an error.
+#
+# Wrapping BOTH entry points makes acceleration independent of PATH order. The
+# original ruby script is moved aside to gz.real and still does the actual work.
+# ---------------------------------------------------------------------------
+RUN ROS_GZ=/opt/ros/jazzy/opt/gz_tools_vendor/bin/gz; \
+    if [ -f "$ROS_GZ" ]; then \
+      sudo mv "$ROS_GZ" "${ROS_GZ}.real"; \
+      printf '%s\n' \
+        '#!/usr/bin/env bash' \
+        "REAL=${ROS_GZ}.real" \
+        'if [ "${DRONE_VGL:-1}" = "1" ] && command -v vglrun >/dev/null 2>&1; then' \
+        '    exec vglrun -d egl "$REAL" "$@"' \
+        'fi' \
+        'exec "$REAL" "$@"' \
+        | sudo tee "$ROS_GZ" >/dev/null; \
+      sudo chmod +x "$ROS_GZ"; \
+      echo "wrapped ROS vendored gz"; \
+    else \
+      echo "no ROS vendored gz found, nothing to wrap"; \
+    fi
 
 # ---------------------------------------------------------------------------
 # 5. Micro XRCE-DDS Agent (the PX4 <-> ROS 2 bridge)
@@ -233,12 +306,31 @@ ENV BUILT_XRCE_AGENT_VERSION=${XRCE_AGENT_VERSION}
 # 9. Display + shell setup
 # ---------------------------------------------------------------------------
 COPY --chown=${USERNAME}:${USERNAME} scripts/ /opt/drone-vip/scripts/
-RUN sudo chmod +x /opt/drone-vip/scripts/*.sh
+RUN sudo chmod +x /opt/drone-vip/scripts/*.sh /opt/drone-vip/scripts/drone-gui /opt/drone-vip/scripts/drone-sim /opt/drone-vip/scripts/drone-gcs \
+ && sudo ln -sf /opt/drone-vip/scripts/drone-gui /usr/local/bin/drone-gui \
+ && sudo ln -sf /opt/drone-vip/scripts/drone-sim /usr/local/bin/drone-sim \
+ && sudo ln -sf /opt/drone-vip/scripts/drone-gcs /usr/local/bin/drone-gcs
 
 # Qt/X scratch dir. XDG_RUNTIME_DIR points here.
 RUN mkdir -p /tmp/runtime-ros && chmod 0700 /tmp/runtime-ros
 
+# The base image's entrypoint sources ROS for EVERY process in the container,
+# and that prepends ROS's vendored gz-tools directory to PATH, shadowing the
+# VirtualGL wrappers in /usr/local/bin. Patching the entrypoint is what makes
+# the wrappers win in non-interactive shells too. Doing it only in ~/.bashrc is
+# not enough: Ubuntu's .bashrc returns immediately for non-interactive shells,
+# so anything run as `bash -lc` (postCreateCommand, docker run, scripts) would
+# silently skip it and lose GPU acceleration.
+RUN sudo sed -i 's|^exec "\$@"|export PATH=/usr/local/bin:$PATH\nexec "$@"|' /ros_entrypoint.sh \
+ && grep -n 'usr/local/bin' /ros_entrypoint.sh
+
+# NOTE the PATH line below. ROS 2's setup.bash prepends its own vendored
+# gz-tools directory to PATH, which can land AHEAD of /usr/local/bin and shadow
+# the VirtualGL wrappers, silently costing you GPU acceleration. Re-prepending
+# /usr/local/bin AFTER sourcing ROS makes the wrappers win deterministically
+# rather than by luck of ordering.
 RUN echo 'source /opt/ros/jazzy/setup.bash' >> ~/.bashrc \
+ && echo 'export PATH=/usr/local/bin:$PATH' >> ~/.bashrc \
  && echo '[ -f ~/ros2_ws/install/setup.bash ] && source ~/ros2_ws/install/setup.bash' >> ~/.bashrc \
  && printf '%s\n' \
       '# Source your own colcon overlay. Globbed because the mount path is' \

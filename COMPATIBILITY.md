@@ -1,0 +1,88 @@
+# Compatibility
+
+What runs where. Setup is in [docs/SETUP.md](docs/SETUP.md).
+
+**Status meanings**
+
+| | |
+|---|---|
+| Verified | Built and run on that setup, `./smoke-test.sh` passed |
+| Untested | Should work, nobody has run it yet. Please test and open an Issue |
+| No | Does not work |
+
+## Operating systems
+
+You need Docker and VS Code. Nothing else, on any OS.
+
+| Host OS | Arch | Image arch | Status |
+|---|---|---|---|
+| Ubuntu 24.04 | x86_64 | amd64 | Verified |
+| Pop!_OS 24.04 | x86_64 | amd64 | Verified |
+| Other Linux (Debian, Fedora, Arch) | x86_64 | amd64 | Untested. Only needs Docker, the container supplies Ubuntu 24.04 |
+| Linux, headless or over SSH | x86_64 | amd64 | Verified |
+| Linux | arm64 | arm64 | Untested |
+| Windows 11 | x86_64 | amd64 | Untested |
+| Windows 10, build 19041+ | x86_64 | amd64 | Untested. Same path as Windows 11 |
+| Windows 10, older than 19041 | x86_64 | n/a | No. Docker Desktop needs WSL2 |
+| Windows on ARM | arm64 | arm64 | Untested. Docker Desktop ARM support is preview |
+| macOS, Apple Silicon | arm64 | arm64 | Untested. Native arm64, not emulated |
+| macOS, Intel | x86_64 | amd64 | Untested |
+
+Your host distro does not matter. ROS 2 Jazzy, Gazebo Harmonic and PX4 all live
+in the container on Ubuntu 24.04.
+
+Windows 10 and 11 are the same path now. An earlier version of this setup used
+WSLg, which is Windows 11 only. It no longer does.
+
+## GPU
+
+The GUI is served to your browser and [VirtualGL](https://virtualgl.org)
+renders it on the GPU when there is one.
+
+| GPU | Needs | Rendering | Status |
+|---|---|---|---|
+| NVIDIA, Linux | [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) | Hardware | Verified on RTX 3070 |
+| NVIDIA, Windows | Recent Game Ready or Studio driver, GPU enabled in Docker Desktop | Hardware | Untested |
+| NVIDIA, no Container Toolkit | | Software | Verified |
+| AMD | | Software | `/dev/dri` is not passed into the container |
+| Intel integrated | | Software | Same |
+| Apple Silicon or Intel Mac | | Software | macOS cannot pass a GPU to Docker at all |
+| None | | Software | Verified |
+
+Run `./smoke-test.sh` and read section 5. It prints the renderer it actually
+got. `llvmpipe` means software.
+
+## What software rendering costs
+
+Measured in-container:
+
+| | Software | NVIDIA GPU |
+|---|---|---|
+| Flight dynamics | identical | identical |
+| RTF, 1 vehicle, GUI open | 0.99 | 0.99 |
+| Gazebo GUI framerate | low | normal |
+| Camera at 30 Hz configured | 11.5 Hz | 28.5 Hz |
+
+Headless multi-vehicle does not render, so rendering is irrelevant to it:
+8 vehicles held RTF 0.999, including when limited to 4 CPU cores.
+
+PX4 runs in lockstep, so physics does not change with your hardware. Cameras
+are the exception. Anything vision-based needs a GPU. See
+[docs/SIMULATION-FIDELITY.md](docs/SIMULATION-FIDELITY.md).
+
+## Requirements
+
+| | |
+|---|---|
+| Disk | 15 GB |
+| RAM | 8 GB minimum, 16 GB comfortable |
+| First build | 20 to 40 minutes, once |
+
+On macOS and Windows, set Docker Desktop to 8 GB or more under
+Settings > Resources. Too little RAM looks like a hung build.
+
+## Adding a row
+
+If your setup is Untested, run `./smoke-test.sh` and open an Issue with the
+output and your OS, arch and GPU. That is the most useful thing you can
+contribute right now.

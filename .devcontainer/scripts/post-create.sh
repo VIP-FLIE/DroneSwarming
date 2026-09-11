@@ -44,11 +44,8 @@ if bash "$(dirname "$0")/build-workspace.sh"; then
     echo "=============================================="
     echo " Setup complete."
     echo
-    if [ "${DRONE_DISPLAY_ACTIVE:-}" = "native" ]; then
-        echo " GUI: drawing on your host display."
-    else
-        echo " GUI: open http://localhost:6080 in your browser."
-    fi
+    echo " GUI: open http://localhost:6080 in your browser."
+    echo "      (VS Code usually offers to forward it; the Ports tab has it too)"
     echo " Verify everything with:  ./smoke-test.sh"
     echo "=============================================="
 else

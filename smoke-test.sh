@@ -159,17 +159,35 @@ else
     # never starts ("INFO [init] Standalone PX4 launch, waiting for Gazebo").
     # Leaving it unset is what makes PX4 launch Gazebo itself.
     : > /tmp/sitl.log
+
+    # A ground control station link. PX4's x500 airframe arms its datalink-loss
+    # failsafe (NAV_DLL_ACT 2), so without a GCS in sight it refuses to arm and
+    # the flight test below would fail for a reason that is not a real fault.
+    # We supply the link rather than disabling the failsafe. See
+    # docs/SIMULATION-FIDELITY.md for why that distinction matters.
+    GCS_PID=""
+    if command -v drone-gcs >/dev/null 2>&1; then
+        drone-gcs > /tmp/smoke-gcs.log 2>&1 &
+        GCS_PID=$!
+    fi
+
+    # PX4 gets a FIFO as stdin instead of /dev/null so we can actually command
+    # a takeoff. /dev/null would leave us only able to prove PX4 starts, which
+    # is what this test used to do and is a much weaker claim than "it flies".
+    # A background holder keeps the write end open so PX4 does not see EOF.
+    PXH_FIFO=/tmp/smoke-pxh
+    rm -f "$PXH_FIFO"; mkfifo "$PXH_FIFO"
+    tail -f /dev/null > "$PXH_FIFO" 2>/dev/null &
+    FIFO_HOLDER=$!
+
     if command -v setsid >/dev/null; then
-        # </dev/null matters: PX4 drops into its interactive `pxh>` shell and
-        # redraws that prompt forever when stdin is a tty. Left attached, a
-        # 3 minute smoke test writes a multi-hundred-megabyte log file.
         setsid timeout "$SITL_BUDGET" env HEADLESS=1 \
-            make px4_sitl gz_x500 </dev/null > /tmp/sitl.log 2>&1 &
+            make px4_sitl gz_x500 < "$PXH_FIFO" > /tmp/sitl.log 2>&1 &
         SITL_PID=$!
         SITL_GROUP=1
     else
         timeout "$SITL_BUDGET" env HEADLESS=1 \
-            make px4_sitl gz_x500 </dev/null > /tmp/sitl.log 2>&1 &
+            make px4_sitl gz_x500 < "$PXH_FIFO" > /tmp/sitl.log 2>&1 &
         SITL_PID=$!
         SITL_GROUP=0
     fi
@@ -194,6 +212,36 @@ else
 
     if [ "$READY" -eq 1 ]; then
         ok "PX4 SITL reached ready state (${SITL_ELAPSED}s)"
+
+        # The claim that matters: can it actually arm and leave the ground?
+        # "PX4 started" was passing happily while every arming attempt was
+        # being denied, which is how a broken setup looked healthy here.
+        if [ -n "$GCS_PID" ]; then
+            FLEW=0
+            # The EKF needs a few seconds of settled sensor data before the
+            # preflight checks will pass, so retry rather than judging once.
+            for _ in $(seq 1 12); do
+                echo "commander takeoff" > "$PXH_FIFO" 2>/dev/null
+                sleep 5
+                if tr '\r' '\n' < /tmp/sitl.log | grep -q "Takeoff detected"; then
+                    FLEW=1; break
+                fi
+            done
+            if [ "$FLEW" -eq 1 ]; then
+                ok "vehicle armed and took off"
+            else
+                no "vehicle never left the ground"
+                if tr '\r' '\n' < /tmp/sitl.log | grep -q "ground control station"; then
+                    echo "        PX4 is refusing to arm because it sees no GCS link."
+                    echo "        Run drone-gcs. Do NOT set NAV_DLL_ACT 0, that deletes"
+                    echo "        the datalink-loss failsafe instead of supplying the link."
+                fi
+                tr '\r' '\n' < /tmp/sitl.log | grep -E "Arming denied|Preflight Fail" \
+                    | sort -u | tail -4 | sed 's/^/        /'
+            fi
+        else
+            skip "drone-gcs not found, cannot test arming"
+        fi
     else
         if [ "$DIED" -eq 1 ]; then
             no "PX4 SITL exited after ${SITL_ELAPSED}s without becoming ready (full log: /tmp/sitl.log)"
@@ -216,69 +264,75 @@ else
         kill -KILL "$SITL_PID" 2>/dev/null
     fi
     wait "$SITL_PID" 2>/dev/null
+    [ -n "$GCS_PID" ] && kill "$GCS_PID" 2>/dev/null
+    [ -n "${FIFO_HOLDER:-}" ] && kill "$FIFO_HOLDER" 2>/dev/null
+    rm -f "$PXH_FIFO"
 fi
 
 # ---------------------------------------------------------------------------
 SECTION="display check"
 echo "=== 5. GUI display path ==="
-# The whole point of this project's container setup is that a GUI reaches you
-# on any OS. This section reports WHICH transport is live and proves it works,
-# so "Gazebo opens no window" is a diagnosis instead of a mystery.
+# There is one display path and every machine uses it: an X server inside the
+# container, published to your browser on 6080. This section proves it is
+# actually up, because the failure that used to bite people was a forwarded
+# port with nothing listening behind it.
 
 [ -f /tmp/drone-display.env ] && source /tmp/drone-display.env
-
-MODE="${DRONE_DISPLAY_ACTIVE:-unknown}"
-case "$MODE" in
-    native) echo "  info  mode: native (drawing on the host X server)" ;;
-    vnc)    echo "  info  mode: vnc (browser desktop)" ;;
-    *)      echo "  info  mode: unknown - start-display.sh may not have run" ;;
-esac
 
 if [ -z "${DISPLAY:-}" ]; then
     no "DISPLAY is not set"
 elif timeout 10 xdpyinfo -display "$DISPLAY" >/dev/null 2>&1; then
     RES=$(xdpyinfo -display "$DISPLAY" 2>/dev/null | awk '/dimensions:/{print $2; exit}')
-    ok "X server reachable on DISPLAY=$DISPLAY (${RES:-unknown})"
+    ok "X server up on DISPLAY=$DISPLAY (${RES:-unknown})"
 else
     no "cannot reach an X server on DISPLAY=$DISPLAY"
     echo "        Try:  bash /opt/drone-vip/scripts/start-display.sh"
     echo "        Log:  /tmp/drone-display.log"
 fi
 
-# Which renderer are we actually getting? This is the single most useful number
-# for "why is it slow" questions, and it is invisible unless you ask.
-if command -v glxinfo >/dev/null 2>&1 && [ -n "${DISPLAY:-}" ]; then
-    RENDERER=$(timeout 20 glxinfo -B 2>/dev/null | sed -n 's/^OpenGL renderer string: //p')
-    GLVER=$(timeout 20 glxinfo -B 2>/dev/null | sed -n 's/^OpenGL version string: //p' | cut -d' ' -f1)
-    if [ -n "$RENDERER" ]; then
-        ok "OpenGL renderer: $RENDERER"
-        case "$RENDERER" in
-            *llvmpipe*|*softpipe*|*swrast*)
-                echo "        Software rendering. Physics still runs at full speed;"
-                echo "        only GUI framerate is affected. Expected on macOS and"
-                echo "        on any machine without a GPU passed into the container." ;;
-            *)
-                echo "        Hardware accelerated." ;;
-        esac
-        # ogre2, Gazebo's render engine, requires OpenGL 3.3 or newer.
-        if [ -n "$GLVER" ]; then
-            if awk -v v="$GLVER" 'BEGIN{split(v,a,"."); exit !(a[1]>3 || (a[1]==3 && a[2]>=3))}'; then
-                ok "OpenGL $GLVER (Gazebo ogre2 needs 3.3+)"
-            else
-                no "OpenGL $GLVER is below the 3.3 that Gazebo's ogre2 requires"
-            fi
-        fi
-    else
-        skip "could not query the GL renderer"
-    fi
+NOVNC_PORT=6080                                # inside the container
+HOST_PORT="${DRONE_NOVNC_HOST_PORT:-6080}"     # what it maps to on your machine
+if timeout 10 bash -c "exec 3<>/dev/tcp/127.0.0.1/$NOVNC_PORT" 2>/dev/null; then
+    ok "noVNC is serving  ->  http://localhost:$HOST_PORT"
+else
+    no "nothing is listening on $NOVNC_PORT (see /tmp/drone-display.log)"
+    echo "        The browser GUI will not load until this is fixed."
 fi
 
-if [ "$MODE" = "vnc" ]; then
-    # Prove the browser really has something to connect to.
-    if timeout 10 bash -c 'exec 3<>/dev/tcp/127.0.0.1/6080' 2>/dev/null; then
-        ok "noVNC is listening on 6080  ->  http://localhost:6080"
+# The renderer that MATTERS is the one seen through vglrun, because the gz and
+# rviz2 wrappers on PATH route through it. Plain glxinfo always says llvmpipe
+# inside a virtual framebuffer, even on a machine with a perfectly good GPU,
+# so reporting that number alone would be misleading.
+# Verify the wrapper actually shadows ROS's vendored gz. If ROS wins, Gazebo
+# silently runs without VirtualGL and you lose the GPU with no error anywhere.
+# Both /usr/local/bin/gz and ROS's vendored gz are wrapped, so whichever one
+# PATH resolves to should route through VirtualGL. Check the file, not the path.
+GZ_RESOLVED=$(command -v gz 2>/dev/null)
+if [ -n "$GZ_RESOLVED" ] && grep -q 'vglrun' "$GZ_RESOLVED" 2>/dev/null; then
+    ok "gz routes through VirtualGL ($GZ_RESOLVED)"
+elif [ -n "$GZ_RESOLVED" ]; then
+    no "gz at $GZ_RESOLVED does NOT route through VirtualGL"
+    echo "        Gazebo would run without GPU acceleration. Rebuild the container."
+fi
+
+if command -v glxinfo >/dev/null 2>&1 && [ -n "${DISPLAY:-}" ]; then
+    if command -v vglrun >/dev/null 2>&1; then
+        RENDERER=$(timeout 25 vglrun -d egl glxinfo -B 2>/dev/null | sed -n 's/^OpenGL renderer string: //p')
     else
-        no "noVNC is NOT listening on 6080 (see /tmp/drone-display.log)"
+        RENDERER=$(timeout 20 glxinfo -B 2>/dev/null | sed -n 's/^OpenGL renderer string: //p')
+    fi
+    if [ -n "$RENDERER" ]; then
+        case "$RENDERER" in
+            *llvmpipe*|*softpipe*|*swrast*)
+                ok "renderer: $RENDERER"
+                echo "        Software rendering. Flight behavior is unaffected, physics is"
+                echo "        CPU work and PX4 runs lockstep. Cameras are the exception, see"
+                echo "        docs/SIMULATION-FIDELITY.md." ;;
+            *)
+                ok "renderer: $RENDERER (hardware accelerated)" ;;
+        esac
+    else
+        skip "could not query the GL renderer"
     fi
 fi
 

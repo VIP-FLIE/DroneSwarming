@@ -1,120 +1,128 @@
-# Getting your machine set up
+# Setup
 
-_If you get stuck anywhere in this doc, message me (Dan Mihovch) or open an Issue. If you hit a snag there is a solid chance somebody else will hit the same one, so it is genuinely worth writing down rather than suffering quietly._
+ROS 2 Jazzy, Gazebo Harmonic and PX4 run in a container. You install Docker and
+VS Code. Nothing else, on any OS.
 
-The whole idea here is that you should not have to install ROS, Gazebo, or PX4 on your laptop at all. All of that lives inside a container, and it is the same container everybody else on the team is running. So if it works on my machine it works on yours, and when something does break, at least we are all broken in the same place.
+Check [COMPATIBILITY.md](../COMPATIBILITY.md) for your machine first.
+Needs 15 GB disk and 8 GB RAM. The first build takes 20 to 40 minutes once.
 
-Two things to know going in. The first time you open the project it has to build the container image, and that takes somewhere in the 20 to 40 minute range because it is compiling PX4 from source. Kick it off and go do something else. Every time after that it opens in a few seconds. You will also want around 15 GB of free disk and at least 8 GB of RAM, 16 if you have it.
+## 1. Install
 
-## Step 1: Install Docker and VS Code:
-That is the entire dependency list. Docker, and VS Code with the Dev Containers extension. The details differ a bit per OS, so find yourself below.
+All platforms: [VS Code](https://code.visualstudio.com/) plus the
+[Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers).
 
-### Windows 11:
-Install [Docker Desktop](https://docs.docker.com/desktop/install/windows-install/) and leave the WSL 2 backend option checked when it asks. It is the default, and it is noticeably faster than the Hyper-V option for what we are doing. If the installer complains that WSL is missing, open PowerShell as Administrator, run `wsl --install`, reboot, and try the installer again. If it complains about virtualization instead, that one is a BIOS setting, usually called Intel VT-x or AMD-V or SVM depending on whose machine you have.
+**Windows.** [Docker Desktop](https://docs.docker.com/desktop/install/windows-install/),
+keep the WSL 2 backend checked.
+- Installer complains about WSL: run `wsl --install` in an Administrator
+  PowerShell, reboot, retry.
+- Installer complains about virtualization: enable Intel VT-x / AMD-V / SVM in
+  your BIOS.
+- NVIDIA card: recent Game Ready or Studio driver, then enable GPU support in
+  Docker Desktop under Settings > Resources. Do not install a Linux NVIDIA
+  driver inside WSL, it breaks it.
 
-Then install [VS Code](https://code.visualstudio.com/) and the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers), and that is you done. You do NOT need VcXsrv, Xming, or any other X server. If you have tried to run ROS on Windows before and remember fighting with one of those, you can forget it exists for this project.
+**macOS.** [Docker Desktop](https://docs.docker.com/desktop/install/mac-install/)
+for your chip. Set Settings > Resources > Memory to 8 GB or more. Too little
+RAM looks like a hung build. No GPU passthrough exists on macOS.
 
-If you have an Nvidia card, update to a recent Game Ready or Studio driver and turn on GPU support in Docker Desktop under Settings > Resources. One thing to avoid: do not install a Linux Nvidia driver inside WSL, that will actually break it. This is worth doing if you think you will touch cameras at any point, and [SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md) explains why it matters more than you would guess.
+**Linux.** [Docker Engine](https://docs.docker.com/engine/install/) plus the
+[post-install steps](https://docs.docker.com/engine/install/linux-postinstall/)
+so `docker` works without `sudo`. Log out and back in. NVIDIA card: install the
+[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
 
-### MacOS (Intel or Apple Silicon):
-Install [Docker Desktop](https://docs.docker.com/desktop/install/mac-install/), making sure you grab the build for your chip. Then open Docker Desktop, go to Settings > Resources, and give it at least 8 GB of memory. I am calling that out specifically because a starved Docker is far and away the most common reason a build looks like it has hung on a Mac, when really it is just crawling.
+You do not need XQuartz, VcXsrv, Xming, WSLg, or any X server.
 
-Then install [VS Code](https://code.visualstudio.com/) and the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers). You do NOT need XQuartz, which is the thing every other guide on the internet will tell you to install.
+## 2. Clone and check
 
-Two Mac specific notes. If you are on Apple Silicon, the image gets built natively for arm64, so you are not sitting under emulation and paying for it. And Macs cannot hand a GPU to Docker at all, which is a platform limitation rather than something we can configure around. That is fine for basically everything except cameras, and again, [SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md) has the details.
-
-### Linux:
-Install [Docker Engine](https://docs.docker.com/engine/install/), then actually do the [post-install steps](https://docs.docker.com/engine/install/linux-postinstall/) so you can run `docker` without `sudo`. You have to log out and back in for that to take effect, which is easy to forget and then wonder why nothing works. Then install [VS Code](https://code.visualstudio.com/) and the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers).
-
-If you have an Nvidia card, install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). That is the piece that lets Docker see your GPU, and you will want it if you are doing anything with cameras.
-
-## Step 2: Clone the repo and run the doctor:
 ```bash
 git clone https://github.com/<org>/DroneSwarming.git
 cd DroneSwarming
+./scripts/doctor.sh --write      # Linux and macOS
+.\scripts\doctor.ps1 -Write      # Windows PowerShell
 ```
 
-There is a script that looks at your machine and tells you which container config to open, so you do not have to reason about it yourself:
+The doctor checks Docker is healthy and enables your GPU if you have one. It is
+optional. If PowerShell blocks it, use
+`powershell -ExecutionPolicy Bypass -File .\scripts\doctor.ps1 -Write`.
 
-```bash
-./scripts/doctor.sh --write
+## 3. Open the container
+
+In VS Code: `F1`, then `Dev Containers: Reopen in Container`. There is one
+configuration, so there is nothing to choose.
+
+First open builds the image. It is compiling PX4, not hanging.
+
+To skip the build, put a published image in `.devcontainer/.env` before this
+step:
+
+```ini
+DRONE_IMAGE=ghcr.io/<org>/DroneSwarming-dev:jazzy
 ```
 
-On Windows use PowerShell:
-
-```powershell
-.\scripts\doctor.ps1 -Write
-```
-
-If PowerShell refuses to run it and complains about scripts being disabled, use `powershell -ExecutionPolicy Bypass -File .\scripts\doctor.ps1 -Write` instead.
-
-It will point you at one of three configs. 'Drone VIP - Universal (browser GUI)' is the default and works on anything, 'Drone VIP - Linux (native X11 + GPU)' is the faster option if you are on Linux with a desktop, and 'Drone VIP - Windows (WSLg native display)' is an optional faster path on Windows. If you skip the doctor entirely nothing bad happens, you just end up on the Universal one, which is the safe choice anyway.
-
-## Step 3: Open the container:
-Open the repo folder in VS Code, hit `F1`, and run 'Dev Containers: Reopen in Container'. Pick whichever config the doctor named.
-
-This is the 20 to 40 minute part. It is compiling PX4, it has not frozen, let it run. If the team has already published the prebuilt image, you can skip almost all of that by putting `DRONE_IMAGE=ghcr.io/<org>/DroneSwarming-dev:jazzy` into `.devcontainer/.env` before this step, and it will pull a finished image instead of building one.
-
-Once it finishes, check that the whole stack is actually working:
+Then verify:
 
 ```bash
 ./smoke-test.sh
 ```
 
-You want to see `Stack is good.` at the bottom. If something failed it will tell you which piece and what to do about it, so paste that output into an Issue rather than trying to decode it alone.
+You want `Stack is good.`
 
-## Step 4: Find your Gazebo window:
-This trips people up, because where the window shows up depends on which config you opened. On the Universal (browser GUI) config, the window is served to your browser, so go to <http://localhost:6080> and it is there. VS Code will usually offer to forward that port on its own, and if it does not, the Ports tab in VS Code will do it. On the Linux native or Windows WSLg configs it just opens on your actual desktop like a normal application.
+## 4. The GUI
 
-If you are not sure which one you ended up on, run `echo $DRONE_DISPLAY_ACTIVE` in the container terminal and it will say either `native` or `vnc`.
+The Gazebo window does not open on your desktop. The container runs its own
+desktop and serves it to <http://localhost:6080>. Same on every OS.
 
-## Step 5: Actually fly something:
-Open three terminals in VS Code with `Terminal > New Terminal`. You are already inside the container, so there is nothing to activate or source.
+VS Code usually forwards the port automatically; the Ports tab has it
+otherwise. If the page is blank, run `drone-gui` in the container. It reports
+each piece and restarts what is stopped.
 
-Terminal 1, the bridge between PX4 and ROS 2:
+VirtualGL renders on your GPU if you have one, so this is not a slow fallback.
 
-```bash
-MicroXRCEAgent udp4 -p 8888
-```
+## 5. Fly
 
-Terminal 2, the simulator itself:
-
-```bash
-cd ~/PX4-Autopilot
-make px4_sitl gz_x500
-```
-
-That drops you at a `pxh>` prompt and opens Gazebo.
-
-Terminal 3, your side of things:
+Four terminals, `Terminal > New Terminal`. You are already in the container.
 
 ```bash
-ros2 topic list | grep fmu
+MicroXRCEAgent udp4 -p 8888     # 1. PX4 to ROS 2 bridge
+drone-gcs                       # 2. ground control station link
+drone-sim                       # 3. simulator, gives you a pxh> prompt
+ros2 topic list | grep fmu      # 4. your side
 ```
 
-A long list of `/fmu/out/...` topics means everything is talking to everything else. If that list comes back empty, the agent in Terminal 1 is not connected, so start there.
-
-Then from the `pxh>` prompt in Terminal 2:
+Then at the `pxh>` prompt:
 
 ```
 pxh> commander takeoff
 pxh> commander land
 ```
 
-That is the whole loop. [QUICKSTART.md](../QUICKSTART.md) picks up from here and goes into writing your first node and what the topics actually mean.
+`drone-gcs` is required. PX4's x500 airframe arms its datalink-loss failsafe,
+so it will not arm without a GCS, same as a real aircraft. Without it you get
+`Arming denied: Resolve system health failures first`. Do not fix that with
+`param set NAV_DLL_ACT 0`, which deletes the failsafe instead of supplying the
+link. See [SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md).
 
-## When things go wrong:
-A few things that come up often enough to be worth listing:
+`drone-sim` wraps `make px4_sitl gz_x500`. Bare `gz sim` does not start the
+drone, it opens Gazebo's world chooser.
 
-- Gazebo's 3D view is just blank grey. This one looks broken but is not. PX4's default world is an untextured grey ground under a grey sky, and the camera starts far enough back that an X500 is only a few pixels. Scroll to zoom in and you will find it. If the Entity Tree panel on the right lists `x500_0`, the drone spawned and you are fine.
-- Nothing at localhost:6080. Check the Ports tab in VS Code first. If that looks right, run `bash /opt/drone-vip/scripts/start-display.sh` inside the container and watch what it says.
-- Gazebo is choppy. You are on software rendering, which is expected if there is no GPU in the picture. It does not affect how the drone actually flies. For anything heavy, run `HEADLESS=1 make px4_sitl gz_x500` and skip drawing entirely.
-- The build seems frozen, on Mac or Windows. Almost always Docker memory. Docker Desktop, Settings, Resources, 8 GB or more.
-- The build dies and your machine starts swapping. Too many parallel jobs for your RAM. Run `JOBS=2 bash .devcontainer/scripts/build-workspace.sh` instead.
-- `cannot open display` on Linux. That is X access control. Re-run `./scripts/doctor.sh --write` and then rebuild the container.
-- The container will not start and the error mentions nvidia. You have `DOCKER_RUNTIME=nvidia` sitting in `.devcontainer/.env` on a machine without the NVIDIA Container Toolkit. Delete that line.
-- Smoke test says the image is stale. Somebody changed a version pin, so run 'Dev Containers: Rebuild Container'.
+[QUICKSTART.md](../QUICKSTART.md) covers writing your first node.
 
-Still stuck after that, open an Issue with the output of `./smoke-test.sh` in it. That output tells us almost everything we would otherwise have to ask you for.
+## Problems
 
-One last thing worth reading before you trust a result out of this, especially anything involving cameras or timing that has to work the same way on a real drone: [SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md). It lays out what the simulation gets right, what it does not, and the numbers behind both. If you want the reasoning behind how the container is built and every knob you can turn, that is in [.devcontainer/README.md](../.devcontainer/README.md).
+Run `./smoke-test.sh` first. It names the broken piece.
+
+| Symptom | Fix |
+|---|---|
+| `Arming denied: Resolve system health failures first` | Run `drone-gcs` |
+| Gazebo shows a chooser of demo worlds | You ran `gz sim`. Run `drone-sim` |
+| Blank grey 3D view | Normal. PX4's world is untextured grey, the camera starts far out. Scroll to zoom |
+| Nothing at localhost:6080 | `drone-gui` |
+| Container will not start, `address already in use` | A stale VS Code window holds port 6080. Reopen VS Code, or set `DRONE_NOVNC_PORT` in `.devcontainer/.env` |
+| Container will not start, mentions nvidia | Delete `DOCKER_RUNTIME=nvidia` from `.devcontainer/.env` |
+| Doctor says Docker did not answer | Docker Desktop is still starting. Wait, rerun |
+| Build looks frozen on Mac or Windows | Docker memory. Settings > Resources > 8 GB+ |
+| Build dies, machine swaps | `JOBS=2 bash .devcontainer/scripts/build-workspace.sh` |
+| Gazebo choppy | Check renderer in smoke test section 5. `llvmpipe` is software. Use `HEADLESS=1 make px4_sitl gz_x500` for heavy runs |
+| Smoke test says image is stale | `Dev Containers: Rebuild Container` |
+
+Still stuck: open an Issue with `./smoke-test.sh` output.

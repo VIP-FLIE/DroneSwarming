@@ -1,168 +1,89 @@
 # Running the simulator and writing your first node
 
-Everything here runs inside the dev container. Open a terminal in VS Code
-(`Terminal > New Terminal`) and you are already in it.
+Everything runs in the container. `Terminal > New Terminal` in VS Code puts you
+in it. Not set up yet: [docs/SETUP.md](docs/SETUP.md).
 
-## The three terminals
+## Start the stack
 
-PX4 SITL and ROS 2 do not talk to each other directly. The Micro XRCE-DDS
-Agent sits between them and translates PX4's internal messages into ROS 2
-topics. So you need three things running.
-
-**Terminal 1, the bridge:**
+Four terminals:
 
 ```bash
-MicroXRCEAgent udp4 -p 8888
+MicroXRCEAgent udp4 -p 8888     # 1. PX4 to ROS 2 bridge
+drone-gcs                       # 2. ground control station link
+drone-sim                       # 3. simulator, gives you a pxh> prompt
+ros2 topic list | grep fmu      # 4. your side
 ```
 
-Leave it running. It prints nothing useful until PX4 connects, then it logs a
-burst of `create_topic` lines. That burst is how you know the link came up.
+Watch it at <http://localhost:6080>. Terminal 4 printing nothing means the
+agent is not connected.
 
-**Terminal 2, the simulator:**
+`drone-gcs` is required. PX4's x500 airframe sets `NAV_DLL_ACT 2`, return on
+datalink loss, so it will not arm without a GCS, same as a real aircraft.
+Skipping it gives `Arming denied: Resolve system health failures first`. Do not
+fix that with `param set NAV_DLL_ACT 0`: that deletes the failsafe instead of
+supplying the link, and the vehicle stops matching the real one when telemetry
+drops. Run QGroundControl against udp 14550 if you prefer a real GCS. Killing
+`drone-gcs` mid-flight tests the failsafe.
 
-```bash
-cd ~/PX4-Autopilot
-make px4_sitl gz_x500
-```
+`drone-sim` wraps `make px4_sitl gz_x500`. Bare `gz sim` does not start the
+drone, it opens Gazebo's world chooser. For swarms use
+`HEADLESS=1 make px4_sitl gz_x500`.
 
-A Gazebo window opens with an X500 quadrotor on the ground, and the terminal
-drops into PX4's own shell, the `pxh>` prompt. First launch takes longer
-because Gazebo is loading model and world assets.
+## Fly it
 
-Where that window actually shows up depends on which container config you
-opened. On the Universal (browser GUI) one, which is the default and the only
-option on a Mac, it opens inside the container's own desktop, so you go to
-<http://localhost:6080> in your browser to see it. VS Code will usually offer
-to forward that port on its own, and the Ports tab will do it if it does not.
-On the Linux native X11 or Windows WSLg configs it just opens on your real
-desktop like any other application.
-
-If you are not sure which one you ended up on, run `echo $DRONE_DISPLAY_ACTIVE`
-and it will say `native` or `vnc`. Section 5 of `./smoke-test.sh` tells you the
-same thing with more detail.
-
-If the 3D view looks like a blank grey rectangle, it almost certainly has not
-broken. PX4's default world is an untextured grey ground under a grey sky, and
-the camera starts far enough back that an X500 is only a few pixels wide, so
-there is genuinely not much to look at until you scroll in. If you want to
-confirm something is actually there, look at the Entity Tree panel on the
-right. If `x500_0` is in that list, the drone spawned and you are fine.
-
-If the window is painfully slow, your machine is doing software rendering,
-which `./smoke-test.sh` will confirm (a renderer of `llvmpipe` means software).
-That is expected on a Mac, or anywhere there is no GPU handed to the container,
-and it does not change how the drone flies, only how smoothly you get to watch
-it. For anything heavy, skip drawing altogether:
-
-```bash
-HEADLESS=1 make px4_sitl gz_x500
-```
-
-That is also how you want to run multi drone swarm scenarios. Past a handful of
-vehicles you would much rather the CPU spend its time on physics than on
-rendering something nobody is watching.
-
-**Terminal 3, your side:**
-
-```bash
-ros2 topic list | grep fmu
-```
-
-You should see a long list of `/fmu/out/...` and `/fmu/in/...` topics. If that
-list is empty, the agent is not connected. Check Terminal 1.
-
-## Fly it before you write any code
-
-At the `pxh>` prompt in Terminal 2:
+At the `pxh>` prompt:
 
 ```
 pxh> commander takeoff
 pxh> commander land
+pxh> commander status                    # arming state, mode, failsafes
+pxh> commander mode posctl
+pxh> listener vehicle_local_position     # PX4's own view of a uORB message
 ```
 
-That is the whole loop. The drone climbs to its default takeoff altitude,
-hovers, and comes back down, and you can watch it in the Gazebo window. Other
-things worth trying from that prompt:
+Blank grey 3D view is normal: PX4's world is untextured and the camera starts
+far out. Scroll to zoom.
 
-```
-pxh> commander status          # arming state, current flight mode, failsafes
-pxh> listener vehicle_local_position   # raw uORB message, PX4's own view
-pxh> commander mode posctl     # switch flight mode
-```
+## Build and run your code
 
-`listener` at the `pxh>` prompt is PX4's internal message dumper. It is a
-useful sanity check because it works with no ROS 2 and no agent involved. If
-`pxh> listener vehicle_local_position` shows data and `ros2 topic echo` does
-not, the problem is the bridge and not the simulator.
-
-## Where your code goes, and why it matters
-
-| Path | What it is | Survives a container rebuild? |
-|---|---|---|
-| `~/PX4-Autopilot` | PX4 source, cloned by the Dockerfile | No |
-| `~/ros2_ws` | px4_msgs, built by build-workspace.sh | No |
-| `/workspaces/<your-repo>` | Your git repo, bind-mounted from your machine | **Yes** |
-
-The first two live inside the container image. Rebuild the container and they
-are recreated from scratch, so anything you write there is gone. Your repo is
-a bind mount, meaning it is the same directory on your laptop that you cloned.
-
-Write all of your code in the repo.
-
-## Build and run the starter package
-
-The `src/drone_vip` package in this repo has two nodes to start from.
+Write code in `/workspaces/DroneSwarming`, the repo bind-mounted from your
+laptop. `~/PX4-Autopilot` and `~/ros2_ws` are recreated on container rebuild.
 
 ```bash
-cd /workspaces/<your-repo>
+cd /workspaces/DroneSwarming
 colcon build --symlink-install
 source install/setup.bash
 ```
 
-New terminals source the overlay automatically. You only need that `source`
-line in the terminal where you just ran `colcon build`.
+New terminals source the overlay for you. `--symlink-install` means editing a
+Python node takes effect on the next `ros2 run`; rebuild after adding files or
+changing `setup.py`.
 
-`--symlink-install` symlinks Python files instead of copying them, so editing
-a node takes effect on the next `ros2 run` with no rebuild. You still need to
-rebuild after adding a new file or changing `setup.py`.
-
-**Node 1, read the drone's state:**
+`src/drone_vip` has two nodes:
 
 ```bash
-ros2 run drone_vip listener
-```
-
-Prints position, altitude, heading, arming state and flight mode once a
-second. Run `commander takeoff` in Terminal 2 and watch the numbers move.
-
-**Node 2, fly a square:**
-
-```bash
-ros2 run drone_vip fly
+ros2 run drone_vip listener      # position, altitude, heading, mode, 1 Hz
+ros2 run drone_vip fly           # arms, goes offboard, flies a square, lands
 ros2 run drone_vip fly --ros-args -p altitude:=8.0 -p side:=10.0
 ```
 
-Arms the drone, engages offboard mode, climbs, flies a square, and lands.
-Roughly 120 lines, and it is the skeleton every formation-flight behavior you
-write this semester will be built on.
+## QoS
 
-## The one gotcha that will cost you an afternoon
+PX4 publishes BEST_EFFORT with TRANSIENT_LOCAL durability. ROS 2 subscribers
+default to RELIABLE and VOLATILE. Incompatible, so your subscription is created
+without error, never matches, and the callback never fires. Nothing is logged.
 
-PX4 publishes its topics as **BEST_EFFORT** with **TRANSIENT_LOCAL**
-durability. ROS 2 subscribers default to **RELIABLE** with **VOLATILE**. Those
-are incompatible, so the subscription gets created without any error, never
-matches the publisher, and your callback never fires. There is no warning.
-
-`ros2 topic echo` has the same default, which is why this looks like a dead
-topic:
+`ros2 topic echo` does not have this problem on Jazzy, it negotiates QoS:
 
 ```bash
-ros2 topic echo /fmu/out/vehicle_local_position                          # silent
-ros2 topic echo /fmu/out/vehicle_local_position --qos-reliability best_effort   # works
+ros2 topic echo /fmu/out/vehicle_local_position     # works, no flags needed
 ```
 
-In your own nodes, import the profile from `drone_vip.px4_qos` and pass it to
-every publisher and subscriber that touches a `/fmu/` topic:
+So the topic looks healthy while your node gets nothing. Measured here: default
+echo gets data, a plain rclpy subscription with default QoS on the same topic
+gets zero callbacks.
+
+Use the shared profile on anything touching `/fmu/`:
 
 ```python
 from drone_vip.px4_qos import PX4_QOS
@@ -172,22 +93,19 @@ self.create_subscription(
     self.callback, PX4_QOS)
 ```
 
-## Offboard mode has a rule
+## Offboard mode
 
-PX4 refuses to enter offboard mode until it is already receiving a stream of
-setpoints, and it drops out of offboard if that stream stops for more than
-about half a second. So you publish `OffboardControlMode` on every timer tick,
-before the mode switch and after it, for as long as you want to stay in
-offboard. `takeoff_and_fly.py` does this at 10 Hz and sends 10 setpoints
-before requesting the mode change.
+PX4 will not enter offboard until it is already receiving setpoints, and drops
+out if the stream stops for more than about half a second. Publish
+`OffboardControlMode` every timer tick, before and after the mode switch.
+`takeoff_and_fly.py` does 10 Hz and sends 10 setpoints before switching.
 
-If your drone refuses to arm or immediately falls back to another mode, this
-is almost always why.
+If the drone refuses to arm or falls back to another mode, this is usually why.
 
 ## More than one drone
 
-Start the agent as usual, then launch instances by index. Start the first one
-and wait for Gazebo to come up before starting the second.
+One agent handles every instance. Launch the first, wait for Gazebo, then the
+next.
 
 ```bash
 cd ~/PX4-Autopilot
@@ -198,45 +116,37 @@ PX4_SYS_AUTOSTART=4001 PX4_GZ_MODEL_POSE="0,3" PX4_SIM_MODEL=gz_x500 \
   ./build/px4_sitl_default/bin/px4 -i 2
 ```
 
-`PX4_GZ_MODEL_POSE="0,3"` places the second drone 3 metres east so they do not
-spawn inside each other.
-
-Topic namespacing follows the instance index. Instance 0 publishes on bare
-`/fmu/...` to match how a real vehicle behaves. Every instance above 0 gets a
-`px4_<N>` prefix:
-
-```
-/px4_1/fmu/out/vehicle_local_position
-/px4_2/fmu/out/vehicle_local_position
-```
-
-Both starter nodes take a `px4_ns` parameter for this:
+`PX4_GZ_MODEL_POSE="0,3"` offsets the second 3 m east. Instance 0 publishes on
+bare `/fmu/...` like a real vehicle; higher instances get a `px4_<N>` prefix,
+so `/px4_1/fmu/out/vehicle_local_position`. Both nodes take `px4_ns`:
 
 ```bash
 ros2 run drone_vip listener --ros-args -p px4_ns:=px4_1
 ros2 run drone_vip fly --ros-args -p px4_ns:=px4_2 -p sys_id:=2
 ```
 
-One agent handles every instance. You do not start a second one.
+## Problems
 
-## When something is wrong
+Run `./smoke-test.sh` first.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `ros2 topic list` shows no `/fmu/` topics | Agent not running, or started after PX4 | Start `MicroXRCEAgent udp4 -p 8888`, then restart PX4 |
-| `ros2 topic echo` prints nothing, topic exists | QoS mismatch | Add `--qos-reliability best_effort` |
-| Node runs, callback never fires | QoS mismatch | Use `PX4_QOS` from `drone_vip.px4_qos` |
-| `INFO [init] Standalone PX4 launch, waiting for Gazebo` | `PX4_GZ_STANDALONE` is set in your shell | `unset PX4_GZ_STANDALONE` |
-| Gazebo window never opens | X11 forwarding | On the host: `xhost +local:docker`, then rebuild |
-| Gazebo opens but runs at 2 fps | Software rendering | Use `HEADLESS=1`, or switch to the `gpu` devcontainer config |
-| Offboard mode rejected | Setpoint stream not running yet | Publish setpoints before requesting the mode change |
-| Arms, then instantly disarms | A failsafe tripped | `pxh> commander status` names it |
-| `ros2 run drone_vip ...` package not found | Overlay not sourced | `source install/setup.bash`, or open a new terminal |
+| `Arming denied: Resolve system health failures first` | No GCS link | Run `drone-gcs`. Not `NAV_DLL_ACT 0` |
+| Gazebo shows demo worlds, no drone | You ran `gz sim` | `drone-sim` |
+| Nothing at localhost:6080 | Desktop not up | `drone-gui` |
+| No `/fmu/` topics | Agent not running, or started after PX4 | Start agent, restart PX4 |
+| Callback never fires but `ros2 topic echo` shows data | QoS mismatch | `PX4_QOS` |
+| `Standalone PX4 launch, waiting for Gazebo` | `PX4_GZ_STANDALONE` set | `unset PX4_GZ_STANDALONE` |
+| Gazebo at 2 fps | Software rendering | Smoke test section 5 names the renderer |
+| Offboard rejected | Setpoint stream not running | Publish setpoints before the mode change |
+| Arms then disarms | Failsafe tripped | `pxh> commander status` |
+| `ros2 run drone_vip` not found | Overlay not sourced | `source install/setup.bash` |
 
 ## Reference
 
 - [PX4 ROS 2 User Guide](https://docs.px4.io/v1.16/en/ros2/user_guide)
-- [PX4 ROS 2 Offboard Control Example](https://docs.px4.io/v1.16/en/ros2/offboard_control)
-- [Multi-Vehicle Simulation with ROS 2](https://docs.px4.io/main/en/ros2/multi_vehicle)
-- [uXRCE-DDS bridge internals](https://docs.px4.io/main/en/middleware/uxrce_dds)
-- [px4_msgs, release/1.16](https://github.com/PX4/px4_msgs/tree/release/1.16/msg)
+- [PX4 Offboard Control Example](https://docs.px4.io/v1.16/en/ros2/offboard_control)
+- [Multi-Vehicle Simulation](https://docs.px4.io/main/en/ros2/multi_vehicle)
+- [uXRCE-DDS bridge](https://docs.px4.io/main/en/middleware/uxrce_dds)
+- [px4_msgs release/1.16](https://github.com/PX4/px4_msgs/tree/release/1.16/msg)
+- [docs/SIMULATION-FIDELITY.md](docs/SIMULATION-FIDELITY.md)

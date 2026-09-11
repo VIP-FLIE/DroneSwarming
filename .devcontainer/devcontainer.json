@@ -1,34 +1,32 @@
 // =============================================================================
-// UD Drone VIP - DEFAULT configuration. Start here.
+// UD Drone VIP development container.
 //
-// Works on every supported host with NO host-side setup at all:
-//   Windows 11 (with or without an NVIDIA GPU), macOS Intel, macOS Apple
-//   Silicon, any Linux distro, and headless/SSH machines.
+// There is only one configuration, on purpose. It works the same way on
+// Windows, macOS (Intel and Apple Silicon), and Linux, with nothing to install
+// on the host beyond Docker and VS Code.
 //
-// The GUI is served BY THE CONTAINER over HTTP. After the container starts,
-// open http://localhost:6080 and the Gazebo/rviz windows are there.
-// No XQuartz, no VcXsrv, no WSLg, no X forwarding.
-//
-// Rendering is Mesa llvmpipe (software). That costs GUI framerate, but NOT
-// simulation accuracy: physics is CPU-bound and still runs at a real-time
-// factor of ~1.0 for the worlds this team uses.
-//
-// Want native speed? Use the "Linux (native X11)" or "Windows (WSLg)"
-// configuration instead. Run ./scripts/doctor.sh and it will tell you which
-// one your machine can support.
+// The Gazebo/rviz GUI is served by the container to your browser at
+// http://localhost:6080. VirtualGL renders through the GPU when the machine
+// has one, so this is not a slow fallback path, it is the fast path too.
 // =============================================================================
 {
-  "name": "Drone VIP - Universal (browser GUI)",
+  "name": "UD Drone VIP",
   "dockerComposeFile": ["compose.yaml"],
   "service": "dev",
   "workspaceFolder": "/workspaces/DroneSwarming",
   "overrideCommand": false,
   "remoteUser": "ros",
-  "forwardPorts": [6080, 5901],
+
+  // NO forwardPorts here on purpose. compose.yaml already publishes 6080 and
+  // 5901 to 127.0.0.1, and having VS Code forward them as well makes the two
+  // mechanisms fight over the same host port. "ignore" stops VS Code binding
+  // them a second time; the URL below still works because compose published it.
   "portsAttributes": {
-    "6080": { "label": "Simulation GUI (browser)", "onAutoForward": "notify" },
-    "5901": { "label": "Simulation GUI (VNC client)", "onAutoForward": "silent" }
+    "6080": { "label": "Simulation GUI", "onAutoForward": "ignore" },
+    "5901": { "label": "Simulation GUI (VNC client)", "onAutoForward": "ignore" }
   },
+  "otherPortsAttributes": { "onAutoForward": "silent" },
+
   "customizations": {
     "vscode": {
       "extensions": [
@@ -50,7 +48,10 @@
       }
     }
   },
+
   "postCreateCommand": "bash .devcontainer/scripts/post-create.sh",
-  "postStartCommand": "bash /opt/drone-vip/scripts/start-display.sh",
+  // The desktop is started by the container itself (see compose.yaml).
+  // This only reports where to find it, so a failed hook cannot cost you the GUI.
+  "postStartCommand": "drone-gui",
   "waitFor": "postCreateCommand"
 }
