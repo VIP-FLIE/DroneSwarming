@@ -29,7 +29,7 @@ info() { printf '        %s\n' "$*"; }
 # MacOS does not ship GNU coreutils, so there is no `timeout` command. And
 # `docker info` against Docker Desktop talks to a VM, which can take several
 # seconds on a good day and block indefinitely while the VM is still coming up.
-# An unguarded `docker info` is exactly why this script used to hang on a Mac.
+# An unguarded `docker info` is what makes this script hang on a Mac.
 #
 # The completion sentinel is a file rather than `kill -0 $pid`, because a
 # finished background job stays a zombie until it is reaped, so `kill -0` keeps
@@ -78,8 +78,8 @@ if ! command -v docker >/dev/null 2>&1; then
     [ "$OS" = "Darwin" ] && info "https://docs.docker.com/desktop/install/mac-install/" \
                          || info "https://docs.docker.com/engine/install/"
 else
-    # ONE docker call for the whole script. It used to be called three separate
-    # times, which tripled the chance of hitting a slow or wedged daemon.
+    # ONE docker call for the whole script. Every extra call is another chance
+    # to hit a slow or wedged daemon, so the result is cached and reused.
     printf '  ...   asking Docker how it is doing (up to 25s)\r'
     if run_with_timeout 25 "$TMP" docker info --format '{{json .}}'; then
         DOCKER_INFO=$(cat "$TMP" 2>/dev/null)

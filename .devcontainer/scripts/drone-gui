@@ -4,6 +4,7 @@
 set -o pipefail
 
 PORT="${DRONE_NOVNC_HOST_PORT:-6080}"
+VNC_PORT="${DRONE_VNC_PORT:-5901}"
 
 if [ "${1:-}" = "restart" ]; then
     echo "stopping the desktop..."
@@ -29,7 +30,10 @@ printf 'x11vnc     : %s\n' "$(pgrep -f x11vnc     >/dev/null 2>&1 && echo runnin
 printf 'noVNC      : %s\n' "$(pgrep -f websockify >/dev/null 2>&1 && echo running || echo STOPPED)"
 
 if (exec 3<>/dev/tcp/127.0.0.1/6080) 2>/dev/null; then
-    printf 'listening  : yes\n\nOpen http://localhost:%s in your browser.\n' "$PORT"
+    printf 'listening  : yes\n\n'
+    printf 'View the desktop either way:\n'
+    printf '  browser     http://localhost:%s\n' "$PORT"
+    printf '  VNC client  localhost:%s\n' "$VNC_PORT"
 else
     printf 'listening  : NO\n\nSomething failed. The full log is at /tmp/drone-display.log:\n'
     tail -20 /tmp/drone-display.log 2>/dev/null | sed 's/^/    /'

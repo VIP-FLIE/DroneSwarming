@@ -1,13 +1,12 @@
 // =============================================================================
 // UD Drone VIP development container.
 //
-// There is only one configuration, on purpose. It works the same way on
-// Windows, macOS (Intel and Apple Silicon), and Linux, with nothing to install
-// on the host beyond Docker and VS Code.
+// Works the same way on Windows, macOS (Intel and Apple Silicon), and Linux,
+// with nothing to install on the host beyond Docker and VS Code.
 //
-// The Gazebo/rviz GUI is served by the container to your browser at
-// http://localhost:6080. VirtualGL renders through the GPU when the machine
-// has one, so this is not a slow fallback path, it is the fast path too.
+// The container runs its own desktop for the Gazebo and rviz GUI. Reach it at
+// http://localhost:6080 in a browser, or on localhost:5901 with a VNC client.
+// VirtualGL renders through the GPU when the machine has one.
 // =============================================================================
 {
   "name": "UD Drone VIP",

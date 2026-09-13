@@ -2,23 +2,30 @@
 
 Design notes. To just get running, see [docs/SETUP.md](../docs/SETUP.md).
 
-## One config
+## The display path
 
-There is one `devcontainer.json`. The GUI always goes to the browser at
-localhost:6080, on every OS.
+Gazebo and RViz are X11 applications and a container has no screen, so the
+container supplies one:
 
-There used to be three (browser, Linux native X11, Windows WSLg). Removed
-because:
+```
+Xvfb            a screen that exists only in memory
+  |
+x11vnc          serves that screen on port 5901
+  |
+noVNC           carries 5901 over HTTP on port 6080
+```
 
-- Compose published ports 6080 and 5901 always, but the VNC server only started
-  in browser mode. The native configs showed two forwarded ports with nothing
-  behind them and no error.
-- `devcontainer.json` also listed those ports in `forwardPorts`. Two mechanisms
-  binding one host port fight: VS Code wins, compose then fails with `address
-  already in use`. Never declare both.
-- X11 access control differs between Wayland and Xorg sessions.
-- Docker Desktop puts WSLg somewhere other than Microsoft's docs say.
-- A picker means somebody picks wrong.
+You attach to it at `localhost:6080` in a browser or at `localhost:5901` with a
+VNC client. x11vnc runs with `-shared`, so several viewers at once is fine.
+
+Identical on every OS. Nothing is installed or configured on the host.
+
+`compose.yaml` publishes both ports, bound to `127.0.0.1`. `devcontainer.json`
+must not also list them in `forwardPorts`. Two mechanisms binding one host port
+conflict: VS Code takes it, compose then fails with `address already in use`
+and the container does not start. Compose publishing is used rather than
+`forwardPorts` because it also works for the devcontainer CLI and for editors
+that do not implement `forwardPorts` at all.
 
 ## VirtualGL
 
@@ -80,9 +87,9 @@ drift. `smoke-test.sh` checks for that.
 
 ## Startup
 
-The container's own command starts the desktop, not a `postStartCommand` hook.
-Hooks can silently fail to run, and the symptom was 6080 forwarded with nothing
-behind it.
+The container's own command starts the desktop rather than a `postStartCommand`
+hook. A hook that fails to run reports no error, which leaves the ports
+published with nothing serving them.
 
 Scripts run from the bind-mounted repo in preference to the copies baked into
 the image, so editing them takes effect on the next container start with no
@@ -124,18 +131,22 @@ docker volume rm drone-vip_colcon-build drone-vip_colcon-install drone-vip_colco
 CI builds multi-arch and pushes to GHCR. Then in `.devcontainer/.env`:
 
 ```ini
-DRONE_IMAGE=ghcr.io/YOUR-ORG/DroneSwarming-dev:jazzy
+DRONE_IMAGE=ghcr.io/vip-flie/droneswarming-dev:jazzy
 ```
 
 The tag is a manifest list, so the same line is right on Intel and Apple
 Silicon. Without it the image builds locally once.
 
+Note the all-lowercase path. GitHub displays the repo as `VIP-FLIE/DroneSwarming`,
+but container registries reject any reference whose repository part is not
+lowercase, so the published image does not match the repo's display casing.
+
 ## Layout
 
 ```
 .devcontainer/
-  devcontainer.json    the one config
-  compose.yaml         the one service
+  devcontainer.json    what VS Code opens
+  compose.yaml         the service definition
   Dockerfile           multi-arch image
   .env.example         per-machine options, all optional
   scripts/

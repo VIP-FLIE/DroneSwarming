@@ -4,16 +4,16 @@
 #
 # WHY THIS EXISTS
 # ---------------
-# The browser desktop used to be started by `postStartCommand` in
-# devcontainer.json. That is a dev-container lifecycle hook, and when a hook
-# does not run (attaching to an already-running container, a hook that errored
-# earlier in the chain, a tool that does not implement the hook at all) you get
-# the exact failure this was reported with: VS Code shows 6080 and 5901
-# forwarded, with nothing listening behind them and no error anywhere.
+# The desktop is started here rather than from `postStartCommand` in
+# devcontainer.json. That is a dev-container lifecycle hook, and a hook can
+# fail to run without reporting anything: when you attach to an
+# already-running container, when an earlier hook in the chain errored, or
+# when the tool opening the container does not implement hooks at all. The
+# result is 6080 and 5901 published with nothing listening behind them.
 #
 # Starting the desktop from the container's own command removes that class of
 # failure. If the container is up, the desktop has been started, because
-# starting it is literally what the container runs.
+# starting it is what the container runs.
 # =============================================================================
 set -o pipefail
 

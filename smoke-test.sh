@@ -172,8 +172,8 @@ else
     fi
 
     # PX4 gets a FIFO as stdin instead of /dev/null so we can actually command
-    # a takeoff. /dev/null would leave us only able to prove PX4 starts, which
-    # is what this test used to do and is a much weaker claim than "it flies".
+    # a takeoff. With /dev/null the test could only prove PX4 starts, which is
+    # a much weaker claim than "it flies".
     # A background holder keeps the write end open so PX4 does not see EOF.
     PXH_FIFO=/tmp/smoke-pxh
     rm -f "$PXH_FIFO"; mkfifo "$PXH_FIFO"
@@ -272,10 +272,9 @@ fi
 # ---------------------------------------------------------------------------
 SECTION="display check"
 echo "=== 5. GUI display path ==="
-# There is one display path and every machine uses it: an X server inside the
-# container, published to your browser on 6080. This section proves it is
-# actually up, because the failure that used to bite people was a forwarded
-# port with nothing listening behind it.
+# An X server inside the container, published on 6080 for a browser and 5901
+# for a VNC client. This section proves both are actually up, because a
+# published port with nothing listening behind it reports no error on its own.
 
 [ -f /tmp/drone-display.env ] && source /tmp/drone-display.env
 
@@ -297,6 +296,16 @@ if timeout 10 bash -c "exec 3<>/dev/tcp/127.0.0.1/$NOVNC_PORT" 2>/dev/null; then
 else
     no "nothing is listening on $NOVNC_PORT (see /tmp/drone-display.log)"
     echo "        The browser GUI will not load until this is fixed."
+fi
+
+# 5901 is the same desktop for anyone who prefers a VNC client to a browser.
+VNC_PORT=5901                                  # inside the container
+VNC_HOST_PORT="${DRONE_VNC_PORT:-5901}"        # what it maps to on your machine
+if timeout 10 bash -c "exec 3<>/dev/tcp/127.0.0.1/$VNC_PORT" 2>/dev/null; then
+    ok "x11vnc is serving  ->  localhost:$VNC_HOST_PORT for a VNC client"
+else
+    no "nothing is listening on $VNC_PORT (see /tmp/drone-display.log)"
+    echo "        A VNC client will not connect until this is fixed."
 fi
 
 # The renderer that MATTERS is the one seen through vglrun, because the gz and

@@ -14,8 +14,9 @@ drone-sim                       # 3. simulator, gives you a pxh> prompt
 ros2 topic list | grep fmu      # 4. your side
 ```
 
-Watch it at <http://localhost:6080>. Terminal 4 printing nothing means the
-agent is not connected.
+Watch it at <http://localhost:6080>, or in a VNC client on `localhost:5901`.
+Both are covered in [docs/SETUP.md](docs/SETUP.md). Terminal 4 printing nothing
+means the agent is not connected.
 
 `drone-gcs` is required. PX4's x500 airframe sets `NAV_DLL_ACT 2`, return on
 datalink loss, so it will not arm without a GCS, same as a real aircraft.
@@ -133,7 +134,7 @@ Run `./smoke-test.sh` first.
 |---|---|---|
 | `Arming denied: Resolve system health failures first` | No GCS link | Run `drone-gcs`. Not `NAV_DLL_ACT 0` |
 | Gazebo shows demo worlds, no drone | You ran `gz sim` | `drone-sim` |
-| Nothing at localhost:6080 | Desktop not up | `drone-gui` |
+| Nothing at localhost:6080, or VNC will not connect | Desktop not up | `drone-gui` |
 | No `/fmu/` topics | Agent not running, or started after PX4 | Start agent, restart PX4 |
 | Callback never fires but `ros2 topic echo` shows data | QoS mismatch | `PX4_QOS` |
 | `Standalone PX4 launch, waiting for Gazebo` | `PX4_GZ_STANDALONE` set | `unset PX4_GZ_STANDALONE` |
