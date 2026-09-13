@@ -20,11 +20,11 @@ git clone <this repo> && cd DroneSwarming
 .\scripts\doctor.ps1 -Write      # Windows PowerShell
 ```
 
-Then in VS Code: `F1`, `Dev Containers: Reopen in Container`. There is one configuration.
+Then in VS Code: `F1`, `Dev Containers: Reopen in Container`.
 
-The Gazebo window is served to your browser at <http://localhost:6080>, the same on every OS. VirtualGL renders it on your GPU if you have one.
+Gazebo runs on a desktop inside the container. You view it either in your browser at <http://localhost:6080> or in a VNC client on port 5901, whichever you prefer. Both are set up in [docs/SETUP.md](docs/SETUP.md). VirtualGL renders on your GPU if you have one.
 
-The lab machine in Evans 153 is still useful for long runs and real hardware. It is no longer a prerequisite.
+Use the lab machine in Evans 153 for long runs and real hardware. You do not need it to develop.
 
 ### Git(Hub) Etiquette:
 This may seem pedantic, but trust that things can go real bad real quick without proper version control, and it isn't too hard to pick up some good habits. A few rules of thumb:

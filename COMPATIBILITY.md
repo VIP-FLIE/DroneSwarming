@@ -31,13 +31,14 @@ You need Docker and VS Code. Nothing else, on any OS.
 Your host distro does not matter. ROS 2 Jazzy, Gazebo Harmonic and PX4 all live
 in the container on Ubuntu 24.04.
 
-Windows 10 and 11 are the same path now. An earlier version of this setup used
-WSLg, which is Windows 11 only. It no longer does.
+Windows 10 and 11 follow the same path. You do not need WSLg, XQuartz, VcXsrv,
+Xming, or any other X server.
 
 ## GPU
 
-The GUI is served to your browser and [VirtualGL](https://virtualgl.org)
-renders it on the GPU when there is one.
+You view the GUI in a browser or a VNC client, and
+[VirtualGL](https://virtualgl.org) renders it on the GPU when there is one.
+Both viewing options get the same rendering.
 
 | GPU | Needs | Rendering | Status |
 |---|---|---|---|

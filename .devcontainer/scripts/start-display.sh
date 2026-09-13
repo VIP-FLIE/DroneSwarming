@@ -1,23 +1,15 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Brings up the desktop that the GUI draws on, and publishes it over HTTP.
+# Brings up the desktop that the GUI draws on and publishes it.
 #
-# There is ONE display path and every machine uses it: an X server inside the
-# container (Xvfb), exported over VNC and noVNC, reachable in a browser at
-# http://localhost:6080. Nothing is installed or configured on the host, on any
-# operating system.
+# Xvfb provides an X server inside the container. x11vnc serves that screen on
+# 5901 for a VNC client, and noVNC carries the same screen over HTTP on 6080
+# for a browser. Both views are live at once. Nothing is installed or
+# configured on the host, on any operating system.
 #
-# An earlier version of this tried to detect a usable host X socket and draw on
-# the real desktop instead, falling back to VNC. That was removed on purpose.
-# It produced three dev container configurations, needed X11 access control to
-# be handled differently per distro, was documented-fragile on Windows/WSLg,
-# and its worst failure mode was silent: in native mode nothing listened on
-# 6080, so the forwarded port was visible in VS Code but refused connections.
-#
-# Hardware acceleration is NOT lost by doing it this way. VirtualGL renders
-# through the GPU via EGL (see the Dockerfile), so the browser desktop is
-# GPU-accelerated wherever a GPU exists and silently falls back to software
-# where one does not.
+# VirtualGL renders through the GPU via EGL (see the Dockerfile), so the
+# desktop is GPU-accelerated wherever a GPU exists and falls back to software
+# rendering where one does not.
 #
 # NOTE: no `set -u`. ROS 2 setup files reference unset variables internally.
 set -o pipefail
@@ -62,6 +54,8 @@ fi
 # x11vnc binds 0.0.0.0 because Docker port publishing cannot reach a service on
 # the container's loopback. Exposure is still limited: compose publishes these
 # to 127.0.0.1 on the host only.
+#
+# -shared lets the browser view and a VNC client be connected at the same time.
 if ! pgrep -f "x11vnc .*-rfbport $VNC_PORT" >/dev/null 2>&1; then
     pw_args=(-nopw)
     if [ -n "${DRONE_VNC_PASSWORD:-}" ]; then
@@ -80,9 +74,8 @@ if ! pgrep -f "websockify.*$NOVNC_PORT" >/dev/null 2>&1; then
     websockify --web=/usr/share/novnc "$NOVNC_PORT" "localhost:$VNC_PORT" >>"$LOG" 2>&1 &
 fi
 
-# Confirm something is actually listening before claiming success. The old
-# version reported a URL it had not verified, which is how a dead port got
-# advertised to people as if it were working.
+# Confirm something is actually listening before reporting success, so a dead
+# port is never advertised as a working one.
 READY=0
 for _ in $(seq 1 40); do
     if (exec 3<>/dev/tcp/127.0.0.1/"$NOVNC_PORT") 2>/dev/null; then READY=1; break; fi

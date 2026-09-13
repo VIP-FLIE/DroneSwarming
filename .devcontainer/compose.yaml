@@ -1,13 +1,10 @@
 # =============================================================================
-# The one and only service definition.
+# The service definition.
 #
-# There used to be three dev container configurations layering compose
-# overrides on top of this (native X11 for Linux, WSLg for Windows, browser for
-# everyone else). They are gone. The GUI now always goes to the browser at
-# localhost:6080, on every OS, and VirtualGL keeps it GPU-accelerated where a
-# GPU exists. That removed the config picker, the per-distro X11 access-control
-# handling, the WSLg mount fragility, and a failure mode where the forwarded
-# 6080 port was shown in VS Code with nothing listening behind it.
+# The container runs its own desktop and publishes it two ways: HTTP on 6080
+# for a browser, and VNC on 5901 for a VNC client. Identical on every OS, with
+# nothing installed or configured on the host. VirtualGL keeps it
+# GPU-accelerated where a GPU exists.
 #
 # Values below come from .devcontainer/.env when it exists. It is optional.
 # =============================================================================
@@ -41,6 +38,11 @@ services:
       # message can print a URL that actually works when someone has remapped
       # it in .env.
       DRONE_NOVNC_HOST_PORT: ${DRONE_NOVNC_PORT:-6080}
+      # Empty means the desktop takes no password, which is safe because the
+      # ports below are bound to 127.0.0.1. Set it in .env if you connect a
+      # VNC client that refuses unauthenticated servers, as macOS Screen
+      # Sharing does.
+      DRONE_VNC_PASSWORD: ${DRONE_VNC_PASSWORD:-}
       XDG_RUNTIME_DIR: /tmp/runtime-ros
       QT_X11_NO_MITSHM: "1"
       QT_QPA_PLATFORM: xcb
@@ -72,31 +74,32 @@ services:
       # Survives container rebuilds, so a rebuild is minutes not half an hour.
       - ccache:/home/ros/.cache/ccache
 
-    # Publishing here is the ONE mechanism that exposes the browser desktop.
+    # Publishing here is the ONE mechanism that exposes the desktop. 6080 is
+    # the browser view, 5901 takes a VNC client.
     #
-    # devcontainer.json deliberately does NOT also list these in forwardPorts.
-    # Having both is a real bug and we shipped it once: VS Code would bind the
-    # host port for its own forward, compose would then fail to bind the same
-    # port, and you would get either a container that refuses to start with
-    # "address already in use", or a Ports tab listing ports that nothing was
-    # actually serving. Compose publishing is used rather than forwardPorts
-    # because it also works for the devcontainer CLI and for editors other
-    # than VS Code, which do not implement forwardPorts at all.
+    # devcontainer.json must NOT also list these in forwardPorts. Two
+    # mechanisms binding the same host port conflict: VS Code binds it for its
+    # own forward, compose then fails to bind it, and the container either
+    # refuses to start with "address already in use" or the Ports tab lists
+    # ports nothing is serving. Compose publishing is used rather than
+    # forwardPorts because it also works for the devcontainer CLI and for
+    # editors other than VS Code, which do not implement forwardPorts at all.
     #
-    # Bound to 127.0.0.1 on purpose: the desktop has no password by default and
-    # must not be reachable from the network you happen to be sitting on.
+    # Bound to 127.0.0.1 on purpose: the desktop takes no password by default
+    # and must not be reachable from the network you happen to be sitting on.
     #
-    # If something else on your machine already owns 6080, set DRONE_NOVNC_PORT
-    # in .devcontainer/.env rather than editing this file.
+    # If something else on your machine already owns either port, set
+    # DRONE_NOVNC_PORT or DRONE_VNC_PORT in .devcontainer/.env rather than
+    # editing this file.
     ports:
       - "127.0.0.1:${DRONE_NOVNC_PORT:-6080}:6080"
       - "127.0.0.1:${DRONE_VNC_PORT:-5901}:5901"
 
-    # Starts the browser desktop, then keeps the container alive.
+    # Starts the desktop, then keeps the container alive.
     #
     # This is the container's own command rather than a devcontainer
-    # postStartCommand hook, because hooks can silently fail to run and the
-    # symptom when that happens is 6080 forwarded with nothing behind it.
+    # postStartCommand hook, because a hook that fails to run reports no error
+    # and leaves the ports published with nothing serving them.
     #
     # It prefers the copy in the bind-mounted repo over the one baked into the
     # image, so editing these scripts takes effect on the next container start
