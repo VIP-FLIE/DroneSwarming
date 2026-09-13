@@ -35,7 +35,7 @@ You do not need XQuartz, VcXsrv, Xming, WSLg, or any X server.
 ## 2. Clone and check
 
 ```bash
-git clone https://github.com/<org>/DroneSwarming.git
+git clone https://github.com/VIP-FLIE/DroneSwarming.git
 cd DroneSwarming
 ./scripts/doctor.sh --write      # Linux and macOS
 .\scripts\doctor.ps1 -Write      # Windows PowerShell
@@ -47,16 +47,16 @@ optional. If PowerShell blocks it, use
 
 ## 3. Open the container
 
-In VS Code: `F1`, then `Dev Containers: Reopen in Container`. There is one
-configuration, so there is nothing to choose.
+In VS Code: `F1`, then `Dev Containers: Reopen in Container`.
 
-First open builds the image. It is compiling PX4, not hanging.
+The first open builds the image, which takes 20 to 40 minutes. It is compiling
+PX4 during that time. It has not frozen.
 
 To skip the build, put a published image in `.devcontainer/.env` before this
 step:
 
 ```ini
-DRONE_IMAGE=ghcr.io/<org>/DroneSwarming-dev:jazzy
+DRONE_IMAGE=ghcr.io/vip-flie/droneswarming-dev:jazzy
 ```
 
 Then verify:
@@ -69,14 +69,63 @@ You want `Stack is good.`
 
 ## 4. The GUI
 
-The Gazebo window does not open on your desktop. The container runs its own
-desktop and serves it to <http://localhost:6080>. Same on every OS.
+Gazebo does not open a window on your desktop. The container runs a desktop of
+its own, and you connect to it from your machine. There are two ways to
+connect. They show the same desktop, so use whichever you prefer. If you have a
+GPU, VirtualGL renders on it either way.
 
-VS Code usually forwards the port automatically; the Ports tab has it
-otherwise. If the page is blank, run `drone-gui` in the container. It reports
-each piece and restarts what is stopped.
+### Option A: your browser
 
-VirtualGL renders on your GPU if you have one, so this is not a slow fallback.
+Open <http://localhost:6080>. Nothing to install.
+
+VS Code usually forwards the port for you. The Ports tab has it otherwise. If
+the page is blank, run `drone-gui` in the container. It reports each piece of
+the desktop and restarts anything that is stopped.
+
+### Option B: a VNC client
+
+This puts the desktop in a normal application window instead of a browser tab.
+The container publishes it on port **5901**. Install a client once, then
+connect to `localhost:5901`.
+
+**Linux**
+
+```bash
+sudo apt install tigervnc-viewer
+xtigervncviewer localhost:5901
+```
+
+**Windows**
+
+Download `vncviewer64` from
+[TigerVNC releases](https://github.com/TigerVNC/tigervnc/releases), or install
+[RealVNC Viewer](https://www.realvnc.com/en/connect/download/viewer/). Run it
+and enter `localhost:5901`.
+
+**macOS**
+
+A client is already installed, but macOS Screen Sharing refuses to connect to a
+desktop that has no password, so set one first. Put this in
+`.devcontainer/.env`:
+
+```ini
+DRONE_VNC_PASSWORD=whateveryouwant
+```
+
+Apply it with `F1`, then `Dev Containers: Rebuild Container`. The container
+reads `.env` when it starts, so the password does nothing until you do this.
+Then open Terminal and run:
+
+```bash
+open vnc://localhost:5901
+```
+
+You can also use Finder, `Go > Connect to Server`, and type
+`vnc://localhost:5901`.
+
+The password only protects the desktop inside your own machine. Ports 6080 and
+5901 are bound to `127.0.0.1`, so nobody else on your network can reach either
+one.
 
 ## 5. Fly
 
@@ -117,6 +166,9 @@ Run `./smoke-test.sh` first. It names the broken piece.
 | Gazebo shows a chooser of demo worlds | You ran `gz sim`. Run `drone-sim` |
 | Blank grey 3D view | Normal. PX4's world is untextured grey, the camera starts far out. Scroll to zoom |
 | Nothing at localhost:6080 | `drone-gui` |
+| VNC client cannot connect to 5901 | Run `drone-gui`. The desktop has to be running before a client can attach |
+| macOS Screen Sharing asks for a password and rejects a blank one | Set `DRONE_VNC_PASSWORD` in `.devcontainer/.env`, then `Dev Containers: Rebuild Container` |
+| Port 5901 already taken on your machine | Set `DRONE_VNC_PORT` in `.devcontainer/.env` and connect to that port instead |
 | Container will not start, `address already in use` | A stale VS Code window holds port 6080. Reopen VS Code, or set `DRONE_NOVNC_PORT` in `.devcontainer/.env` |
 | Container will not start, mentions nvidia | Delete `DOCKER_RUNTIME=nvidia` from `.devcontainer/.env` |
 | Doctor says Docker did not answer | Docker Desktop is still starting. Wait, rerun |

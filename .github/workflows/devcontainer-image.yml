@@ -31,7 +31,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}-dev
 
 jobs:
   build:
@@ -51,6 +50,15 @@ jobs:
             arch: arm64
     steps:
       - uses: actions/checkout@v4
+
+      - name: Resolve image name
+        # Container registries require the repository part of a reference to be
+        # lowercase, but github.repository preserves the owner/repo casing as
+        # typed on GitHub ("VIP-FLIE/DroneSwarming"). Feeding that straight to
+        # buildx fails at the very END of the build -- every layer compiles,
+        # then the push is rejected -- so it is normalised here instead of
+        # being hardcoded, which would also break on forks.
+        run: echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}-dev" >> "$GITHUB_ENV"
 
       - name: Free up disk space
         # The ROS desktop + Gazebo + a compiled PX4 tree is a large image and
@@ -81,10 +89,7 @@ jobs:
           build-args: PREBUILD_PX4=1
           cache-from: type=gha,scope=${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
-          outputs: >-
-            type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},
-            push-by-digest=true,name-canonical=true,
-            push=${{ github.event_name != 'pull_request' }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=${{ github.event_name != 'pull_request' }}
 
       - name: Export digest
         if: github.event_name != 'pull_request'
@@ -111,6 +116,15 @@ jobs:
       contents: read
       packages: write
     steps:
+      - name: Resolve image name
+        # Container registries require the repository part of a reference to be
+        # lowercase, but github.repository preserves the owner/repo casing as
+        # typed on GitHub ("VIP-FLIE/DroneSwarming"). Feeding that straight to
+        # buildx fails at the very END of the build -- every layer compiles,
+        # then the push is rejected -- so it is normalised here instead of
+        # being hardcoded, which would also break on forks.
+        run: echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}-dev" >> "$GITHUB_ENV"
+
       - uses: actions/download-artifact@v4
         with:
           path: /tmp/digests
