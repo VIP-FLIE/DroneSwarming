@@ -147,16 +147,35 @@ info "When it is up, open http://localhost:6080 to see the simulation."
 echo
 
 if [ "$WRITE" = "1" ]; then
+    # The header is written to match what this machine actually got. A blanket
+    # "safe to delete" is true on a GPU-less machine and actively misleading on
+    # a machine with a GPU, where deleting the file costs you the GPU with
+    # nothing anywhere reporting an error.
     {
         echo "# Written by scripts/doctor.sh. Machine-specific, gitignored."
-        echo "# Safe to delete. The container works without it."
-        echo
         if [ "$HAS_NVIDIA" = "1" ]; then
+            echo "#"
+            echo "# Docker on this machine can see an NVIDIA GPU, and the lines below are"
+            echo "# what hand it to the container. DO NOT delete this file expecting"
+            echo "# nothing to change. Without it compose falls back to the runc runtime,"
+            echo "# the GPU never reaches the container, and VirtualGL quietly degrades to"
+            echo "# llvmpipe software rendering. Everything still starts and the GUI still"
+            echo "# works, so the only symptom is that the simulation runs slower:"
+            echo "# measured on an RTX 3070, gz sim real-time factor 1.00 -> 0.81."
+            echo "#"
+            echo "# Regenerate with: ./scripts/doctor.sh --write"
+            echo
             echo "DOCKER_RUNTIME=nvidia"
             echo "NVIDIA_VISIBLE_DEVICES=all"
             echo "NVIDIA_DRIVER_CAPABILITIES=all"
         else
-            echo "# No GPU visible to Docker, leaving the runtime at the default."
+            echo "#"
+            echo "# No GPU visible to Docker on this machine, so there is nothing to"
+            echo "# configure and this file sets nothing. It IS safe to delete: the"
+            echo "# container behaves identically with or without it, and you get"
+            echo "# llvmpipe software rendering either way."
+            echo "#"
+            echo "# Regenerate with: ./scripts/doctor.sh --write"
         fi
     } > "$ENV_FILE"
     bold "Wrote $ENV_FILE"

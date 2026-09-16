@@ -49,8 +49,10 @@
   },
 
   "postCreateCommand": "bash .devcontainer/scripts/post-create.sh",
-  // The desktop is started by the container itself (see compose.yaml).
-  // This only reports where to find it, so a failed hook cannot cost you the GUI.
+  // The desktop is started by the container itself (see compose.yaml), so the
+  // GUI never depends on this hook firing. drone-gui reports where to find it
+  // and, if it finds the desktop down, starts it. Idempotent either way, so
+  // running it here costs nothing and a hook that never fires costs nothing.
   "postStartCommand": "drone-gui",
   "waitFor": "postCreateCommand"
 }

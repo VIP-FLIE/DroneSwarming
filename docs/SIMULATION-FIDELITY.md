@@ -77,9 +77,14 @@ The common fix is `param set NAV_DLL_ACT 0`. That deletes the failsafe rather
 than supplying the link, so the simulated vehicle stops matching the real one
 when telemetry drops, and you never test the return it performs.
 
-`drone-gcs` sends GCS heartbeats on udp 14550 instead, the role QGroundControl
-plays, and leaves `NAV_DLL_ACT` at 2. Arming goes from denied to `Armed by
-internal command` with the failsafe intact.
+`drone-gcs` sends GCS heartbeats instead, the role QGroundControl plays, and
+leaves `NAV_DLL_ACT` at 2. Arming goes from denied to `Armed by internal
+command` with the failsafe intact.
+
+It listens on udp 14550 and also heartbeats each SITL instance's own GCS port,
+`18570 + instance` per `px4-rc.mavlink`. Both halves matter for a swarm: every
+vehicle enforces this failsafe separately, so a station that reaches only one
+of them leaves the rest correctly refusing to arm.
 
 Killing `drone-gcs` mid-flight is now a test: it fires the datalink-loss
 failsafe. Apply the same rule to any other PX4 refusal.

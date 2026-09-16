@@ -8,5 +8,6 @@
         "/workspaces/DroneSwarming/install/drone_vip/lib/python3.12/site-packages",
         "/home/ros/ros2_ws/install/px4_msgs/lib/python3.12/site-packages",
         "/opt/ros/jazzy/lib/python3.12/site-packages"
-    ]
+    ],
+    "cmake.sourceDirectory": "/workspaces/DroneSwarming/src/drone_swarm"
 }

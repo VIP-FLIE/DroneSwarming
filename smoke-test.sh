@@ -300,7 +300,7 @@ fi
 
 # 5901 is the same desktop for anyone who prefers a VNC client to a browser.
 VNC_PORT=5901                                  # inside the container
-VNC_HOST_PORT="${DRONE_VNC_PORT:-5901}"        # what it maps to on your machine
+VNC_HOST_PORT="${DRONE_VNC_HOST_PORT:-5901}"   # what it maps to on your machine
 if timeout 10 bash -c "exec 3<>/dev/tcp/127.0.0.1/$VNC_PORT" 2>/dev/null; then
     ok "x11vnc is serving  ->  localhost:$VNC_HOST_PORT for a VNC client"
 else
@@ -317,7 +317,9 @@ fi
 # Both /usr/local/bin/gz and ROS's vendored gz are wrapped, so whichever one
 # PATH resolves to should route through VirtualGL. Check the file, not the path.
 GZ_RESOLVED=$(command -v gz 2>/dev/null)
-if [ -n "$GZ_RESOLVED" ] && grep -q 'vglrun' "$GZ_RESOLVED" 2>/dev/null; then
+if [ "${DRONE_VGL:-1}" != "1" ]; then
+    skip "VirtualGL bypassed by DRONE_VGL=${DRONE_VGL}, so software rendering is expected"
+elif [ -n "$GZ_RESOLVED" ] && grep -q 'vglrun' "$GZ_RESOLVED" 2>/dev/null; then
     ok "gz routes through VirtualGL ($GZ_RESOLVED)"
 elif [ -n "$GZ_RESOLVED" ]; then
     no "gz at $GZ_RESOLVED does NOT route through VirtualGL"
@@ -325,7 +327,9 @@ elif [ -n "$GZ_RESOLVED" ]; then
 fi
 
 if command -v glxinfo >/dev/null 2>&1 && [ -n "${DISPLAY:-}" ]; then
-    if command -v vglrun >/dev/null 2>&1; then
+    # Honour DRONE_VGL. With it set to 0 the wrappers skip vglrun, so querying
+    # through vglrun anyway would report a renderer nothing is actually using.
+    if [ "${DRONE_VGL:-1}" = "1" ] && command -v vglrun >/dev/null 2>&1; then
         RENDERER=$(timeout 25 vglrun -d egl glxinfo -B 2>/dev/null | sed -n 's/^OpenGL renderer string: //p')
     else
         RENDERER=$(timeout 20 glxinfo -B 2>/dev/null | sed -n 's/^OpenGL renderer string: //p')

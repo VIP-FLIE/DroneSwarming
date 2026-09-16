@@ -44,7 +44,7 @@ if bash "$(dirname "$0")/build-workspace.sh"; then
     echo "=============================================="
     echo " Setup complete."
     echo
-    echo " GUI: open http://localhost:6080 in your browser."
+    echo " GUI: open http://localhost:${DRONE_NOVNC_HOST_PORT:-6080} in your browser."
     echo "      (VS Code usually offers to forward it; the Ports tab has it too)"
     echo " Verify everything with:  ./smoke-test.sh"
     echo "=============================================="

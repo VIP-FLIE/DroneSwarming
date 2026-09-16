@@ -32,12 +32,32 @@ services:
     environment:
       NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-}
       NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-}
+
+      # VirtualGL on/off, read by the gz and rviz2 wrappers in the image.
+      #
+      # This line is NOT optional plumbing. Compose reads .env for
+      # interpolation inside THIS file only; it does not inject .env into the
+      # container. Without this line a DRONE_VGL=0 in .env would never reach
+      # the wrappers, and the documented "bypass VirtualGL" escape hatch would
+      # silently do nothing -- which is exactly the lever you reach for when
+      # you suspect VirtualGL of causing the trouble you are debugging.
+      DRONE_VGL: ${DRONE_VGL:-1}
+
       DRONE_VNC_GEOMETRY: ${DRONE_VNC_GEOMETRY:-1600x900}
       # The container listens on 6080 internally no matter what. This is the
       # HOST-side port it got published on, passed in purely so the startup
       # message can print a URL that actually works when someone has remapped
       # it in .env.
       DRONE_NOVNC_HOST_PORT: ${DRONE_NOVNC_PORT:-6080}
+      # The same host/container split for VNC. The container always binds 5901;
+      # this is the HOST-side port it was published on, so the port drone-gui
+      # and smoke-test.sh tell you to connect to is the one that actually
+      # works after a remap.
+      #
+      # Do NOT pass DRONE_VNC_PORT itself in here. start-display.sh would move
+      # the x11vnc bind off 5901, and the mapping below publishes to container
+      # port 5901, so the VNC mapping would point at nothing.
+      DRONE_VNC_HOST_PORT: ${DRONE_VNC_PORT:-5901}
       # Empty means the desktop takes no password, which is safe because the
       # ports below are bound to 127.0.0.1. Set it in .env if you connect a
       # VNC client that refuses unauthenticated servers, as macOS Screen
