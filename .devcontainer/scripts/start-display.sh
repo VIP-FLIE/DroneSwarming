@@ -16,9 +16,14 @@ set -o pipefail
 
 VNC_DISPLAY=":1"
 VNC_GEOMETRY="${DRONE_VNC_GEOMETRY:-1600x900}"
-NOVNC_PORT=6080                       # inside the container, always
-HOST_PORT="${DRONE_NOVNC_HOST_PORT:-6080}"   # what it maps to on your machine
-VNC_PORT="${DRONE_VNC_PORT:-5901}"
+# Container-side ports are FIXED. compose publishes host:PORT -> container:6080
+# and host:PORT -> container:5901, so moving what we bind to inside the
+# container is what breaks a remap, not what implements it. The HOST_PORT
+# variables exist purely so the messages below name a port you can connect to.
+NOVNC_PORT=6080                                # inside the container, always
+VNC_PORT=5901                                  # inside the container, always
+HOST_PORT="${DRONE_NOVNC_HOST_PORT:-6080}"     # what it maps to on your machine
+VNC_HOST_PORT="${DRONE_VNC_HOST_PORT:-5901}"   # what it maps to on your machine
 ENV_FILE=/tmp/drone-display.env
 LOG=/tmp/drone-display.log
 
@@ -29,8 +34,9 @@ export DISPLAY="$VNC_DISPLAY"
 mkdir -p "${XDG_RUNTIME_DIR:-/tmp/runtime-ros}" 2>/dev/null
 chmod 700 "${XDG_RUNTIME_DIR:-/tmp/runtime-ros}" 2>/dev/null
 
-# Idempotent: postStartCommand runs on every container start, including after
-# a plain restart where these may already be up.
+# Idempotent. This runs from the container's own command (container-entry.sh)
+# on every start, and drone-gui runs it again by hand as the recovery path, so
+# finding everything already up is a normal case, not an error.
 if pgrep -f "Xvfb $VNC_DISPLAY" >/dev/null 2>&1; then
     log "desktop already running on $VNC_DISPLAY"
 else
@@ -93,6 +99,7 @@ done
 
 if [ "$READY" -eq 1 ]; then
     log "desktop is up  ->  http://localhost:${HOST_PORT}"
+    log "VNC client     ->  localhost:${VNC_HOST_PORT}"
 else
     log "WARNING: nothing is listening on ${NOVNC_PORT} inside the container. See $LOG"
 fi

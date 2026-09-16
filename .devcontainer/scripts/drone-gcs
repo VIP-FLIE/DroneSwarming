@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ground control station link for SITL.
+"""Ground control station link for SITL, for one vehicle or a whole swarm.
 
 WHY THIS EXISTS, AND WHY IT IS NOT A SHORTCUT
 ---------------------------------------------
@@ -19,15 +19,36 @@ telemetry stops matching the real X500 entirely. That is exactly the kind of
 divergence that does not survive the trip to hardware.
 
 This provides the thing PX4 is asking for instead: a real MAVLink GCS link,
-the same role QGroundControl plays. The failsafe stays armed at 2. Verified:
-with NAV_DLL_ACT still 2, arming goes from denied to "Armed by internal
-command" once this is running.
+the same role QGroundControl plays. The failsafe stays armed at 2.
 
 Killing this process is a legitimate and useful test: it is how you exercise
 the datalink-loss failsafe and watch the vehicle Return, which is behaviour
 you want to have seen in simulation before you see it in a field.
 
 Run QGroundControl against udp 14550 instead of this if you prefer a real GCS.
+
+REACHING EVERY VEHICLE, NOT JUST THE FIRST
+------------------------------------------
+Each SITL instance runs its own GCS MAVLink link on its own port. From PX4
+v1.16.1, ROMFS/px4fmu_common/init.d-posix/px4-rc.mavlink:
+
+    udp_gcs_port_local=$((18570+px4_instance))
+    mavlink start -x -u $udp_gcs_port_local -r 4000000 -f
+
+So instance 1 listens on 18571, instance 2 on 18572, and so on, and there is no
+-p broadcast flag. A station that only sits on 14550 and answers whoever
+happens to speak to it is therefore relying on each vehicle to make the first
+move, which is not something the port layout promises.
+
+So this does both. It listens on 14550 for anything that reaches out, the way
+QGroundControl does, and it also heartbeats each instance's own port directly.
+Reaching out is what makes it work for every vehicle in a swarm rather than
+whichever one got in first.
+
+The symptom when a station only serves one vehicle is memorable: the first
+drone arms and flies away, and every other drone sits on the pad reporting
+"Arming denied", because for them the datalink failsafe is genuinely still
+unsatisfied and PX4 is correctly refusing.
 """
 import sys
 import time
@@ -35,32 +56,90 @@ import time
 from pymavlink import mavutil
 
 BIND = "udpin:0.0.0.0:14550"
+GCS_SYSTEM_ID = 255            # 255 is the conventional ground station system id
+HEARTBEAT_INTERVAL_S = 1.0     # PX4 expects roughly 1 Hz from a station
+
+# Each SITL instance's own GCS port, per px4-rc.mavlink quoted above. Ten
+# covers any swarm this repo is going to fly, and heartbeating a port nothing
+# is listening on costs one localhost datagram.
+SITL_GCS_PORT_BASE = 18570
+SITL_INSTANCE_LIMIT = 10
+SITL_ADDRESSES = frozenset(
+    ("127.0.0.1", SITL_GCS_PORT_BASE + instance)
+    for instance in range(SITL_INSTANCE_LIMIT)
+)
+
+# How long to go without hearing anything before saying so. Only a complaint:
+# a station that quit because the simulator was slow to boot would be useless.
+SILENCE_WARNING_S = 90.0
+
+
+def announce(system_id, linked):
+    """Report each vehicle the first time it is heard from.
+
+    The count is the number worth watching. If it stops short of the number of
+    drones you launched, the ones missing are the ones that will not arm.
+    """
+    if system_id in linked:
+        return
+    linked.add(system_id)
+    print(f"Linked to PX4 system {system_id}. Datalink failsafe satisfied for "
+          f"{len(linked)} vehicle(s); they can arm.", flush=True)
+
+
+def send_heartbeat(link):
+    """Send one GCS heartbeat to every vehicle we know of or expect.
+
+    Encoded once and sent by hand rather than through link.mav.heartbeat_send,
+    because that only reaches addresses pymavlink has already received from.
+    """
+    packet = link.mav.heartbeat_encode(
+        mavutil.mavlink.MAV_TYPE_GCS,
+        mavutil.mavlink.MAV_AUTOPILOT_INVALID,
+        0, 0,
+        mavutil.mavlink.MAV_STATE_ACTIVE,
+    ).pack(link.mav)
+
+    for address in sorted(SITL_ADDRESSES | link.clients):
+        try:
+            link.port.sendto(packet, address)
+        except OSError:
+            # Nothing is listening on that instance's port yet, which is the
+            # normal state of every slot the swarm has not launched.
+            pass
 
 
 def main() -> int:
     link = mavutil.mavlink_connection(
         BIND,
-        source_system=255,  # 255 is the conventional GCS system id
+        source_system=GCS_SYSTEM_ID,
         source_component=mavutil.mavlink.MAV_COMP_ID_MISSIONPLANNER,
     )
-    print(f"GCS link listening on {BIND}, waiting for PX4...", flush=True)
-    if link.wait_heartbeat(timeout=90) is None:
-        print("No heartbeat from PX4 after 90s. Is the simulator running?",
-              file=sys.stderr, flush=True)
-        return 1
-    print(f"Linked to PX4 system {link.target_system}. "
-          f"Datalink failsafe is satisfied; the vehicle can arm.", flush=True)
+    print(f"GCS link running from {__file__}", flush=True)
+    print(f"Listening on {BIND}, and heartbeating SITL instances 0-"
+          f"{SITL_INSTANCE_LIMIT - 1} on ports {SITL_GCS_PORT_BASE}-"
+          f"{SITL_GCS_PORT_BASE + SITL_INSTANCE_LIMIT - 1}.", flush=True)
     print("Leave this running. Ctrl-C to drop the link "
           "(which is how you test the datalink-loss failsafe).", flush=True)
 
+    linked = set()
+    started = time.monotonic()
+    warned = False
+
     while True:
-        link.mav.heartbeat_send(
-            mavutil.mavlink.MAV_TYPE_GCS,
-            mavutil.mavlink.MAV_AUTOPILOT_INVALID,
-            0, 0,
-            mavutil.mavlink.MAV_STATE_ACTIVE,
-        )
-        time.sleep(1.0)
+        # Drain everything that arrived since the last cycle. This is also what
+        # teaches pymavlink the address of any vehicle that found us on its own.
+        while (message := link.recv_msg()) is not None:
+            announce(message.get_srcSystem(), linked)
+
+        send_heartbeat(link)
+
+        if not linked and not warned and time.monotonic() - started > SILENCE_WARNING_S:
+            print(f"No heartbeat from any PX4 after {SILENCE_WARNING_S:.0f}s. "
+                  f"Is the simulator running?", file=sys.stderr, flush=True)
+            warned = True
+
+        time.sleep(HEARTBEAT_INTERVAL_S)
 
 
 if __name__ == "__main__":

@@ -13,6 +13,8 @@ Here we will use GitHub Issues to communicate problems and questions. For anythi
 ROS 2 Jazzy, Gazebo Harmonic and PX4 run in a container, so you develop on your own laptop whatever it runs. You install Docker and VS Code. Nothing else.
 
 Start with [docs/SETUP.md](docs/SETUP.md). Check [COMPATIBILITY.md](COMPATIBILITY.md) for your machine.
+Once it runs, [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md) explains the whole
+pipeline from your code down to the rotors, and how to grow one drone into a swarm.
 
 ```bash
 git clone <this repo> && cd DroneSwarming

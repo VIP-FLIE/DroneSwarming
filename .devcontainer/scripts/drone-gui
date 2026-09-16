@@ -3,8 +3,10 @@
 # drone-gui restart   tear it down and start it again
 set -o pipefail
 
+# Both are HOST-side ports, used only for what this script prints. The ports
+# inside the container are fixed at 6080 and 5901 (see start-display.sh).
 PORT="${DRONE_NOVNC_HOST_PORT:-6080}"
-VNC_PORT="${DRONE_VNC_PORT:-5901}"
+VNC_PORT="${DRONE_VNC_HOST_PORT:-5901}"
 
 if [ "${1:-}" = "restart" ]; then
     echo "stopping the desktop..."
@@ -29,6 +31,8 @@ printf 'openbox    : %s\n' "$(pgrep -f openbox    >/dev/null 2>&1 && echo runnin
 printf 'x11vnc     : %s\n' "$(pgrep -f x11vnc     >/dev/null 2>&1 && echo running || echo STOPPED)"
 printf 'noVNC      : %s\n' "$(pgrep -f websockify >/dev/null 2>&1 && echo running || echo STOPPED)"
 
+# 6080 literal on purpose: that is the port inside the container, which is
+# what we can actually probe from in here, and it never moves.
 if (exec 3<>/dev/tcp/127.0.0.1/6080) 2>/dev/null; then
     printf 'listening  : yes\n\n'
     printf 'View the desktop either way:\n'

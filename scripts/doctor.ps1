@@ -120,17 +120,38 @@ Write-Info "When it is up, open http://localhost:6080 to see the simulation."
 Write-Host ""
 
 if ($Write) {
-    $lines = @(
-        "# Written by scripts\doctor.ps1. Machine-specific, gitignored.",
-        "# Safe to delete. The container works without it.",
-        ""
-    )
+    # The header is written to match what this machine actually got. A blanket
+    # "safe to delete" is true on a GPU-less machine and actively misleading on
+    # a machine with a GPU, where deleting the file costs you the GPU with
+    # nothing anywhere reporting an error.
+    $lines = @("# Written by scripts\doctor.ps1. Machine-specific, gitignored.")
     if ($hasNvidia) {
-        $lines += "DOCKER_RUNTIME=nvidia"
-        $lines += "NVIDIA_VISIBLE_DEVICES=all"
-        $lines += "NVIDIA_DRIVER_CAPABILITIES=all"
+        $lines += @(
+            "#",
+            "# Docker on this machine can see an NVIDIA GPU, and the lines below are",
+            "# what hand it to the container. DO NOT delete this file expecting",
+            "# nothing to change. Without it compose falls back to the runc runtime,",
+            "# the GPU never reaches the container, and VirtualGL quietly degrades to",
+            "# llvmpipe software rendering. Everything still starts and the GUI still",
+            "# works, so the only symptom is that the simulation runs slower:",
+            "# measured on an RTX 3070, gz sim real-time factor 1.00 -> 0.81.",
+            "#",
+            "# Regenerate with: .\scripts\doctor.ps1 -Write",
+            "",
+            "DOCKER_RUNTIME=nvidia",
+            "NVIDIA_VISIBLE_DEVICES=all",
+            "NVIDIA_DRIVER_CAPABILITIES=all"
+        )
     } else {
-        $lines += "# No GPU visible to Docker, leaving the runtime at the default."
+        $lines += @(
+            "#",
+            "# No GPU visible to Docker on this machine, so there is nothing to",
+            "# configure and this file sets nothing. It IS safe to delete: the",
+            "# container behaves identically with or without it, and you get",
+            "# llvmpipe software rendering either way.",
+            "#",
+            "# Regenerate with: .\scripts\doctor.ps1 -Write"
+        )
     }
     # LF endings, no BOM. Docker Compose does not strip a trailing CR, so a
     # CRLF .env silently produces values like "nvidia`r" and the container
