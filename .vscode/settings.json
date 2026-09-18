@@ -1,13 +1,19 @@
 {
+    // ${workspaceFolder} and ${env:HOME} keep these correct both in the dev
+    // container (/workspaces/DroneSwarming, /home/ros) and in a native clone.
+    // The literal container paths stay listed because not every extension
+    // expands ${env:HOME}; a path that does not exist is ignored.
     "python.autoComplete.extraPaths": [
-        "/workspaces/DroneSwarming/install/drone_vip/lib/python3.12/site-packages",
+        "${workspaceFolder}/install/drone_vip/lib/python3.12/site-packages",
+        "${env:HOME}/ros2_ws/install/px4_msgs/lib/python3.12/site-packages",
         "/home/ros/ros2_ws/install/px4_msgs/lib/python3.12/site-packages",
         "/opt/ros/jazzy/lib/python3.12/site-packages"
     ],
     "python.analysis.extraPaths": [
-        "/workspaces/DroneSwarming/install/drone_vip/lib/python3.12/site-packages",
+        "${workspaceFolder}/install/drone_vip/lib/python3.12/site-packages",
+        "${env:HOME}/ros2_ws/install/px4_msgs/lib/python3.12/site-packages",
         "/home/ros/ros2_ws/install/px4_msgs/lib/python3.12/site-packages",
         "/opt/ros/jazzy/lib/python3.12/site-packages"
     ],
-    "cmake.sourceDirectory": "/workspaces/DroneSwarming/src/drone_swarm"
+    "cmake.sourceDirectory": "${workspaceFolder}/src/drone_swarm"
 }

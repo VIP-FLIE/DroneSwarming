@@ -5,7 +5,13 @@
         "databaseFilename": "${default}",
         "limitSymbolsToIncludedHeaders": false
       },
+      // The compile database colcon writes, which carries the exact flags for
+      // every file, including the px4_msgs include path. It only exists after
+      // the first build, so includePath below stays as the fallback.
+      "compileCommands": "${workspaceFolder}/build/compile_commands.json",
       "includePath": [
+        "${workspaceFolder}/src/**",
+        "${env:HOME}/ros2_ws/install/px4_msgs/include/**",
         "/home/ros/ros2_ws/install/px4_msgs/include/**",
         "/opt/ros/jazzy/include/**",
         "/usr/include/**"

@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# drone-sim   Launch PX4 SITL with the x500 in Gazebo.
+#
+#   drone-sim                 x500, Gazebo window on your desktop
+#   drone-sim gz_x500_mono_cam  a different PX4 model
+#   HEADLESS=1 drone-sim      no Gazebo window, for swarms and long runs
+#
+# `gz sim` on its own does not start the drone. It opens Gazebo's world
+# chooser, which lists demo worlds and has nothing to do with PX4. The vehicle
+# is spawned by PX4's own build target, which is what this runs.
+set -o pipefail
+
+export PX4_DIR="${PX4_DIR:-$HOME/PX4-Autopilot}"
+export GZ_SIM_RESOURCE_PATH="$PX4_DIR/Tools/simulation/gz/models:$PX4_DIR/Tools/simulation/gz/worlds"
+
+# PX4 treats this as present-or-absent, not 1-or-0, so even PX4_GZ_STANDALONE=0
+# makes PX4 sit waiting for a Gazebo server nothing started.
+unset PX4_GZ_STANDALONE
+
+MODEL="${1:-gz_x500}"
+
+if [ ! -d "$PX4_DIR" ]; then
+    echo "No PX4 source at $PX4_DIR. Run ./scripts/native/install.sh" >&2
+    exit 1
+fi
+
+if [ ! -x "$PX4_DIR/build/px4_sitl_default/bin/px4" ]; then
+    echo "PX4 is not built yet, so this will compile it first (10 to 30 minutes)."
+    echo "Ctrl-C and run ./scripts/native/install.sh instead if you would rather"
+    echo "see the build with its progress reporting."
+    echo
+fi
+
+echo "Launching PX4 SITL with $MODEL."
+[ -n "${HEADLESS:-}" ] && echo "HEADLESS is set, so no Gazebo window will open."
+echo "First launch takes a minute while Gazebo loads its assets."
+echo
+cd "$PX4_DIR" || exit 1
+exec make px4_sitl "$MODEL"

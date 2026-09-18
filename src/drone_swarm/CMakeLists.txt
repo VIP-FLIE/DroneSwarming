@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.8)
 project(drone_swarm)
 
+# Writes build/<package>/compile_commands.json, which colcon merges into
+# build/compile_commands.json. That is what .vscode/c_cpp_properties.json points
+# at, so editor IntelliSense uses the real compile flags instead of a hand
+# maintained include list. Costs nothing at build time.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # Warnings are the cheapest bug detector available, so they are on and loud.
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
