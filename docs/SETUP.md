@@ -3,6 +3,9 @@
 ROS 2 Jazzy, Gazebo Harmonic and PX4 run in a container. You install Docker and
 VS Code. Nothing else, on any OS.
 
+This is the dev container guide. To install the same stack directly on Ubuntu
+24.04 instead, use [NATIVE-SETUP.md](NATIVE-SETUP.md).
+
 Check [COMPATIBILITY.md](../COMPATIBILITY.md) for your machine first.
 Needs 15 GB disk and 8 GB RAM. The first build takes 20 to 40 minutes once.
 

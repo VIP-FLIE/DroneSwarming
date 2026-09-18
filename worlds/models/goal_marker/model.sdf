@@ -1,0 +1,54 @@
+<?xml version="1.0"?>
+<!--
+  A 3 m post with an orange ball on top. Static, so it costs nothing to
+  simulate, and tall enough to be a visual reference when you are 10 m up.
+
+  Placed into a world with:
+
+      <include>
+        <uri>model://goal_marker</uri>
+        <name>goal_north</name>
+        <pose>0 25 0 0 0 0</pose>
+      </include>
+
+  <name> matters when you include the same model more than once: two entities
+  with the same name is an error and only the first one appears.
+-->
+<sdf version="1.9">
+  <model name="goal_marker">
+    <static>true</static>
+    <link name="link">
+
+      <visual name="post">
+        <pose>0 0 1.5 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.06</radius>
+            <length>3.0</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.9 0.9 0.9 1</ambient>
+          <diffuse>0.95 0.95 0.95 1</diffuse>
+        </material>
+      </visual>
+
+      <visual name="ball">
+        <pose>0 0 3.2 0 0 0</pose>
+        <geometry>
+          <sphere><radius>0.35</radius></sphere>
+        </geometry>
+        <material>
+          <ambient>0.9 0.35 0.05 1</ambient>
+          <diffuse>1.0 0.45 0.05 1</diffuse>
+          <emissive>0.25 0.08 0.0 1</emissive>
+        </material>
+      </visual>
+
+      <!-- No <collision>. Nothing needs to bump into this, and leaving it out
+           keeps the post out of the contact solver entirely. Add one the day
+           you want to test an obstacle the drone can actually hit. -->
+
+    </link>
+  </model>
+</sdf>

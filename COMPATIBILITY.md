@@ -1,16 +1,18 @@
 # Compatibility
 
-What runs where. Setup is in [docs/SETUP.md](docs/SETUP.md).
+What runs where. Setup is in [docs/SETUP.md](docs/SETUP.md) for the dev
+container and [docs/NATIVE-SETUP.md](docs/NATIVE-SETUP.md) for a native
+install.
 
 **Status meanings**
 
 | | |
 |---|---|
-| Verified | Built and run on that setup, `./smoke-test.sh` passed |
+| Verified | Built and run on that setup, the smoke test passed |
 | Untested | Should work, nobody has run it yet. Please test and open an Issue |
 | No | Does not work |
 
-## Operating systems
+## Operating systems, dev container
 
 You need Docker and VS Code. Nothing else, on any OS.
 
@@ -34,7 +36,28 @@ in the container on Ubuntu 24.04.
 Windows 10 and 11 follow the same path. You do not need WSLg, XQuartz, VcXsrv,
 Xming, or any other X server.
 
-## GPU
+## Operating systems, native
+
+ROS 2 Jazzy and Gazebo Harmonic publish packages for Ubuntu 24.04 (noble)
+only, so a native install needs noble or a distro built on it.
+
+| Host OS | Arch | Status |
+|---|---|---|
+| Pop!_OS 24.04 | x86_64 | Verified, NVIDIA RTX 3070 |
+| Ubuntu 24.04 | x86_64 | Untested. Same noble base as the row above |
+| Linux Mint 22, elementary OS 8, Zorin OS 18 | x86_64 | Untested. Same noble base |
+| Ubuntu 24.04 | arm64 | Untested |
+| Ubuntu 22.04 or older, Debian, Fedora, Arch | any | No. Use the dev container |
+| Windows, macOS | any | No. Use the dev container |
+
+Native rendering goes through your own GL driver, so NVIDIA, AMD and Intel
+graphics are all hardware accelerated, and none of them need a container
+toolkit. This is the one place native beats the container: in the container
+only NVIDIA can be passed through, and everything else falls back to software.
+
+Verify a native machine with `./scripts/native/smoke-test.sh`.
+
+## GPU, dev container
 
 You view the GUI in a browser or a VNC client, and
 [VirtualGL](https://virtualgl.org) renders it on the GPU when there is one.

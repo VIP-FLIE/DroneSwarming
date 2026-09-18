@@ -1,0 +1,13 @@
+{
+  // The same set .devcontainer/devcontainer.json installs in the container.
+  // This file is what gives a native checkout the same recommendations, as a
+  // prompt the first time the folder is opened.
+  "recommendations": [
+    "ms-python.python",
+    "ms-python.vscode-pylance",
+    "ms-vscode.cpptools",
+    "ms-vscode.cmake-tools",
+    "ms-iot.vscode-ros",
+    "redhat.vscode-yaml"
+  ]
+}

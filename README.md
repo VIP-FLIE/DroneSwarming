@@ -10,11 +10,9 @@ There will be (if not already), more documents explaining everything covered her
 Here we will use GitHub Issues to communicate problems and questions. For anything that must not be forgotten or buried in messages, please use GitHub Issues. It will allow us to keep everything tidy in the repo and not lose important threads. Of course, if something needs immediate attention, just use the GroupMe. I am thinking things like package requests, bug reports, long-standing issues, etc. should go in the Issues.
 
 ### Development Workflow:
-ROS 2 Jazzy, Gazebo Harmonic and PX4 run in a container, so you develop on your own laptop whatever it runs. You install Docker and VS Code. Nothing else.
+There are two ways to run ROS 2 Jazzy, Gazebo Harmonic and PX4. Both install the same pinned versions and fly the same. Pick one.
 
-Start with [docs/SETUP.md](docs/SETUP.md). Check [COMPATIBILITY.md](COMPATIBILITY.md) for your machine.
-Once it runs, [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md) explains the whole
-pipeline from your code down to the rotors, and how to grow one drone into a swarm.
+**Dev container.** Any OS. You install Docker and VS Code, nothing else. Start with [docs/SETUP.md](docs/SETUP.md), and check [COMPATIBILITY.md](COMPATIBILITY.md) for your machine.
 
 ```bash
 git clone <this repo> && cd DroneSwarming
@@ -22,9 +20,19 @@ git clone <this repo> && cd DroneSwarming
 .\scripts\doctor.ps1 -Write      # Windows PowerShell
 ```
 
-Then in VS Code: `F1`, `Dev Containers: Reopen in Container`.
+Then in VS Code: `F1`, `Dev Containers: Reopen in Container`. Gazebo runs on a desktop inside the container. You view it either in your browser at <http://localhost:6080> or in a VNC client on port 5901, whichever you prefer. Both are set up in [docs/SETUP.md](docs/SETUP.md). VirtualGL renders on your GPU if you have one.
 
-Gazebo runs on a desktop inside the container. You view it either in your browser at <http://localhost:6080> or in a VNC client on port 5901, whichever you prefer. Both are set up in [docs/SETUP.md](docs/SETUP.md). VirtualGL renders on your GPU if you have one.
+**Native.** Ubuntu 24.04 and derivatives. Use it if you already run the ROS 2 stack natively, or you want Gazebo in a window on your own desktop and GPU. Start with [docs/NATIVE-SETUP.md](docs/NATIVE-SETUP.md).
+
+```bash
+git clone <this repo> && cd DroneSwarming
+./scripts/native/install.sh
+```
+
+Either way, once it runs, [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md) explains the whole
+pipeline from your code down to the rotors, and how to grow one drone into a swarm.
+[docs/NEW-PACKAGE.md](docs/NEW-PACKAGE.md) is how you start a package of your own, in Python or C++.
+[docs/WORLDS.md](docs/WORLDS.md) is how you fly somewhere other than the blank grey plane, including building a map of your own.
 
 Use the lab machine in Evans 153 for long runs and real hardware. You do not need it to develop.
 
@@ -36,9 +44,14 @@ This may seem pedantic, but trust that things can go real bad real quick without
 - Try to scope down your changes to the smallest functional unit possible. It is much easier to reason about a change that tackles one issue across a few files rather than sweeping changes across the entire codebase. This also comes with the practical upshot of changes _usually_ being small enough to be merged without conflicts.
 - If someone messes this process up (you will, I will, we all will), best practice is to revert to the last known 'safe' version of the codebase. If you don't know how to get back to that point (also totally okay!), please ask for help ASAP. Git issues are an infinite rabbit hole of horror and despair, the closer to ground level we address them, the easier it is to get back on track.
 
-## Dev Container Testing:
-See [COMPATIBILITY.md](COMPATIBILITY.md) for the full matrix of operating systems, architectures and GPUs, and what has actually been tested.
+## Testing:
+See [COMPATIBILITY.md](COMPATIBILITY.md) for the full matrix of operating systems, architectures and GPUs, and what has actually been tested, for both the dev container and a native install.
 
-Verified so far: Linux x86_64 with and without an NVIDIA GPU, and headless over SSH. Windows and macOS are implemented but untested on hardware. If you are on one of those, run `./smoke-test.sh` and open an Issue with the output.
+Verified so far: the dev container on Linux x86_64 with and without an NVIDIA GPU, and headless over SSH; the native install on Pop!_OS 24.04 with an NVIDIA GPU. Windows and macOS are implemented but untested on hardware. If your setup is listed as untested, run the smoke test and open an Issue with the output:
+
+```bash
+./smoke-test.sh                     # dev container
+./scripts/native/smoke-test.sh      # native
+```
 
 Machines without a GPU get software rendering. That costs GUI framerate and camera sensor rate, not flight behavior. PX4 runs in lockstep, and 8 vehicles held a real-time factor of 0.999 on 4 CPU cores. Details in [docs/SIMULATION-FIDELITY.md](docs/SIMULATION-FIDELITY.md).

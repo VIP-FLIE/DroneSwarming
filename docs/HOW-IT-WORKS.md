@@ -1,8 +1,10 @@
 # How it works, and how to grow it into a swarm
 
-Start here if you want to write flight code. [docs/SETUP.md](SETUP.md) gets the
-container running; [QUICKSTART.md](../QUICKSTART.md) is the command reference.
-This is the one that explains *why* any of it is shaped the way it is.
+Start here if you want to write flight code. Getting the stack running is
+[SETUP.md](SETUP.md) for the dev container and [NATIVE-SETUP.md](NATIVE-SETUP.md)
+for a native install, and [QUICKSTART.md](../QUICKSTART.md) is the command
+reference. This is the one that explains *why* any of it is shaped the way it
+is.
 
 The worked example is [`src/drone_swarm/src/hop.cpp`](../src/drone_swarm/src/hop.cpp):
 one drone, takes off, flies three metres forward, lands. It is one file and it
@@ -11,8 +13,9 @@ already in there except the swarm.
 
 ## Run it
 
-Four terminals in the container. The first three are the simulator and never
-change; only the fourth is your code.
+Four terminals. The first three are the simulator and never change; only the
+fourth is your code. The commands are the same in the dev container and on a
+native install.
 
 ```bash
 MicroXRCEAgent udp4 -p 8888     # 1. the bridge between PX4 and ROS 2
@@ -21,7 +24,8 @@ drone-sim                       # 3. PX4 + Gazebo, gives you a pxh> prompt
 ros2 run drone_swarm hop        # 4. your flight program
 ```
 
-Watch it at <http://localhost:6080>. Expect this:
+Watch it in Gazebo, which is at <http://localhost:6080> in the dev container and
+a window on your desktop natively. Expect this:
 
 ```
 [INFO] [hop]: will climb to 3.0 m, fly 3.0 m north, and land. Commanding /fmu/.
@@ -144,8 +148,8 @@ this is almost always why.
 
 ### Rule 3: arming is a safety interlock, not a formality
 
-PX4 runs preflight checks and refuses to arm until they pass. In this container
-the one that catches everyone is the datalink check above. `hop.cpp` reads
+PX4 runs preflight checks and refuses to arm until they pass. The one that
+catches everyone here is the datalink check above. `hop.cpp` reads
 PX4's own `gcs_connection_lost`, `failsafe` and `pre_flight_checks_pass` fields
 and tells you which one is unhappy rather than making you guess.
 
@@ -165,7 +169,7 @@ some shared frame: wherever *that* drone's estimator started. With one drone
 this is invisible. With several it is the central problem of swarming, because
 "go to north 5" means a different place for each aircraft.
 
-**Gazebo's world frame is ENU** — East, North, Up — while PX4's is NED. So a
+**Gazebo's world frame is ENU**, meaning East, North, Up, while PX4's is NED. So a
 spawn pose of `PX4_GZ_MODEL_POSE="0,3"` is x=0 east, y=3 north, and arrives in
 your node as `x = 3` (north). The two frames are a standing source of confusion;
 [PX4's notation page](https://docs.px4.io/v1.16/en/contribute/notation.html)
@@ -305,8 +309,8 @@ A formation flown as a function of time only holds if every drone uses the
 is permanently in the wrong place. So you need either a shared start signal or a
 common clock.
 
-The cheapest version: a topic outside any `px4_` namespace — say
-`/swarm/ready` — that each drone publishes to once it is at altitude and
+The cheapest version: a topic outside any `px4_` namespace, say
+`/swarm/ready`, that each drone publishes to once it is at altitude and
 subscribes to so it can count. Nobody starts until everybody has reported. Keep
 it out of the `px4_` namespaces deliberately: on hardware every drone publishes
 on bare `/fmu/`, so drone-to-drone coordination cannot live under those names.
@@ -336,23 +340,24 @@ v1.16.1, not a search result. PX4 changes these conventions between releases.
 - [Offboard Control example](https://docs.px4.io/v1.16/en/ros2/offboard_control)
 - [Offboard mode reference](https://docs.px4.io/v1.16/en/flight_modes_mc/offboard.html)
 - [uXRCE-DDS bridge](https://docs.px4.io/v1.16/en/middleware/uxrce_dds)
-- [px4_msgs, release/1.16](https://github.com/PX4/px4_msgs/tree/release/1.16/msg) — the message definitions you are publishing
+- [px4_msgs, release/1.16](https://github.com/PX4/px4_msgs/tree/release/1.16/msg), the message definitions you are publishing
 - [Multi-vehicle with ROS 2](https://docs.px4.io/v1.16/en/ros2/multi_vehicle)
 - [Multi-vehicle in Gazebo](https://docs.px4.io/v1.16/en/sim_gazebo_gz/multi_vehicle_simulation.html)
 - [Gazebo simulation](https://docs.px4.io/v1.16/en/sim_gazebo_gz/)
-- [Safety and failsafe configuration](https://docs.px4.io/v1.16/en/config/safety.html) — where `NAV_DLL_ACT` lives
+- [Safety and failsafe configuration](https://docs.px4.io/v1.16/en/config/safety.html), where `NAV_DLL_ACT` lives
 - [Parameter reference](https://docs.px4.io/v1.16/en/advanced_config/parameter_reference.html)
 - [Frame and notation conventions](https://docs.px4.io/v1.16/en/contribute/notation.html)
-- [MAVLink common messages](https://mavlink.io/en/messages/common.html) — what `VehicleCommand`'s param1..7 mean
+- [MAVLink common messages](https://mavlink.io/en/messages/common.html), what `VehicleCommand`'s param1..7 mean
 
 **ROS 2 Jazzy**
 - [Understanding topics](https://docs.ros.org/en/jazzy/Tutorials/Beginner-CLI-Tools/Understanding-ROS2-Topics/Understanding-ROS2-Topics.html)
-- [Quality of Service](https://docs.ros.org/en/jazzy/Concepts/Intermediate/About-Quality-of-Service-Settings.html) — read this one properly
+- [Quality of Service](https://docs.ros.org/en/jazzy/Concepts/Intermediate/About-Quality-of-Service-Settings.html), read this one properly
 - [Writing a C++ publisher and subscriber](https://docs.ros.org/en/jazzy/Tutorials/Beginner-Client-Libraries/Writing-A-Simple-Cpp-Publisher-And-Subscriber.html)
 - [Creating a package](https://docs.ros.org/en/jazzy/Tutorials/Beginner-Client-Libraries/Creating-Your-First-ROS2-Package.html)
 - [Launch files](https://docs.ros.org/en/jazzy/Tutorials/Intermediate/Launch/Creating-Launch-Files.html)
 
 **This repo**
-- [QUICKSTART.md](../QUICKSTART.md) — commands and a troubleshooting table
-- [SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md) — what the simulator gets right, with numbers
-- [SETUP.md](SETUP.md) — getting the container running
+- [QUICKSTART.md](../QUICKSTART.md), commands and a troubleshooting table
+- [SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md), what the simulator gets right, with numbers
+- [SETUP.md](SETUP.md), getting the dev container running
+- [NATIVE-SETUP.md](NATIVE-SETUP.md), the same stack installed directly on Ubuntu

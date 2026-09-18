@@ -16,3 +16,14 @@ __pycache__/
 # Deliberately NOT committed: the repo stays identical for everyone and each
 # machine adapts locally.
 .devcontainer/.env
+
+# VS Code. Track only the workspace config the whole team shares. Everything
+# else that lands in here is personal: launch.json with someone's absolute
+# paths, tasks.json, whatever an extension decides to write.
+#
+# Order matters. The negations below only work because the line above ignores
+# the CONTENTS of the directory rather than the directory itself.
+.vscode/*
+!.vscode/settings.json
+!.vscode/c_cpp_properties.json
+!.vscode/extensions.json

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# drone-gcs   Ground control station link for SITL.
+#
+# PX4's x500 airframe sets NAV_DLL_ACT 2, return on datalink loss, so it
+# refuses to arm until it can see a ground control station. This supplies that
+# link for one vehicle or for a whole swarm. Leave it running.
+#
+# This runs the same file the dev container runs, so the link behaves
+# identically either way. Read that file for what it does and why.
+set -o pipefail
+
+REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
+exec python3 "$REPO_ROOT/.devcontainer/scripts/drone-gcs" "$@"
