@@ -290,6 +290,131 @@ needs a rebuild.
 
 ---
 
+# Launch files
+
+One `ros2 launch` instead of six terminals. A launch file starts several
+processes at once, passes each one its parameters, and can stagger them in time.
+It is how anything with more than one node gets run.
+
+Launch files go in `launch/` and are ordinary Python. They have to be installed
+or `ros2 launch` cannot find them:
+
+```cmake
+install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
+```
+
+```python
+# setup.py, for an ament_python package
+data_files=[
+    ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
+],
+```
+
+Missing that line is why a launch file that plainly exists reports `file not
+found`.
+
+`launch/my_package.launch.py`:
+
+```python
+from launch import LaunchDescription
+from launch_ros.actions import Node
+
+
+def generate_launch_description():
+    return LaunchDescription([
+        Node(
+            package='my_package',
+            executable='watcher',
+            name='watcher_1',
+            output='screen',
+            parameters=[{'px4_ns': 'px4_1'}],
+        ),
+    ])
+```
+
+```bash
+colcon build --symlink-install --packages-select my_package
+source install/setup.bash
+ros2 launch my_package my_package.launch.py
+```
+
+| Thing | What it is for |
+|---|---|
+| `DeclareLaunchArgument` | A value you can pass on the command line: `ros2 launch pkg file.launch.py count:=5` |
+| `LaunchConfiguration('count')` | Reads one back. It is a substitution, not a value, so it has nothing in it until launch is running |
+| `OpaqueFunction` | Runs your Python once launch has started, where `LaunchConfiguration(...).perform(context)` gives you a real value. This is what you need to loop over an argument |
+| `TimerAction` | Starts actions after a delay. Staggering process startup |
+| `ExecuteProcess` | Runs something that is not a ROS node, such as PX4 itself |
+| `--show-args` | Prints every argument and its description without launching anything |
+
+[`src/swarm_naive/launch/swarm.launch.py`](../src/swarm_naive/launch/swarm.launch.py)
+uses all of those to start N PX4 instances and N nodes, and is commented line by
+line. [SWARM.md](SWARM.md) explains it.
+
+---
+
+# Your own message type
+
+`px4_msgs` covers talking to PX4. A message of your own is for anything your
+nodes say to each other.
+
+`msg/MyThing.msg`, one field per line, `type name`:
+
+```
+uint64 stamp_us
+uint8 slot
+bool ready
+float32 north_m
+```
+
+`CMakeLists.txt`:
+
+```cmake
+find_package(rosidl_default_generators REQUIRED)
+
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/MyThing.msg"
+)
+
+add_executable(watcher src/watcher.cpp)
+
+# Only needed when the node lives in the SAME package as the message.
+rosidl_get_typesupport_target(my_typesupport ${PROJECT_NAME} rosidl_typesupport_cpp)
+target_link_libraries(watcher PRIVATE rclcpp::rclcpp ${my_typesupport})
+```
+
+`package.xml`:
+
+```xml
+<buildtool_depend>rosidl_default_generators</buildtool_depend>
+<exec_depend>rosidl_default_runtime</exec_depend>
+<member_of_group>rosidl_interface_packages</member_of_group>
+```
+
+Then `#include <my_package/msg/my_thing.hpp>`, which is the message name in
+snake_case under the package name.
+
+The `rosidl_get_typesupport_target` line is the one that catches people. Using a
+message from the same package that generates it cannot go through
+`find_package`, because that target does not exist yet while the package is
+still being built. Leave it out and the code compiles and then fails to link,
+with undefined references to the message's type support.
+
+Most tutorials put messages in a package of their own, and for a large project
+that is right: everybody who wants to talk to you then depends on a small
+interface package instead of on all of your code. One message used by one node
+does not earn a second package.
+
+Worked example: [`src/swarm_comms`](../src/swarm_comms/), where
+`msg/SwarmState.msg` is what the drones say to each other.
+
+```bash
+ros2 interface show swarm_comms/msg/SwarmState
+ros2 topic echo /swarm/state
+```
+
+---
+
 # Dependencies
 
 A dependency has to be declared in `package.xml` and then used by the language's
@@ -302,6 +427,8 @@ build first and rosdep what to install.
 | PX4 messages | `<depend>px4_msgs</depend>` | `from px4_msgs.msg import ...` | `find_package(px4_msgs REQUIRED)` and link `${px4_msgs_TARGETS}` |
 | The shared QoS profile | `<depend>drone_vip</depend>` | `from drone_vip.px4_qos import PX4_QOS` | Not applicable, C++ defines its own in the node |
 | A plain pip package | `<exec_depend>python3-numpy</exec_depend>` | `import numpy` | Not applicable |
+| A message of your own | `<buildtool_depend>rosidl_default_generators</buildtool_depend>`, `<exec_depend>rosidl_default_runtime</exec_depend>`, `<member_of_group>rosidl_interface_packages</member_of_group>` | `from my_package.msg import MyThing` | `rosidl_generate_interfaces(...)` and link the target from `rosidl_get_typesupport_target` |
+| Launch files | `<exec_depend>launch</exec_depend>`, `<exec_depend>launch_ros</exec_depend>` | Install `launch/` in `setup.py` | `install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})` |
 
 `px4_msgs` lives in `~/ros2_ws`, which is a separate workspace built before this
 one. It is already on your path in both setups.
@@ -334,6 +461,7 @@ To keep colcon out of a directory, put an empty `COLCON_IGNORE` file in it.
 - [ ] C++: `add_executable`, `target_link_libraries`, and the target named in `install(TARGETS ...)`
 - [ ] `PX4_QOS` or the equivalent on every `/fmu/` topic
 - [ ] `px4_ns` parameter, so the node survives meeting a second drone
+- [ ] Launch files, if any, installed into `share/<package>`
 - [ ] `colcon build` from the repo root, then `source install/setup.bash`
 - [ ] `ros2 pkg executables my_package` lists what you expect
 
@@ -352,6 +480,9 @@ To keep colcon out of a directory, put an empty `COLCON_IGNORE` file in it.
 | Callback never fires, `ros2 topic echo` shows data | QoS mismatch | `PX4_QOS`, see [QUICKSTART.md](../QUICKSTART.md) |
 | colcon builds packages you did not expect | A nested workspace under `src/` | Put an empty `COLCON_IGNORE` in it |
 | Import fails with a dash in the name | A Python module name cannot contain a dash | Rename the package, underscores only |
+| `ros2 launch` cannot find a launch file that exists | Not installed | `install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})`, or the `data_files` entry in `setup.py` |
+| Undefined references to your own message's type support | Message used from the package that generates it | Link the target from `rosidl_get_typesupport_target` |
+| `ros2 interface show` does not list your message | `<member_of_group>rosidl_interface_packages</member_of_group>` missing | Add it to `package.xml` and rebuild |
 
 # Reference
 
@@ -359,5 +490,8 @@ To keep colcon out of a directory, put an empty `COLCON_IGNORE` file in it.
 - [QUICKSTART.md](../QUICKSTART.md), QoS, offboard mode and multi-vehicle
 - `src/drone_vip/drone_vip/listener.py`, the smallest complete Python node here
 - `src/drone_swarm/src/hop.cpp`, the same for C++, with the three PX4 rules marked
+- [SWARM.md](SWARM.md), and `src/swarm_naive` and `src/swarm_comms`, for launch files and a message of your own in use
+- [Creating custom msg files](https://docs.ros.org/en/jazzy/Tutorials/Beginner-Client-Libraries/Custom-ROS2-Interfaces.html), the upstream tutorial
+- [Creating launch files](https://docs.ros.org/en/jazzy/Tutorials/Intermediate/Launch/Creating-Launch-Files.html), the upstream tutorial
 - [Creating a package](https://docs.ros.org/en/jazzy/Tutorials/Beginner-Client-Libraries/Creating-Your-First-ROS2-Package.html), the upstream tutorial
 - [px4_msgs release/1.16](https://github.com/PX4/px4_msgs/tree/release/1.16/msg), every message you can subscribe to

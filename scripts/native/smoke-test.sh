@@ -113,16 +113,70 @@ fi
 # The fidelity claim in docs/SIMULATION-FIDELITY.md is that nothing in the
 # simulation was changed. This is that claim, checked.
 if [ -d "$PX4_DIR/.git" ]; then
-    # The two NuttX submodule trees are removed on purpose by the installer and
-    # by the container image, so git reports them as deleted in both. Anything
-    # else in this list is a real local change to the simulation.
-    PX4_DIRTY=$(cd "$PX4_DIR" && git status --short 2>/dev/null \
-        | awk '$2 !~ /^platforms\/nuttx\/NuttX\/(nuttx|apps)$/')
-    if [ -z "$PX4_DIRTY" ]; then
-        ok "PX4 tree unmodified, apart from the removed NuttX submodules"
-    else
+    # PX4's worlds and models sit in a submodule, Tools/simulation/gz, and git
+    # reports a submodule whose contents changed as one line naming the
+    # submodule, which says nothing about what changed inside it. So read the
+    # top level with submodule working trees ignored, which still reports a
+    # submodule moved to a different commit, then ask every submodule for its
+    # own status and put its path back on the front of each line.
+    PX4_STATUS=$(cd "$PX4_DIR" && {
+        git status --short --ignore-submodules=dirty
+        git submodule --quiet foreach --recursive \
+            'git status --short | sed "s|^\(...\)|\1$displaypath/|"'
+    } 2>/dev/null)
+    PX4_READ=$?
+
+    PX4_DIRTY=""
+    LINKED=0
+    FOREIGN=""
+    while IFS= read -r entry; do
+        [ -n "$entry" ] || continue
+        state=${entry:0:2}
+        path=${entry:3}
+
+        # The two NuttX submodule trees are removed on purpose by the installer
+        # and by the container image, so git reports them deleted in both.
+        case "$path" in
+            platforms/nuttx/NuttX/nuttx|platforms/nuttx/NuttX/apps) continue ;;
+        esac
+
+        # install-worlds.sh links this repo's worlds and models in beside PX4's
+        # own, because PX4 loads a world by name out of its own directory and
+        # there is no other way in. See that script's header. Those links add
+        # files, they change none of PX4's, so they are not what this check is
+        # looking for. Only an untracked symlink is let through: editing one of
+        # PX4's own worlds leaves a tracked file modified, and a modified file
+        # still lands in the list below.
+        if [ "$state" = "??" ] && [ -L "$PX4_DIR/$path" ]; then
+            case "$path" in
+                Tools/simulation/gz/worlds/*|Tools/simulation/gz/models/*)
+                    target=$(readlink -f "$PX4_DIR/$path")
+                    case "$target" in
+                        "$REPO_ROOT"/*) LINKED=$((LINKED+1)) ;;
+                        *) FOREIGN="$FOREIGN$path -> $target"$'\n' ;;
+                    esac
+                    continue ;;
+            esac
+        fi
+
+        PX4_DIRTY="$PX4_DIRTY$entry"$'\n'
+    done <<< "$PX4_STATUS"
+
+    # A check that cannot read the tree has not checked anything, so say so
+    # rather than reporting the empty list it just got as a clean tree.
+    if [ "$PX4_READ" -ne 0 ]; then
+        skip "git could not read the state of the PX4 tree at $PX4_DIR"
+    elif [ -n "$PX4_DIRTY" ]; then
         no "the PX4 tree has local modifications"
-        sed 's/^/        /' <<< "$PX4_DIRTY" | head -10
+        printf '%s' "$PX4_DIRTY" | head -10 | sed 's/^/        /'
+    else
+        ok "PX4 tree unmodified, apart from the removed NuttX submodules"
+        [ "$LINKED" -gt 0 ] && \
+          note "plus $LINKED world/model link(s) from this repo, which add files rather than change PX4's"
+    fi
+    if [ -n "$FOREIGN" ]; then
+        note "linked into PX4 from outside $REPO_ROOT, so install-worlds.sh here did not put them there:"
+        printf '%s' "$FOREIGN" | sed 's/^/          /'
     fi
 fi
 

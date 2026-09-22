@@ -30,9 +30,19 @@ git clone <this repo> && cd DroneSwarming
 ```
 
 Either way, once it runs, [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md) explains the whole
-pipeline from your code down to the rotors, and how to grow one drone into a swarm.
+pipeline from your code down to the rotors, starting from one drone.
+[docs/SWARM.md](docs/SWARM.md) is the same thing for several drones, and covers the two
+worked swarm examples in `src/swarm_naive` and `src/swarm_comms`.
 [docs/NEW-PACKAGE.md](docs/NEW-PACKAGE.md) is how you start a package of your own, in Python or C++.
+[docs/UNDER-THE-SCRIPTS.md](docs/UNDER-THE-SCRIPTS.md) runs the same stack without `drone-sim` or `drone-gcs`, and maps each piece onto what is physically on the aircraft.
 [docs/WORLDS.md](docs/WORLDS.md) is how you fly somewhere other than the blank grey plane, including building a map of your own.
+
+Three drones taking off, flying a ring and landing, once the simulator is up:
+
+```bash
+ros2 launch swarm_naive swarm.launch.py    # no drone knows the others exist
+ros2 launch swarm_comms swarm.launch.py    # the same flight, with them talking
+```
 
 Use the lab machine in Evans 153 for long runs and real hardware. You do not need it to develop.
 

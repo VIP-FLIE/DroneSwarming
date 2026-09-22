@@ -26,6 +26,11 @@ the datalink-loss failsafe and watch the vehicle Return, which is behaviour
 you want to have seen in simulation before you see it in a field.
 
 Run QGroundControl against udp 14550 instead of this if you prefer a real GCS.
+All this does that QGroundControl does not is reach out to every SITL
+instance's own port, which is what a swarm needs. See below.
+
+    drone-gcs                 link whatever turns up
+    drone-gcs --expect 3      and check three vehicles actually arrive
 
 REACHING EVERY VEHICLE, NOT JUST THE FIRST
 ------------------------------------------
@@ -49,7 +54,31 @@ The symptom when a station only serves one vehicle is memorable: the first
 drone arms and flies away, and every other drone sits on the pad reporting
 "Arming denied", because for them the datalink failsafe is genuinely still
 unsatisfied and PX4 is correctly refusing.
+
+THE HEADER TRAP, AND WHY THERE IS NO "SYSTEM 0"
+-----------------------------------------------
+A message's source system id is only trustworthy if pymavlink could actually
+decode the message. When it cannot, it builds a `MAVLink_unknown` whose
+constructor is
+
+    MAVLink_message.__init__(self, MAVLINK_MSG_ID_UNKNOWN, "UNKNOWN_%u" % msgid)
+
+and `MAVLink_message.__init__` does `self._header = MAVLink_header(msgId)`,
+leaving srcSystem and srcComponent at zero. `MAVLink_bad_data` behaves the same
+way. So `get_srcSystem()` returns 0 for anything undecodable, and it is not
+reporting what was on the wire, it is reporting a field nobody filled in.
+
+PX4 v1.16.1 streams several messages that pymavlink 2.4.49's bundled dialect
+does not contain, including ids 8, 290, 291, 380, 410 (EVENT), 411
+(CURRENT_EVENT_SEQUENCE) and 436. An earlier version of this script counted
+every distinct srcSystem it saw, so those all collapsed into a phantom
+"system 0" and a three-drone swarm reported four vehicles linked.
+
+Verified by reading the same frames off the socket without pymavlink's decoder:
+msgid 410 and 411 arrive with sysid 2, compid 1, which is the vehicle. There
+was never another system on the link. `is_from_a_vehicle` below is the fix.
 """
+import argparse
 import sys
 import time
 
@@ -69,22 +98,136 @@ SITL_ADDRESSES = frozenset(
     for instance in range(SITL_INSTANCE_LIMIT)
 )
 
-# How long to go without hearing anything before saying so. Only a complaint:
-# a station that quit because the simulator was slow to boot would be useless.
+# How long to go without hearing anything at all before saying so. Only a
+# complaint: a station that quit because the simulator was slow to boot would
+# be useless.
 SILENCE_WARNING_S = 90.0
 
+# Added to that deadline for each vehicle beyond the first, when --expect says
+# how many to wait for. The swarm launch files stagger PX4 instances on purpose,
+# because the first vehicle has to load Gazebo before any other can join its
+# world, so a big swarm is legitimately still starting up well after a small one
+# has finished. Without this a ten-drone swarm gets told it is short while it is
+# doing exactly what it should.
+EXTRA_WAIT_PER_VEHICLE_S = 15.0
 
-def announce(system_id, linked):
-    """Report each vehicle the first time it is heard from.
+# How long one vehicle can go quiet before we call its link lost. Deliberately
+# PX4's own COM_DL_LOSS_T default, so this reports a link lost at roughly the
+# moment that vehicle's datalink failsafe fires rather than at some unrelated
+# threshold of our own.
+LINK_LOSS_S = 10.0
 
-    The count is the number worth watching. If it stops short of the number of
-    drones you launched, the ones missing are the ones that will not arm.
+# MAVLink reserves system id 0 for broadcast, so it can never identify a
+# vehicle. Nothing should produce it now that undecodable messages are dropped,
+# but counting it would be wrong in any case.
+BROADCAST_SYSTEM_ID = 0
+
+
+def is_from_a_vehicle(message):
+    """Can this message's source system id be believed?
+
+    Only if pymavlink actually decoded the message. An undecodable one carries a
+    header nobody populated, so its srcSystem reads 0 whatever was on the wire.
+    See THE HEADER TRAP above. Checked by class rather than by name so a dialect
+    update cannot quietly change the answer.
     """
-    if system_id in linked:
-        return
-    linked.add(system_id)
-    print(f"Linked to PX4 system {system_id}. Datalink failsafe satisfied for "
-          f"{len(linked)} vehicle(s); they can arm.", flush=True)
+    if isinstance(message, (mavutil.mavlink.MAVLink_unknown,
+                            mavutil.mavlink.MAVLink_bad_data)):
+        return False
+    return message.get_srcSystem() != BROADCAST_SYSTEM_ID
+
+
+class Station:
+    """Which vehicles we can see, and whether that is as many as expected."""
+
+    def __init__(self, expected=None):
+        self._expected = expected
+        self._last_heard = {}      # system id -> time.monotonic() of last message
+        self._quiet = set()        # systems currently past LINK_LOSS_S
+        self._skipped_a_message = False
+
+    def linked_count(self):
+        """Vehicles we can hear RIGHT NOW, which is the number worth watching."""
+        return len(self._last_heard) - len(self._quiet)
+
+    def _tally(self):
+        if self._expected is None:
+            return (f"Datalink failsafe satisfied for {self.linked_count()} "
+                    f"vehicle(s); they can arm.")
+        return f"{self.linked_count()} of {self._expected} vehicles linked."
+
+    def note_skipped_message(self, message):
+        """Say once that undecodable messages are being dropped, and why.
+
+        Worth one line rather than none. It is normal, it is not a fault in the
+        vehicle, and a reader who finds no mention of it has no way to tell
+        that from the alternative.
+        """
+        if self._skipped_a_message:
+            return
+        self._skipped_a_message = True
+        print(f"Note: ignoring {message.get_type()} and anything else this "
+              f"pymavlink cannot decode. PX4 streams messages newer than its "
+              f"bundled dialect; their headers are unparsed, so their system id "
+              f"would read 0. They come from the vehicle, and nothing is wrong.",
+              flush=True)
+
+    def on_message(self, message):
+        """Record a message from a real vehicle, and announce anything new."""
+        system_id = message.get_srcSystem()
+        now = time.monotonic()
+
+        if system_id in self._quiet:
+            self._quiet.discard(system_id)
+            self._last_heard[system_id] = now
+            print(f"PX4 system {system_id} is back. {self._tally()}", flush=True)
+            return
+
+        if system_id not in self._last_heard:
+            self._last_heard[system_id] = now
+            print(f"Linked to PX4 system {system_id}. {self._tally()}", flush=True)
+            if self._expected is not None and self.linked_count() == self._expected:
+                print("Every vehicle accounted for.", flush=True)
+            return
+
+        self._last_heard[system_id] = now
+
+    def check_for_lost_links(self):
+        """Report a vehicle that has stopped talking to us.
+
+        The vehicle's own datalink failsafe is firing at about the same moment,
+        so this is the station's side of an event you can also watch in PX4's
+        console. Killing this process is the deliberate way to cause it.
+        """
+        now = time.monotonic()
+        for system_id, last in sorted(self._last_heard.items()):
+            if system_id in self._quiet or now - last <= LINK_LOSS_S:
+                continue
+            self._quiet.add(system_id)
+            print(f"Lost the link to PX4 system {system_id} after "
+                  f"{LINK_LOSS_S:.0f} s of silence. Its datalink-loss failsafe "
+                  f"will be firing now. {self._tally()}", flush=True)
+
+    def deadline_s(self):
+        """How long to give the swarm before complaining that it is short."""
+        if self._expected is None:
+            return SILENCE_WARNING_S
+        return SILENCE_WARNING_S + EXTRA_WAIT_PER_VEHICLE_S * (self._expected - 1)
+
+    def report_shortfall(self):
+        """Once, after deadline_s(), say if the swarm never assembled."""
+        if not self._last_heard:
+            print(f"No heartbeat from any PX4 after {self.deadline_s():.0f}s. "
+                  f"Is the simulator running?", file=sys.stderr, flush=True)
+            return
+        if self._expected is None or self.linked_count() >= self._expected:
+            return
+        linked = ", ".join(str(s) for s in sorted(self._last_heard) if s not in self._quiet)
+        print(f"Only {self.linked_count()} of {self._expected} vehicles linked "
+              f"after {self.deadline_s():.0f}s. Linked so far: systems "
+              f"{linked or 'none'}. Whichever vehicles are missing will report "
+              f"'Arming denied', because each one enforces the datalink "
+              f"failsafe separately.", file=sys.stderr, flush=True)
 
 
 def send_heartbeat(link):
@@ -109,7 +252,26 @@ def send_heartbeat(link):
             pass
 
 
-def main() -> int:
+def parse_args(argv):
+    parser = argparse.ArgumentParser(
+        description="MAVLink ground station link for PX4 SITL, one vehicle or a swarm.",
+        epilog="Leave it running. Ctrl-C drops the link, which is how you test "
+               "the datalink-loss failsafe.")
+    parser.add_argument(
+        "--expect", type=int, metavar="N", default=None,
+        help="how many vehicles you launched. Reports 'N of M vehicles linked' "
+             "and says so if they never all turn up. Without it, this only "
+             "reports what it hears.")
+    args = parser.parse_args(argv)
+    if args.expect is not None and not 1 <= args.expect <= SITL_INSTANCE_LIMIT:
+        parser.error(f"--expect must be between 1 and {SITL_INSTANCE_LIMIT}, "
+                     f"which is the range of SITL instances this heartbeats.")
+    return args
+
+
+def main(argv=None) -> int:
+    args = parse_args(argv)
+
     link = mavutil.mavlink_connection(
         BIND,
         source_system=GCS_SYSTEM_ID,
@@ -119,25 +281,32 @@ def main() -> int:
     print(f"Listening on {BIND}, and heartbeating SITL instances 0-"
           f"{SITL_INSTANCE_LIMIT - 1} on ports {SITL_GCS_PORT_BASE}-"
           f"{SITL_GCS_PORT_BASE + SITL_INSTANCE_LIMIT - 1}.", flush=True)
+    if args.expect is not None:
+        print(f"Expecting {args.expect} vehicle(s). SITL instance N answers to "
+              f"system id N+1, so instances 1-{args.expect} are systems "
+              f"2-{args.expect + 1}.", flush=True)
     print("Leave this running. Ctrl-C to drop the link "
           "(which is how you test the datalink-loss failsafe).", flush=True)
 
-    linked = set()
+    station = Station(args.expect)
     started = time.monotonic()
-    warned = False
+    reported_shortfall = False
 
     while True:
         # Drain everything that arrived since the last cycle. This is also what
         # teaches pymavlink the address of any vehicle that found us on its own.
         while (message := link.recv_msg()) is not None:
-            announce(message.get_srcSystem(), linked)
+            if is_from_a_vehicle(message):
+                station.on_message(message)
+            else:
+                station.note_skipped_message(message)
 
+        station.check_for_lost_links()
         send_heartbeat(link)
 
-        if not linked and not warned and time.monotonic() - started > SILENCE_WARNING_S:
-            print(f"No heartbeat from any PX4 after {SILENCE_WARNING_S:.0f}s. "
-                  f"Is the simulator running?", file=sys.stderr, flush=True)
-            warned = True
+        if not reported_shortfall and time.monotonic() - started > station.deadline_s():
+            reported_shortfall = True
+            station.report_shortfall()
 
         time.sleep(HEARTBEAT_INTERVAL_S)
 
