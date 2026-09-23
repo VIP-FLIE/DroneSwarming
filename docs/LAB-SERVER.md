@@ -1,5 +1,8 @@
 # The lab machine
 
+> **Convention:** `your_username` is a placeholder. Replace it with the actual
+> username of the person you are onboarding.
+
 How the Evans 153 machine is set up so the whole team can SSH in, fly the
 simulator, and see it, from macOS, Windows or Linux.
 
@@ -18,10 +21,10 @@ getting an account. Part 3 is a team member on a normal day.
 Gazebo needs a GPU and ROS 2 Jazzy needs Ubuntu 24.04. The lab machine has
 both. Most of the team is on macOS, which has neither.
 
-The obvious fix, X11 forwarding over SSH, is the wrong one. It ships every
+X11 forwarding over SSH does not work here. It ships every
 OpenGL call across the network to be rendered on the client, so it needs a
 working X server on the Mac (XQuartz), it needs indirect GLX, and Gazebo's
-ogre2 render engine does not survive the trip. What we want is the opposite:
+ogre2 render engine does not survive the trip. Instead:
 render on the lab machine's NVIDIA card, compress the finished frames, and send
 pixels.
 
@@ -288,7 +291,7 @@ ClientAliveCountMax 10
 
 **Keep your current session open until you have proved a new one works.**
 
-Two things worth knowing about this on 24.04. Ubuntu socket-activates sshd, so
+Two things about this on 24.04. Ubuntu socket-activates sshd, so
 `Port` and `ListenAddress` in `sshd_config` are ignored and live in the
 `ssh.socket` unit instead. Authentication still reads from `sshd_config`, which
 is all of the above.
@@ -330,7 +333,7 @@ drops off the tailnet every 180 days and somebody has to walk to Evans to
 re-authenticate it.
 
 Each team member installs Tailscale on their laptop and is invited to the
-tailnet. After that `ssh alice@flie-lab` works from anywhere.
+tailnet. After that `ssh your_username@flie-lab` works from anywhere.
 
 ### UD VPN, the fallback
 
@@ -347,7 +350,7 @@ the groups that matter, prepares `~/.ssh`, writes their slot into their
 `~/.bashrc`, and refuses a slot somebody else already has:
 
 ```bash
-sudo ./scripts/lab/install-lab.sh --add-user alice --slot 1
+sudo ./scripts/lab/install-lab.sh --add-user your_username --slot 1
 ```
 
 It then prints the remaining steps, which are the ones a script should not do
@@ -357,13 +360,13 @@ you generated for them.
 
 ```bash
 # on their laptop
-ssh-keygen -t ed25519 -C "alice@udel.edu"
+ssh-keygen -t ed25519 -C "your_username@udel.edu"
 cat ~/.ssh/id_ed25519.pub          # this is what they send you
 ```
 
 ```bash
 # on the lab machine, paste it, then Ctrl-D
-sudo -u alice tee -a /home/alice/.ssh/authorized_keys
+sudo -u your_username tee -a /home/your_username/.ssh/authorized_keys
 ```
 
 What the script sets up, and why:
@@ -405,7 +408,7 @@ That is 1.6 and 1.7 in one command, and it is safe to re-run. It:
 - creates the `flie` and `flie-ssh` groups and `/srv/flie/shared`
 - finishes by running `--check` and telling you what is left
 
-Two things in there are worth understanding rather than just running.
+Two things to understand rather than just run:
 
 **Why EGL.** Nobody is logged in at the console, so there is no X server on
 `:0` and no desktop session owning the card. VirtualGL's EGL back end renders
@@ -420,7 +423,7 @@ documented alternative is `sudo /opt/VirtualGL/bin/vglserver_config`, option 2,
 you needed rather than assuming:
 
 ```bash
-sudo -u alice vglrun -d egl glxinfo | grep 'OpenGL renderer'
+sudo -u your_username vglrun -d egl glxinfo | grep 'OpenGL renderer'
 ```
 
 You want the card named. `llvmpipe` means software rendering.
@@ -474,7 +477,7 @@ Per person, about 30 minutes, mostly builds.
 **1. Account and slot.** You run one command:
 
 ```bash
-sudo ./scripts/lab/install-lab.sh --add-user alice --slot 1
+sudo ./scripts/lab/install-lab.sh --add-user your_username --slot 1
 ```
 
 Then install the public key they sent you, per 1.4.
@@ -484,7 +487,7 @@ Then install the public key they sent you, per 1.4.
 ```
 Host flie-lab
     HostName flie-lab                 # the MagicDNS name, or the campus one
-    User alice
+    User your_username
     LocalForward 5911 localhost:5911  # their VNC port, from the slot table
     LocalForward 6081 localhost:6081  # their noVNC port
     ServerAliveInterval 60
@@ -533,7 +536,7 @@ laptop, connect the TurboVNC Viewer to `localhost:5911` or open
 is exposed on the network.
 
 The VNC password is not optional. `-localhost` limits the port to this machine,
-and on a machine five people are logged into that is not a limit worth much.
+and on a machine five people are logged into that is not much of a limit.
 
 ---
 
@@ -576,8 +579,7 @@ the launch file's own startup line both print.
 
 **Write code over Remote-SSH, not over VNC.** VS Code's Remote-SSH extension
 puts the editor on your laptop and the files on the lab machine, with no
-graphics involved. It is better than editing inside a VNC desktop in every way.
-The VNC desktop is for looking at Gazebo.
+graphics involved. The VNC desktop is for looking at Gazebo.
 
 ## Etiquette
 

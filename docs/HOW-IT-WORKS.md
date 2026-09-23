@@ -45,7 +45,7 @@ ros2 run drone_swarm hop --ros-args -p altitude_m:=6.0 -p forward_m:=10.0
 ## The pipeline
 
 Your node never touches a motor. It hands PX4 a position ten times a second,
-and PX4 flies there. Here is every hop between your `for` loop and a spinning
+and PX4 flies there. Every hop between your `for` loop and a spinning
 rotor:
 
 ```mermaid
@@ -123,19 +123,18 @@ durability. A default ROS 2 subscriber is **RELIABLE** and **VOLATILE**. Those
 are incompatible, so your subscription is created without an error, never
 matches the publisher, and your callback never fires. Nothing is logged.
 
-What makes it genuinely nasty is that `ros2 topic echo` negotiates QoS and
-prints data happily:
+`ros2 topic echo` negotiates QoS and prints data:
 
 ```bash
 ros2 topic echo /fmu/out/vehicle_local_position   # works, no flags needed
 ```
 
-So the topic looks perfectly healthy from the command line while your node
+So the topic looks fine from the command line while your node
 receives zero messages. If a callback never fires, suspect this first.
 
 One exception, in `px4_command_qos()`: `/fmu/in/vehicle_command` is served by
 PX4 as a **RELIABLE** DDS replier, so arm and mode commands need a RELIABLE
-publisher or they are dropped in silence.
+publisher or they are dropped without warning.
 
 ### Rule 2: offboard needs a setpoint stream before and after
 
@@ -164,7 +163,7 @@ See [SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md).
 
 **Positions are NED**: North, East, **Down**. Down is positive downwards, so
 three metres up is `z = -3`. Getting this backwards flies the drone into the
-ground, and it is the single most common beginner bug after QoS.
+ground, and it is the most common beginner bug after QoS.
 
 **The origin is the vehicle's own takeoff point.** Not the world origin, not
 some shared frame: wherever *that* drone's estimator started. With one drone
@@ -198,7 +197,7 @@ In the order it makes sense to read, not the order it appears:
 | `run_arming()` and `describe_arming_blocker()` | Rule 3, and what PX4 checks |
 | The constructor | Which topics exist and which QoS each needs |
 
-Two details worth noticing because they are deliberate:
+Two details:
 
 `std::optional` for telemetry, rather than a pointer or a "have I heard from
 PX4 yet" flag. Empty means PX4 has not spoken yet, and the type makes that
@@ -229,7 +228,7 @@ constexpr std::array<Position, 4> WAYPOINTS = {{
 ```
 
 Then `FlyingForward` becomes "advance the index when `has_arrived()`, and land
-when the index runs off the end". That is exactly what the Python node
+when the index runs off the end". That is what the Python node
 [`takeoff_and_fly.py`](../src/drone_vip/drone_vip/takeoff_and_fly.py) does, so
 compare the two.
 
@@ -301,7 +300,7 @@ where each drone spawns, because step 3 needs the same numbers.
 
 ### Step 3: the shared frame problem
 
-This is the real one. Each drone's NED origin is its **own** takeoff point, so
+Each drone's NED origin is its **own** takeoff point, so
 if all of them fly to "north 5, east 0" they stay in whatever relative positions
 they started in. To hold a formation, every drone has to convert one shared
 pattern into its own local frame, which means each needs to know where it sits
@@ -334,8 +333,8 @@ subscribes to so it can count. Nobody starts until everybody has reported. Keep
 it out of the `px4_` namespaces deliberately: on hardware every drone publishes
 on bare `/fmu/`, so drone-to-drone coordination cannot live under those names.
 
-`swarm_comms` does exactly this, on `/swarm/state`, with one difference worth
-understanding: the topic is BEST_EFFORT rather than RELIABLE. Readiness is
+`swarm_comms` does exactly this, on `/swarm/state`, with one difference:
+the topic is BEST_EFFORT rather than RELIABLE. Readiness is
 published as a state that repeats ten times a second rather than as a one-off
 announcement, so a lost message costs nothing and a slow retransmit cannot hold
 up the swarm. Depth still has to be at least the number of drones, for the

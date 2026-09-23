@@ -2,7 +2,7 @@
 
 `drone-sim` and `drone-gcs` are two short scripts in this repo. They save
 typing. They also hide which pieces are real flight software and which are
-simulation scaffolding, and that is worth knowing before you put code on an
+simulation scaffolding. Know the difference before you put code on an
 aircraft.
 
 This runs the same stack with nothing of ours in the way, then takes each script
@@ -82,7 +82,7 @@ script sources it. Verified by unsetting the variable before launching: Gazebo
 still found its models and worlds.
 
 That only holds while PX4 is the one starting Gazebo. Start Gazebo yourself and
-you have to source `gz_env.sh` yourself, for a reason worth knowing. See
+you have to source `gz_env.sh` yourself. See
 "Seeing where the simulator ends" below.
 
 `make px4_sitl gz_x500` is a CMake target, not a build step. From
@@ -152,7 +152,7 @@ second, and both smoke tests run it.
 ### What PX4 is actually checking
 
 `gcs_connection_lost` is one bool on `/fmu/out/vehicle_status_v1`, and it
-latches in a way worth knowing:
+latches:
 
 | Event | Effect | Source, v1.16.1 |
 |---|---|---|
@@ -231,7 +231,7 @@ WARN  [health_and_arming_checks] Preflight Fail: ekf2 missing data
 A vehicle that boots, connects, publishes `/fmu/` topics and then refuses to arm
 with a list of missing hardware is PX4 behaving exactly as it would on a real
 aircraft with an unplugged sensor. The simulated sensors are Gazebo plugins, and
-if Gazebo cannot find them the aircraft genuinely does not have them.
+if Gazebo cannot find them the aircraft does not have them.
 
 ## What is the simulator and what is the aircraft
 

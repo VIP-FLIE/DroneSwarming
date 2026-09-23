@@ -19,7 +19,7 @@ sharing a library, so each package reads start to finish on its own. Strip the
 comments and normalise the names and 428 of `waypoint_drone.cpp`'s 450 lines of
 code appear unchanged in `formation_drone.cpp`.
 
-Diffing the two files is not worth it. The comments are rewritten throughout, so
+Diffing the two files is not useful. The comments are rewritten throughout, so
 `diff` reports most of both. Everything communication adds is in six places:
 
 | In `formation_drone.cpp` | What it is |
@@ -76,8 +76,8 @@ One line per drone. Your drones are systems 2 to `count + 1`, because SITL
 instance N answers to system id N + 1 and the launch files number instances
 from 1.
 
-Tell it how many you launched and it does the counting for you, which is worth
-doing for anything bigger than a pair:
+Tell it how many you launched and it does the counting for you. Do this for
+anything bigger than a pair:
 
 ```bash
 drone-gcs --expect 3
@@ -127,7 +127,7 @@ not die with it. The launch file asks it to stop on shutdown. If one survives:
 pkill -f 'gz sim'
 ```
 
-A leftover Gazebo has a memorable symptom. The next launch finds a world already
+A leftover Gazebo has a distinctive symptom. The next launch finds a world already
 running, joins that one instead of starting a fresh one, and you get a field with
 six drones in it where half of them do not respond.
 
@@ -349,12 +349,12 @@ from one drone per tick and treating every other drone as stale.
 
 The `/fmu/in/vehicle_command` exception still applies: PX4 serves that one as a
 RELIABLE DDS replier, so it needs a RELIABLE publisher or arm and mode commands
-are dropped in silence.
+are dropped without warning.
 
 ### The shared clock, solved without a clock
 
 Nobody moves until everybody reports ready. That converts "start at the same
-time", which needs synchronised clocks and is genuinely hard over a radio, into
+time", which needs synchronised clocks and is hard over a radio, into
 "start at the same event", which needs one bit per drone.
 
 ```
@@ -438,7 +438,7 @@ a corner:
 That is the pursuit rule behaving correctly, not a fault. A follower cuts the
 corner its leader turns, so the chain compresses on every turn and a 5 m
 follow distance closes to about half that. Raise `radius_m` or lower
-`follow_distance_m` and it stops. It is worth seeing once, because it is the
+`follow_distance_m` and it stops. That is the
 gap between "holding a formation" and "guaranteeing separation".
 
 The chase rule also only constrains the drone directly ahead of you. Nothing
@@ -478,7 +478,7 @@ only, so an eleventh vehicle could never satisfy its datalink failsafe and could
 never arm. Both nodes refuse to construct above it rather than taking off into a
 swarm that cannot assemble.
 
-## Things worth trying
+## Things to try
 
 | Command | What it shows |
 |---|---|

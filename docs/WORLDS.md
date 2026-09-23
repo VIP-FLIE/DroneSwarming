@@ -1,5 +1,8 @@
 # Worlds: flying somewhere other than the grey void
 
+> **Convention:** In examples that show you creating your own world, names like
+> `your_world` are placeholders. Use the name you choose.
+
 The blank grey ground you get from `drone-sim` is a real world file, PX4's
 `default.sdf`. It is a flat plane, one light and nothing else, on purpose: it
 loads instantly and nothing in it can distract from the vehicle.
@@ -88,7 +91,7 @@ Two consequences you cannot argue with:
 
 1. **The world's name and its file name have to match.** The file name is what
    gets loaded, the name is what gets waited for. Mismatch and PX4 hangs for
-   30 seconds and exits, which is exactly what `frictionless` does.
+   30 seconds and exits, which is what `frictionless` does.
 2. **The world has to be in PX4's own worlds directory.** `$PX4_GZ_WORLDS` is
    set by `build/px4_sitl_default/rootfs/gz_env.sh`, generated at build time,
    and it overwrites whatever you set. Pointing it somewhere else does not
@@ -124,19 +127,19 @@ PX4_GZ_WORLD=vip_field drone-sim
 Start your own by copying it:
 
 ```bash
-cp worlds/vip_field.sdf worlds/evans_lawn.sdf
+cp worlds/vip_field.sdf worlds/your_world.sdf
 ```
 
 Then, in order:
 
-1. **Rename the world inside the file.** `<world name="evans_lawn">` has to
+1. **Rename the world inside the file.** `<world name="your_world">` has to
    match the file name. `install-worlds.sh` refuses to link a file that gets
    this wrong rather than letting you find out through a 30 second hang.
 2. Edit the contents. Models are positioned by `<pose>x y z roll pitch yaw</pose>`,
    in metres and radians, ENU, so `+y` is north and `+z` is up.
 3. Check the XML before you launch anything:
    ```bash
-   gz sdf -k worlds/evans_lawn.sdf
+   gz sdf -k worlds/your_world.sdf
    ```
    It prints `Valid.` or the line number of the problem. It does not resolve
    `model://` URIs, so `Unable to find uri[model://...]` from this command
@@ -144,7 +147,7 @@ Then, in order:
 4. Link it in and fly it:
    ```bash
    ./scripts/install-worlds.sh
-   PX4_GZ_WORLD=evans_lawn drone-sim
+   PX4_GZ_WORLD=your_world drone-sim
    ```
 
 `install-worlds.sh` symlinks rather than copies, so after the first run editing
@@ -320,6 +323,6 @@ while leaving the physics identical.
 - [PX4 Gazebo simulation](https://docs.px4.io/v1.16/en/sim_gazebo_gz/), the
   upstream page for the pinned version
 - `~/PX4-Autopilot/ROMFS/px4fmu_common/init.d-posix/px4-rc.gzsim`, the script
-  that does all of this. 191 lines, worth reading once
+  that does all of this. 191 lines, read it once
 - [SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md), what the simulator does and
   does not reproduce

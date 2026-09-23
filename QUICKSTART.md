@@ -1,7 +1,7 @@
 # Running the simulator and writing your first node
 
 Every command here is the same whether you run the dev container or a native
-install. Where the two genuinely differ, both are given.
+install. Where the two differ, both are given.
 
 Not set up yet: [docs/SETUP.md](docs/SETUP.md) for the dev container, where
 `Terminal > New Terminal` in VS Code puts you inside it, or
@@ -231,8 +231,7 @@ If that count stops short of the number you launched, the vehicles it never
 names are the ones that will sit on the pad unable to arm, because each vehicle
 enforces the datalink failsafe separately.
 
-That first line is worth reading, because it names the file that is actually
-running.
+That first line names the file that is actually running.
 
 In the dev container the scripts are baked into the image, so a copy you edited
 in the repo is not the copy on your `PATH` until the image is rebuilt. Run the
