@@ -7,6 +7,12 @@
 #
 # This runs the same file the dev container runs, so the link behaves
 # identically either way. Read that file for what it does and why.
+#
+# What PX4 is actually asking for is one MAVLink heartbeat a second, which is
+# eight lines of pymavlink, or QGroundControl on udp 14550. This script exists
+# to serve a whole swarm, since each SITL instance listens on its own port.
+# docs/UNDER-THE-SCRIPTS.md has the eight-line version and the failsafe it
+# satisfies.
 set -o pipefail
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)

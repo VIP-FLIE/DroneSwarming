@@ -26,6 +26,13 @@ the datalink-loss failsafe and watch the vehicle Return, which is behaviour
 you want to have seen in simulation before you see it in a field.
 
 Run QGroundControl against udp 14550 instead of this if you prefer a real GCS.
+All this does that QGroundControl does not is reach out to every SITL
+instance's own port, which is what a swarm needs. See below.
+
+    drone-gcs                 link whatever turns up
+    drone-gcs --expect 3      and check three vehicles actually arrive
+    drone-gcs --instance-base 10 --listen-port 14551
+                              serve one person's block on a shared machine
 
 REACHING EVERY VEHICLE, NOT JUST THE FIRST
 ------------------------------------------
@@ -49,45 +56,271 @@ The symptom when a station only serves one vehicle is memorable: the first
 drone arms and flies away, and every other drone sits on the pad reporting
 "Arming denied", because for them the datalink failsafe is genuinely still
 unsatisfied and PX4 is correctly refusing.
+
+SHARING A MACHINE
+-----------------
+Both of those ports are fixed, which is fine on your own laptop and is not fine
+on a machine several people are logged into. Two stations cannot both bind
+14550, and a station heartbeating 18571 is heartbeating whoever's instance 1
+that is.
+
+So the station serves a BLOCK of ten instances starting at --instance-base + 1,
+and listens on --listen-port. Both default from the environment, which
+scripts/native/env.sh fills in from DRONE_SLOT:
+
+    slot 0    base 0     instances 0-10     ports 18570-18580   listen 14550
+    slot 1    base 10    instances 11-20    ports 18581-18590   listen 14551
+
+Slot 0 is the single-user setup, and it also keeps instance 0, which is what a
+bare `drone-sim` runs. No other slot can produce instance 0, so that costs
+nobody anything.
+
+Ten instances starting at base+1 also fixed a bug that predates the blocks. The
+launch files number vehicles `slot + 1`, so `count:=10` produces instance 10,
+and a station covering 18570-18579 stopped one short of it. The tenth drone of
+a ten-drone swarm never got a heartbeat and never armed.
+
+ONE THING THE BLOCKS DO NOT SEPARATE
+------------------------------------
+PX4's mavlink module defaults its REMOTE port to 14550
+(DEFAULT_REMOTE_PORT_UDP, mavlink_main.h), and px4-rc.mavlink does not pass -o
+to change it. With MAV_BROADCAST enabled, a vehicle that has not yet been
+contacted broadcasts to that port. So on a shared machine, everybody's
+un-linked vehicles broadcast toward 14550, which is slot 0's listen port, and
+slot 0's station may briefly count a vehicle that is not its own.
+
+It resolves itself: once this station heartbeats an instance in its own block,
+that PX4 learns this station's address and talks to it directly from then on.
+Slot 0 seeing a transient extra vehicle in its count is the visible symptom,
+and nothing mis-flies because of it. Worth knowing before it surprises you.
+
+THE HEADER TRAP, AND WHY THERE IS NO "SYSTEM 0"
+-----------------------------------------------
+A message's source system id is only trustworthy if pymavlink could actually
+decode the message. When it cannot, it builds a `MAVLink_unknown` whose
+constructor is
+
+    MAVLink_message.__init__(self, MAVLINK_MSG_ID_UNKNOWN, "UNKNOWN_%u" % msgid)
+
+and `MAVLink_message.__init__` does `self._header = MAVLink_header(msgId)`,
+leaving srcSystem and srcComponent at zero. `MAVLink_bad_data` behaves the same
+way. So `get_srcSystem()` returns 0 for anything undecodable, and it is not
+reporting what was on the wire, it is reporting a field nobody filled in.
+
+PX4 v1.16.1 streams several messages that pymavlink 2.4.49's bundled dialect
+does not contain, including ids 8, 290, 291, 380, 410 (EVENT), 411
+(CURRENT_EVENT_SEQUENCE) and 436. An earlier version of this script counted
+every distinct srcSystem it saw, so those all collapsed into a phantom
+"system 0" and a three-drone swarm reported four vehicles linked.
+
+Verified by reading the same frames off the socket without pymavlink's decoder:
+msgid 410 and 411 arrive with sysid 2, compid 1, which is the vehicle. There
+was never another system on the link. `is_from_a_vehicle` below is the fix.
 """
+import argparse
+import os
 import sys
 import time
 
 from pymavlink import mavutil
 
-BIND = "udpin:0.0.0.0:14550"
 GCS_SYSTEM_ID = 255            # 255 is the conventional ground station system id
 HEARTBEAT_INTERVAL_S = 1.0     # PX4 expects roughly 1 Hz from a station
 
-# Each SITL instance's own GCS port, per px4-rc.mavlink quoted above. Ten
-# covers any swarm this repo is going to fly, and heartbeating a port nothing
-# is listening on costs one localhost datagram.
-SITL_GCS_PORT_BASE = 18570
-SITL_INSTANCE_LIMIT = 10
-SITL_ADDRESSES = frozenset(
-    ("127.0.0.1", SITL_GCS_PORT_BASE + instance)
-    for instance in range(SITL_INSTANCE_LIMIT)
-)
+# Where a vehicle that reaches out on its own finds us, the way QGroundControl
+# sits on 14550. On a shared machine each person needs their own, because two
+# stations cannot bind the same port. --listen-port, or DRONE_GCS_PORT from
+# scripts/native/env.sh.
+GCS_LISTEN_PORT = 14550
 
-# How long to go without hearing anything before saying so. Only a complaint:
-# a station that quit because the simulator was slow to boot would be useless.
+# Each SITL instance's own GCS port, per px4-rc.mavlink quoted above.
+SITL_GCS_PORT_BASE = 18570
+
+# How many instances one person's block covers. The launch files number
+# vehicles `instance_base + slot + 1` for slot 0..count-1, so a block of ten
+# starting at base+1 is exactly the set they can produce.
+SITL_INSTANCE_LIMIT = 10
+
+# Blocks are this far apart, so slot 0 owns instances 1-10, slot 1 owns 11-20.
+# PX4_INSTANCE_BASE from env.sh is already a multiple of this.
+SITL_INSTANCE_BLOCK = 10
+
+# The highest base that still leaves a full block inside PX4's two-digit
+# instance numbering.
+SITL_INSTANCE_BASE_MAX = 90
+
+
+def sitl_instances(instance_base):
+    """Which SITL instances this station is responsible for.
+
+    The swarm launch files number vehicles `instance_base + slot + 1`, so a
+    block of ten starting at base+1 is exactly what they can produce.
+
+    Slot 0 also owns instance 0, which is what a bare `drone-sim` runs: one
+    vehicle, publishing on bare /fmu/ with no namespace, the way a real
+    aircraft does. No other slot can reach instance 0, so including it here
+    cannot overlap anyone.
+    """
+    instances = list(range(instance_base + 1,
+                           instance_base + SITL_INSTANCE_LIMIT + 1))
+    if instance_base == 0:
+        instances.insert(0, 0)
+    return instances
+
+
+def sitl_addresses(instance_base):
+    """Every GCS port this station heartbeats.
+
+    Heartbeating a port nothing is listening on costs one localhost datagram,
+    so the whole block is covered whether or not that many drones are flying.
+
+    This is the mechanism that actually starts the conversation, and it is not
+    belt-and-braces. PX4's mavlink module will not send to a UDP peer until it
+    has received something from one: `_src_addr_initialized` is false until the
+    receiver learns a peer, and the send path at mavlink_main.cpp:782 is
+    guarded on it. Broadcast can get a vehicle noticed without this, but only
+    when MAV_BROADCAST is enabled, which is a parameter rather than a promise.
+    Reaching out to each instance's own port is what does not depend on that.
+    """
+    return frozenset(
+        ("127.0.0.1", SITL_GCS_PORT_BASE + instance)
+        for instance in sitl_instances(instance_base)
+    )
+
+
+# How long to go without hearing anything at all before saying so. Only a
+# complaint: a station that quit because the simulator was slow to boot would
+# be useless.
 SILENCE_WARNING_S = 90.0
 
+# Added to that deadline for each vehicle beyond the first, when --expect says
+# how many to wait for. The swarm launch files stagger PX4 instances on purpose,
+# because the first vehicle has to load Gazebo before any other can join its
+# world, so a big swarm is legitimately still starting up well after a small one
+# has finished. Without this a ten-drone swarm gets told it is short while it is
+# doing exactly what it should.
+EXTRA_WAIT_PER_VEHICLE_S = 15.0
 
-def announce(system_id, linked):
-    """Report each vehicle the first time it is heard from.
+# How long one vehicle can go quiet before we call its link lost. Deliberately
+# PX4's own COM_DL_LOSS_T default, so this reports a link lost at roughly the
+# moment that vehicle's datalink failsafe fires rather than at some unrelated
+# threshold of our own.
+LINK_LOSS_S = 10.0
 
-    The count is the number worth watching. If it stops short of the number of
-    drones you launched, the ones missing are the ones that will not arm.
+# MAVLink reserves system id 0 for broadcast, so it can never identify a
+# vehicle. Nothing should produce it now that undecodable messages are dropped,
+# but counting it would be wrong in any case.
+BROADCAST_SYSTEM_ID = 0
+
+
+def is_from_a_vehicle(message):
+    """Can this message's source system id be believed?
+
+    Only if pymavlink actually decoded the message. An undecodable one carries a
+    header nobody populated, so its srcSystem reads 0 whatever was on the wire.
+    See THE HEADER TRAP above. Checked by class rather than by name so a dialect
+    update cannot quietly change the answer.
     """
-    if system_id in linked:
-        return
-    linked.add(system_id)
-    print(f"Linked to PX4 system {system_id}. Datalink failsafe satisfied for "
-          f"{len(linked)} vehicle(s); they can arm.", flush=True)
+    if isinstance(message, (mavutil.mavlink.MAVLink_unknown,
+                            mavutil.mavlink.MAVLink_bad_data)):
+        return False
+    return message.get_srcSystem() != BROADCAST_SYSTEM_ID
 
 
-def send_heartbeat(link):
+class Station:
+    """Which vehicles we can see, and whether that is as many as expected."""
+
+    def __init__(self, expected=None):
+        self._expected = expected
+        self._last_heard = {}      # system id -> time.monotonic() of last message
+        self._quiet = set()        # systems currently past LINK_LOSS_S
+        self._skipped_a_message = False
+
+    def linked_count(self):
+        """Vehicles we can hear RIGHT NOW, which is the number worth watching."""
+        return len(self._last_heard) - len(self._quiet)
+
+    def _tally(self):
+        if self._expected is None:
+            return (f"Datalink failsafe satisfied for {self.linked_count()} "
+                    f"vehicle(s); they can arm.")
+        return f"{self.linked_count()} of {self._expected} vehicles linked."
+
+    def note_skipped_message(self, message):
+        """Say once that undecodable messages are being dropped, and why.
+
+        Worth one line rather than none. It is normal, it is not a fault in the
+        vehicle, and a reader who finds no mention of it has no way to tell
+        that from the alternative.
+        """
+        if self._skipped_a_message:
+            return
+        self._skipped_a_message = True
+        print(f"Note: ignoring {message.get_type()} and anything else this "
+              f"pymavlink cannot decode. PX4 streams messages newer than its "
+              f"bundled dialect; their headers are unparsed, so their system id "
+              f"would read 0. They come from the vehicle, and nothing is wrong.",
+              flush=True)
+
+    def on_message(self, message):
+        """Record a message from a real vehicle, and announce anything new."""
+        system_id = message.get_srcSystem()
+        now = time.monotonic()
+
+        if system_id in self._quiet:
+            self._quiet.discard(system_id)
+            self._last_heard[system_id] = now
+            print(f"PX4 system {system_id} is back. {self._tally()}", flush=True)
+            return
+
+        if system_id not in self._last_heard:
+            self._last_heard[system_id] = now
+            print(f"Linked to PX4 system {system_id}. {self._tally()}", flush=True)
+            if self._expected is not None and self.linked_count() == self._expected:
+                print("Every vehicle accounted for.", flush=True)
+            return
+
+        self._last_heard[system_id] = now
+
+    def check_for_lost_links(self):
+        """Report a vehicle that has stopped talking to us.
+
+        The vehicle's own datalink failsafe is firing at about the same moment,
+        so this is the station's side of an event you can also watch in PX4's
+        console. Killing this process is the deliberate way to cause it.
+        """
+        now = time.monotonic()
+        for system_id, last in sorted(self._last_heard.items()):
+            if system_id in self._quiet or now - last <= LINK_LOSS_S:
+                continue
+            self._quiet.add(system_id)
+            print(f"Lost the link to PX4 system {system_id} after "
+                  f"{LINK_LOSS_S:.0f} s of silence. Its datalink-loss failsafe "
+                  f"will be firing now. {self._tally()}", flush=True)
+
+    def deadline_s(self):
+        """How long to give the swarm before complaining that it is short."""
+        if self._expected is None:
+            return SILENCE_WARNING_S
+        return SILENCE_WARNING_S + EXTRA_WAIT_PER_VEHICLE_S * (self._expected - 1)
+
+    def report_shortfall(self):
+        """Once, after deadline_s(), say if the swarm never assembled."""
+        if not self._last_heard:
+            print(f"No heartbeat from any PX4 after {self.deadline_s():.0f}s. "
+                  f"Is the simulator running?", file=sys.stderr, flush=True)
+            return
+        if self._expected is None or self.linked_count() >= self._expected:
+            return
+        linked = ", ".join(str(s) for s in sorted(self._last_heard) if s not in self._quiet)
+        print(f"Only {self.linked_count()} of {self._expected} vehicles linked "
+              f"after {self.deadline_s():.0f}s. Linked so far: systems "
+              f"{linked or 'none'}. Whichever vehicles are missing will report "
+              f"'Arming denied', because each one enforces the datalink "
+              f"failsafe separately.", file=sys.stderr, flush=True)
+
+
+def send_heartbeat(link, addresses):
     """Send one GCS heartbeat to every vehicle we know of or expect.
 
     Encoded once and sent by hand rather than through link.mav.heartbeat_send,
@@ -100,7 +333,7 @@ def send_heartbeat(link):
         mavutil.mavlink.MAV_STATE_ACTIVE,
     ).pack(link.mav)
 
-    for address in sorted(SITL_ADDRESSES | link.clients):
+    for address in sorted(addresses | link.clients):
         try:
             link.port.sendto(packet, address)
         except OSError:
@@ -109,35 +342,114 @@ def send_heartbeat(link):
             pass
 
 
-def main() -> int:
+def _env_int(name, fallback):
+    """An integer from the environment, or the fallback if it is not usable.
+
+    Unset is the normal case on a single-user machine. A value that is not an
+    integer is somebody's typo in ~/.bashrc, and falling back to the
+    single-user default is both recoverable and visible, because the startup
+    banner prints the ports it actually chose.
+    """
+    try:
+        return int(os.environ[name])
+    except (KeyError, ValueError):
+        return fallback
+
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(
+        description="MAVLink ground station link for PX4 SITL, one vehicle or a swarm.",
+        epilog="Leave it running. Ctrl-C drops the link, which is how you test "
+               "the datalink-loss failsafe.")
+    parser.add_argument(
+        "--expect", type=int, metavar="N", default=None,
+        help="how many vehicles you launched. Reports 'N of M vehicles linked' "
+             "and says so if they never all turn up. Without it, this only "
+             "reports what it hears.")
+    parser.add_argument(
+        "--listen-port", type=int, metavar="PORT",
+        default=_env_int("DRONE_GCS_PORT", GCS_LISTEN_PORT),
+        help=f"UDP port to listen on for a vehicle that reaches out on its "
+             f"own, as QGroundControl does. Default {GCS_LISTEN_PORT}, or "
+             f"DRONE_GCS_PORT. On a shared machine every station needs its "
+             f"own, because two cannot bind the same port.")
+    parser.add_argument(
+        "--instance-base", type=int, metavar="N",
+        default=_env_int("PX4_INSTANCE_BASE", 0),
+        help=f"first SITL instance of this station's block, minus one. "
+             f"Default 0, or PX4_INSTANCE_BASE. Base 0 heartbeats instances "
+             f"1-{SITL_INSTANCE_LIMIT}, base {SITL_INSTANCE_BLOCK} heartbeats "
+             f"{SITL_INSTANCE_BLOCK + 1}-{SITL_INSTANCE_BLOCK * 2}, and so on. "
+             f"Set by DRONE_SLOT, see docs/LAB-SERVER.md.")
+    args = parser.parse_args(argv)
+    if args.expect is not None and not 1 <= args.expect <= SITL_INSTANCE_LIMIT:
+        parser.error(f"--expect must be between 1 and {SITL_INSTANCE_LIMIT}, "
+                     f"which is how many SITL instances one station heartbeats.")
+    if not 1 <= args.listen_port <= 65535:
+        parser.error(f"--listen-port must be a valid UDP port, got "
+                     f"{args.listen_port}.")
+    # Blocks that overlap are the bug this whole scheme exists to prevent, so a
+    # base that would produce one is refused rather than quietly accepted.
+    if not 0 <= args.instance_base <= SITL_INSTANCE_BASE_MAX:
+        parser.error(f"--instance-base must be between 0 and "
+                     f"{SITL_INSTANCE_BASE_MAX}, got {args.instance_base}.")
+    if args.instance_base % SITL_INSTANCE_BLOCK:
+        parser.error(f"--instance-base must be a multiple of "
+                     f"{SITL_INSTANCE_BLOCK}, got {args.instance_base}. "
+                     f"Anything else overlaps the next station's instances, "
+                     f"and two stations heartbeating one vehicle is exactly "
+                     f"what the blocks are for.")
+    return args
+
+
+def main(argv=None) -> int:
+    args = parse_args(argv)
+
+    bind = f"udpin:0.0.0.0:{args.listen_port}"
+    base = args.instance_base
+    instances = sitl_instances(base)
+    first, last = instances[0], instances[-1]
+    addresses = sitl_addresses(base)
+
     link = mavutil.mavlink_connection(
-        BIND,
+        bind,
         source_system=GCS_SYSTEM_ID,
         source_component=mavutil.mavlink.MAV_COMP_ID_MISSIONPLANNER,
     )
     print(f"GCS link running from {__file__}", flush=True)
-    print(f"Listening on {BIND}, and heartbeating SITL instances 0-"
-          f"{SITL_INSTANCE_LIMIT - 1} on ports {SITL_GCS_PORT_BASE}-"
-          f"{SITL_GCS_PORT_BASE + SITL_INSTANCE_LIMIT - 1}.", flush=True)
+    print(f"Listening on {bind}, and heartbeating SITL instances "
+          f"{first}-{last} on ports {SITL_GCS_PORT_BASE + first}-"
+          f"{SITL_GCS_PORT_BASE + last}.", flush=True)
+    if base:
+        print(f"Instance base {base}, so this station serves only your own "
+              f"vehicles. Anyone else on this machine has their own block.",
+              flush=True)
+    if args.expect is not None:
+        print(f"Expecting {args.expect} vehicle(s). SITL instance N answers to "
+              f"system id N+1, so instances {base + 1}-{base + args.expect} are "
+              f"systems {base + 2}-{base + args.expect + 1}.", flush=True)
     print("Leave this running. Ctrl-C to drop the link "
           "(which is how you test the datalink-loss failsafe).", flush=True)
 
-    linked = set()
+    station = Station(args.expect)
     started = time.monotonic()
-    warned = False
+    reported_shortfall = False
 
     while True:
         # Drain everything that arrived since the last cycle. This is also what
         # teaches pymavlink the address of any vehicle that found us on its own.
         while (message := link.recv_msg()) is not None:
-            announce(message.get_srcSystem(), linked)
+            if is_from_a_vehicle(message):
+                station.on_message(message)
+            else:
+                station.note_skipped_message(message)
 
-        send_heartbeat(link)
+        station.check_for_lost_links()
+        send_heartbeat(link, addresses)
 
-        if not linked and not warned and time.monotonic() - started > SILENCE_WARNING_S:
-            print(f"No heartbeat from any PX4 after {SILENCE_WARNING_S:.0f}s. "
-                  f"Is the simulator running?", file=sys.stderr, flush=True)
-            warned = True
+        if not reported_shortfall and time.monotonic() - started > station.deadline_s():
+            reported_shortfall = True
+            station.report_shortfall()
 
         time.sleep(HEARTBEAT_INTERVAL_S)
 

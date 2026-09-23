@@ -5,6 +5,22 @@
 # Gazebo's "quick start" world chooser, which lists demo worlds (NAO, Panda,
 # Prius, Tugbot) and has nothing to do with PX4. The PX4 vehicle is spawned by
 # PX4's own build target, which is what this runs.
+#
+# THERE ARE TWO OF THESE, AND THAT IS DELIBERATE
+# ----------------------------------------------
+# This is the container copy, symlinked onto PATH at /usr/local/bin/drone-sim.
+# The native one is scripts/native/bin/drone-sim, reached through PATH by
+# scripts/native/env.sh. They share three working lines; everything else
+# differs because this one owns the virtual display and PX4 is baked into the
+# image, while the native one opens Gazebo on your own desktop and has to check
+# that you built PX4.
+#
+# drone-gcs is the other way round: one Python implementation lives here and
+# the native copy is a three-line shim that execs it, because 150 lines of
+# MAVLink logic is worth having exactly one copy of. Three lines of environment
+# setup is not.
+#
+# docs/UNDER-THE-SCRIPTS.md has the full comparison.
 set -o pipefail
 
 [ -f /tmp/drone-display.env ] && source /tmp/drone-display.env
