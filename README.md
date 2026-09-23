@@ -15,7 +15,7 @@ There are two ways to run ROS 2 Jazzy, Gazebo Harmonic and PX4. Both install the
 **Dev container.** Any OS. You install Docker and VS Code, nothing else. Start with [docs/SETUP.md](docs/SETUP.md), and check [COMPATIBILITY.md](COMPATIBILITY.md) for your machine.
 
 ```bash
-git clone <this repo> && cd DroneSwarming
+git clone git@github.com:VIP-FLIE/DroneSwarming.git && cd DroneSwarming
 ./scripts/doctor.sh --write      # Linux and MacOS
 .\scripts\doctor.ps1 -Write      # Windows PowerShell
 ```
@@ -25,7 +25,7 @@ Then in VS Code: `F1`, `Dev Containers: Reopen in Container`. Gazebo runs on a d
 **Native.** Ubuntu 24.04 and derivatives. Use it if you already run the ROS 2 stack natively, or you want Gazebo in a window on your own desktop and GPU. Start with [docs/NATIVE-SETUP.md](docs/NATIVE-SETUP.md).
 
 ```bash
-git clone <this repo> && cd DroneSwarming
+git clone git@github.com:VIP-FLIE/DroneSwarming.git && cd DroneSwarming
 ./scripts/native/install.sh
 ```
 
