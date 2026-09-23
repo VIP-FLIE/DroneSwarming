@@ -19,13 +19,21 @@ the same in the air. This lists what is faithful, what is not, and the numbers.
 Check it yourself, in the container or natively:
 
 ```bash
-cd ~/PX4-Autopilot && git status --short   # only the two deleted NuttX submodules
+cd ~/PX4-Autopilot && git status --short   # the two deleted NuttX submodules
 git diff --name-only ROMFS/                # empty: no airframe or param edits
+git -C Tools/simulation/gz status --short  # added links only, nothing modified
 ```
 
 The only deletions are the two NuttX submodules, which are firmware toolchain
 for real flight controllers and unused by SITL. Nothing in this repo sets a PX4
-parameter or touches a world, airframe or sensor definition.
+parameter or changes one of PX4's worlds, airframes or sensor definitions.
+
+Once you have run `./scripts/install-worlds.sh`, the first command also lists
+`Tools/simulation/gz`, the submodule PX4 keeps its worlds and models in. That is
+this repo's worlds and models linked in beside PX4's own, which is the only way
+PX4 will load them, see [WORLDS.md](WORLDS.md). The links add files and change
+none of PX4's, which is what the third command shows: every line is `??`.
+`scripts/native/smoke-test.sh` reads the tree by that same rule.
 
 ## Your hardware does not change the physics
 

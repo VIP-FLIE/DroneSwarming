@@ -100,7 +100,9 @@ place rather than making it fall out of the sky.
 
 **Gazebo** provides physics and sensors. PX4 and Gazebo run in lockstep, so a
 slow laptop takes longer in wall-clock seconds without changing the flight.
-Details in [SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md).
+Details in [SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md). It is also the only
+box in that diagram which does not exist on a real aircraft;
+[UNDER-THE-SCRIPTS.md](UNDER-THE-SCRIPTS.md) maps the rest onto the hardware.
 
 **mavlink and drone-gcs** are a separate conversation entirely, carrying no
 commands from you. PX4's x500 airframe sets `NAV_DLL_ACT 2`, "return home on
@@ -240,6 +242,15 @@ lead the moving target instead of chasing it.
 
 ## Growing it into a swarm
 
+Every step below is implemented and flying in `src/swarm_naive` and
+`src/swarm_comms`. [SWARM.md](SWARM.md) is the guide to both. Read this section
+first for what the problems are, then that one for what the solutions look like.
+
+```bash
+ros2 launch swarm_naive swarm.launch.py    # steps 1 to 3
+ros2 launch swarm_comms swarm.launch.py    # steps 1 to 4
+```
+
 ### Step 1: run two drones
 
 Each drone is its own PX4 instance and its own copy of your node. That is not a
@@ -284,6 +295,10 @@ file ([tutorial](https://docs.ros.org/en/jazzy/Tutorials/Intermediate/Launch/Cre
 can start every PX4 instance and every node from one command, with `TimerAction`
 for the staggering.
 
+[`src/swarm_naive/launch/swarm.launch.py`](../src/swarm_naive/launch/swarm.launch.py)
+is that file, heavily commented. It also has to be the one place that knows
+where each drone spawns, because step 3 needs the same numbers.
+
 ### Step 3: the shared frame problem
 
 This is the real one. Each drone's NED origin is its **own** takeoff point, so
@@ -302,6 +317,10 @@ Two ways to get that:
   origin *is* its slot and the conversion is one subtraction with no extra
   parameter. Neat, but it welds the spawn layout to the pattern.
 
+Both packages use the first. `to_local()` in either node is the conversion, and
+the separate `SwarmPoint` and `LocalPoint` types exist so that using the wrong
+frame is a compile error. See [SWARM.md](SWARM.md).
+
 ### Step 4: make them agree on time
 
 A formation flown as a function of time only holds if every drone uses the
@@ -315,8 +334,12 @@ subscribes to so it can count. Nobody starts until everybody has reported. Keep
 it out of the `px4_` namespaces deliberately: on hardware every drone publishes
 on bare `/fmu/`, so drone-to-drone coordination cannot live under those names.
 
-Use RELIABLE + TRANSIENT_LOCAL QoS with depth ≥ the number of drones, so a
-drone that boots late still hears who was already waiting.
+`swarm_comms` does exactly this, on `/swarm/state`, with one difference worth
+understanding: the topic is BEST_EFFORT rather than RELIABLE. Readiness is
+published as a state that repeats ten times a second rather than as a one-off
+announcement, so a lost message costs nothing and a slow retransmit cannot hold
+up the swarm. Depth still has to be at least the number of drones, for the
+reason above. `msg/SwarmState.msg` has the full reasoning.
 
 ### Step 5: what changes on real aircraft
 
@@ -357,6 +380,8 @@ v1.16.1, not a search result. PX4 changes these conventions between releases.
 - [Launch files](https://docs.ros.org/en/jazzy/Tutorials/Intermediate/Launch/Creating-Launch-Files.html)
 
 **This repo**
+- [SWARM.md](SWARM.md), the two worked multi-drone packages
+- [UNDER-THE-SCRIPTS.md](UNDER-THE-SCRIPTS.md), the stack with no wrapper scripts
 - [QUICKSTART.md](../QUICKSTART.md), commands and a troubleshooting table
 - [SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md), what the simulator gets right, with numbers
 - [SETUP.md](SETUP.md), getting the dev container running

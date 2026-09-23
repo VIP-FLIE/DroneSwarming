@@ -40,6 +40,16 @@ drops. Run QGroundControl against udp 14550 if you prefer a real GCS. Killing
 drone, it opens Gazebo's world chooser. For swarms and long runs use
 `HEADLESS=1 drone-sim`, which skips rendering entirely.
 
+`drone-sim` and `drone-gcs` are conveniences, and they hide which parts of this
+stack are real flight software. To run the same thing with neither of them, and
+to see which processes also exist on the aircraft, read
+[docs/UNDER-THE-SCRIPTS.md](docs/UNDER-THE-SCRIPTS.md). The short version is one
+environment variable and a binary:
+
+```bash
+cd ~/PX4-Autopilot && PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4
+```
+
 ## Fly it
 
 At the `pxh>` prompt:
@@ -100,6 +110,19 @@ ros2 run drone_swarm hop --ros-args -p altitude_m:=6.0 -p forward_m:=10.0
 [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md) walks through it and the whole
 pipeline behind it. Read that before writing your own node.
 
+`src/swarm_naive` and `src/swarm_comms` are the two multi-drone examples. Each
+starts its own PX4 instances, so they replace `drone-sim` rather than running
+alongside it:
+
+```bash
+ros2 launch swarm_naive swarm.launch.py    # 3 drones, none aware of the others
+ros2 launch swarm_comms swarm.launch.py    # the same flight, with them talking
+ros2 launch swarm_naive swarm.launch.py --show-args
+```
+
+[docs/SWARM.md](docs/SWARM.md) covers both, and everything below about running
+several vehicles by hand.
+
 To start a package of your own rather than editing these two, follow
 [docs/NEW-PACKAGE.md](docs/NEW-PACKAGE.md). It covers both build types, Python
 and C++, from `ros2 pkg create` through to `ros2 run`.
@@ -141,6 +164,18 @@ If the drone refuses to arm or falls back to another mode, this is usually why.
 
 ## More than one drone
 
+Two launch files do all of this for you, and
+[docs/SWARM.md](docs/SWARM.md) is the guide to them:
+
+```bash
+MicroXRCEAgent udp4 -p 8888                       # 1. same as always
+drone-gcs                                         # 2. same as always
+ros2 launch swarm_naive swarm.launch.py           # 3. replaces drone-sim
+```
+
+The rest of this section is what those launch files automate. Read it when one
+of them misbehaves.
+
 Each drone is its own PX4 instance and its own copy of your node. Launch the
 first, wait for Gazebo to finish loading, then the next.
 
@@ -180,9 +215,16 @@ is the thing to check:
 
 ```
 GCS link running from /usr/local/bin/drone-gcs
-Listening on udpin:0.0.0.0:14550, and heartbeating SITL instances 0-9 on ports 18570-18579.
+Listening on udpin:0.0.0.0:14550, and heartbeating SITL instances 0-10 on ports 18570-18580.
 Linked to PX4 system 2. Datalink failsafe satisfied for 1 vehicle(s); they can arm.
 Linked to PX4 system 3. Datalink failsafe satisfied for 2 vehicle(s); they can arm.
+```
+
+Pass `--expect 3` and it checks that count against what you launched, and
+reports a link it loses or regains:
+
+```bash
+drone-gcs --expect 3
 ```
 
 If that count stops short of the number you launched, the vehicles it never
@@ -204,8 +246,9 @@ Natively, `drone-gcs` runs that same repo file already, so an edit takes effect
 on the next run.
 
 Two drones flying the same path independently is a fleet, not a swarm. Making
-them hold a formation needs a shared frame and a shared clock, both covered in
-[docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md).
+them hold a formation needs a shared frame and a shared clock.
+`src/swarm_naive` shows what you get without either, `src/swarm_comms` solves
+both, and [docs/SWARM.md](docs/SWARM.md) explains how.
 
 ## Problems
 
@@ -231,11 +274,16 @@ Run the smoke test first. It names the broken piece:
 | `ros2 run drone_vip` not found | Overlay not sourced | `source install/setup.bash` |
 | Node runs but never arms | Wrong `system_id` for that instance | Instance N needs system id N + 1 |
 | First drone flies, the rest never arm | `drone-gcs` is serving only one vehicle | It should print one linked system per drone. Check the path it prints is the copy you edited |
+| New drones spawn into a field that already has drones in it | A Gazebo server survived the last run | `pkill -f 'gz sim'` |
 
 ## Reference
 
 - [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md), the pipeline, the three rules
   PX4 imposes, and how to go from one drone to a swarm. Start here for code.
+- [docs/SWARM.md](docs/SWARM.md), the two multi-drone examples, the shared frame,
+  the shared clock, and what drones say to each other.
+- [docs/UNDER-THE-SCRIPTS.md](docs/UNDER-THE-SCRIPTS.md), the same stack with no
+  scripts of ours in it, and what each process becomes on real hardware.
 - [docs/WORLDS.md](docs/WORLDS.md), loading a different map, writing your own,
   and the four things in a world the flight code can feel.
 - [PX4 ROS 2 User Guide](https://docs.px4.io/v1.16/en/ros2/user_guide)
