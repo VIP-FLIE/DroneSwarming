@@ -4,3 +4,8 @@ Unfortunately, clankers were used to assist with the setup of this repo. Getting
 
 
 Clankers used for example `drone_swarm` and `drone_vip`. Names to be changed to reflect their example status...
+
+Same goes for the two swarm examples, `swarm_naive` and `swarm_comms`, and the
+docs that go with them (`docs/SWARM.md`, `docs/UNDER-THE-SCRIPTS.md`). Written
+with AI assistance, flown in the simulator before being committed, and due the
+same read-over as everything else here.

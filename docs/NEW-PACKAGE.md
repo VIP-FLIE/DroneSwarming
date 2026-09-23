@@ -1,15 +1,15 @@
 # Adding your own package
 
-`drone_vip` and `drone_swarm` are ROS 2 packages. A package is a directory under
-`src/` with its own dependencies and its own build rules, and it contains one or
-more nodes. A node is one running program, which is what `ros2 run` starts.
+Everything under `src/` is a ROS 2 package. A package is a directory with its
+own dependencies and its own build rules, and it contains one or more nodes. A
+node is one running program, which is what `ros2 run` starts.
 
 Two build types, and a package is one or the other:
 
-| Build type | Language | Example here |
+| Build type | Language | Examples here |
 |---|---|---|
 | `ament_python` | Python | `src/drone_vip` |
-| `ament_cmake` | C++ | `src/drone_swarm` |
+| `ament_cmake` | C++ | `src/drone_swarm`, `src/swarm_naive`, `src/swarm_comms` |
 
 A package cannot hold both. A project that needs both gets two packages.
 

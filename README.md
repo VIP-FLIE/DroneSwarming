@@ -44,7 +44,12 @@ ros2 launch swarm_naive swarm.launch.py    # no drone knows the others exist
 ros2 launch swarm_comms swarm.launch.py    # the same flight, with them talking
 ```
 
-Use the lab machine in Evans 153 for long runs and real hardware. You do not need it to develop.
+**The lab machine.** The box in Evans 153 runs the stack natively on its NVIDIA
+card and takes SSH from anywhere, on any OS. You get a shell, a GPU, and a
+Gazebo window you view in a browser or a VNC client. This is the answer if you
+are on a Mac, or you want a long run off your own laptop.
+[docs/LAB-SERVER.md](docs/LAB-SERVER.md) is how it is set up and how you get an
+account. You do not need it to develop.
 
 ### Git(Hub) Etiquette:
 This may seem pedantic, but trust that things can go real bad real quick without proper version control, and it isn't too hard to pick up some good habits. A few rules of thumb:

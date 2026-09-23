@@ -5,6 +5,11 @@
 #   drone-sim gz_x500_mono_cam  a different PX4 model
 #   HEADLESS=1 drone-sim      no Gazebo window, for swarms and long runs
 #
+# On a shared machine, PX4_INSTANCE_BASE (from DRONE_SLOT, see
+# scripts/native/env.sh) moves this vehicle off instance 0 so it does not
+# collide with everybody else's. See the bottom of this file and
+# docs/LAB-SERVER.md.
+#
 # `gz sim` on its own does not start the drone. It opens Gazebo's world
 # chooser, which lists demo worlds and has nothing to do with PX4. The vehicle
 # is spawned by PX4's own build target, which is what this runs.
@@ -61,4 +66,38 @@ echo "Launching PX4 SITL with $MODEL."
 echo "First launch takes a minute while Gazebo loads its assets."
 echo
 cd "$PX4_DIR" || exit 1
-exec make px4_sitl "$MODEL"
+
+# On your own machine PX4_INSTANCE_BASE is 0 and this is the plain `make`
+# target, unchanged, which also builds PX4 if you have not yet.
+if [ "${PX4_INSTANCE_BASE:-0}" -eq 0 ]; then
+    exec make px4_sitl "$MODEL"
+fi
+
+# On a shared machine it cannot be. `make px4_sitl` runs the px4 binary with no
+# -i, which is instance 0, which is the same instance for everybody on the
+# machine and therefore the same MAVLink GCS port (18570). The second person to
+# start gets a vehicle with no GCS link and an "Arming denied" it did not earn.
+#
+# There is no way to pass an instance through the make target: the run rule is
+# `COMMAND $<TARGET_FILE:px4>` in platforms/posix/CMakeLists.txt with nothing
+# in between. So run the binary the way the swarm launch files already do,
+# from the PX4 tree, with -i. PX4 resolves its ROMFS from the binary's own
+# location and keeps per-instance state in build/px4_sitl_default/rootfs/<i>,
+# so the working directory here is the same one `make` would have used.
+#
+# PX4_SIM_MODEL alone is enough. rcS looks the airframe id up by scanning
+# etc/init.d-posix/airframes for [0-9]+_$PX4_SIM_MODEL, so this stays correct
+# for any model name make would have accepted.
+if [ ! -x "$PX4_DIR/build/px4_sitl_default/bin/px4" ]; then
+    echo "PX4 is not built, and on a shared machine this script cannot build it" >&2
+    echo "for you without also running it as instance 0. Run:" >&2
+    echo "    ./scripts/native/install.sh" >&2
+    exit 1
+fi
+
+INSTANCE=$((PX4_INSTANCE_BASE + 1))
+echo "Slot ${DRONE_SLOT:-?}, so this is SITL instance $INSTANCE."
+echo "Its topics are under /px4_$INSTANCE/fmu/, and its GCS port is $((18570 + INSTANCE))."
+echo
+export PX4_SIM_MODEL="$MODEL"
+exec "$PX4_DIR/build/px4_sitl_default/bin/px4" -i "$INSTANCE"

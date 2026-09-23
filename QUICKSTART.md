@@ -215,7 +215,7 @@ is the thing to check:
 
 ```
 GCS link running from /usr/local/bin/drone-gcs
-Listening on udpin:0.0.0.0:14550, and heartbeating SITL instances 0-9 on ports 18570-18579.
+Listening on udpin:0.0.0.0:14550, and heartbeating SITL instances 0-10 on ports 18570-18580.
 Linked to PX4 system 2. Datalink failsafe satisfied for 1 vehicle(s); they can arm.
 Linked to PX4 system 3. Datalink failsafe satisfied for 2 vehicle(s); they can arm.
 ```

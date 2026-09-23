@@ -52,6 +52,18 @@ The launch file starts every PX4 instance and every node. It does not start the
 agent or `drone-gcs`, because the agent has to be running before any PX4 starts
 or that vehicle's `/fmu/` topics never appear at all.
 
+On a machine you share with other people, 8888 is not yours alone and neither
+is instance 1. Source `scripts/native/env.sh` and use your own agent port, which
+is what `$PX4_UXRCE_DDS_PORT` holds:
+
+```bash
+MicroXRCEAgent udp4 -p $PX4_UXRCE_DDS_PORT
+```
+
+`drone-gcs` and the launch files read the rest from the environment, so nothing
+else changes. [LAB-SERVER.md](LAB-SERVER.md) explains what is being kept apart
+and why.
+
 Watch terminal 2 while the swarm boots:
 
 ```
@@ -169,6 +181,13 @@ from it, verified in PX4 v1.16.1:
 Instance 0 is the exception: it publishes on bare `/fmu/...` with no namespace,
 exactly as a real vehicle does. Both launch files here number from 1 so that
 every drone is the same shape.
+
+Every value in that table is derived from a single small integer, which is what
+makes sharing a machine tractable. The `instance_base` launch argument shifts
+the whole swarm by ten, and with it every port PX4 derives. Slot 1 flies
+instances 11 to 20 and never touches slot 0's ports. It defaults to
+`PX4_INSTANCE_BASE`, which is 0 unless `env.sh` has a `DRONE_SLOT` to work
+from.
 
 The system id is the one that bites quietly. PX4 drops any `VehicleCommand`
 addressed to a different system, which is the only thing stopping one node from

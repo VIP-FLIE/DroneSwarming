@@ -131,17 +131,23 @@ a ground station before it will leave the ground. Any of these satisfy it:
 | The eight-line heartbeat above | Understanding what the requirement actually is |
 | QGroundControl, listening on udp 14550 | You want a map, a HUD, parameters and logs. This is what a real team uses |
 | `drone-gcs` | Everyday work, and any swarm |
+| `drone-gcs --expect 3` | A swarm, when you want it to check the count rather than you reading it |
 
 `drone-gcs` does two things the eight-line version does not:
 
 - Listens on udp 14550 as well, the port QGroundControl uses, so a vehicle that
   reaches out first is answered.
 - Heartbeats every SITL instance's own port, `18570 + instance`, for instances 0
-  to 9. Each instance runs its own GCS link on its own port
+  to 10. Each instance runs its own GCS link on its own port
   (`px4-rc.mavlink`, `udp_gcs_port_local`), with no broadcast, so a station
   sitting on one port serves one vehicle. That is why a swarm started against a
   single-vehicle station has drone 0 fly away while the rest report
   `Arming denied`.
+
+`scripts/test-drone-gcs.py` checks the bookkeeping behind all of that: the
+vehicle count, lost and recovered links, and that MAVLink pymavlink cannot
+decode is not mistaken for a vehicle. It needs no simulator, takes under a
+second, and both smoke tests run it.
 
 ### What PX4 is actually checking
 

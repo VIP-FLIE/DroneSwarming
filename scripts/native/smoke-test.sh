@@ -6,8 +6,11 @@
 #   SITL_BUDGET=300 ./scripts/native/smoke-test.sh    on a slow machine
 #
 # The container equivalent is ./smoke-test.sh, which checks the container's own
-# display stack instead of sections 3 and 6 here. Both compare the installed
+# display stack instead of sections 3 and 7 here. Both compare the installed
 # versions against the pins in .devcontainer/Dockerfile.
+#
+# Section 5 is the shared-machine one. On your own laptop it reports slot 0 and
+# passes without you having done anything. See docs/LAB-SERVER.md.
 #
 # NOTE: no `set -u`. ROS 2's setup.bash chain expands variables that may be
 # unset, and under `set -u` that terminates the shell on the spot.
@@ -39,6 +42,16 @@ WS_DIR="${WS_DIR:-$HOME/ros2_ws}"
 PX4_BIN="$PX4_DIR/build/px4_sitl_default/bin/px4"
 STAMP="$HOME/.cache/drone-vip/native-versions"
 
+# Scratch files go somewhere that belongs to you. /tmp is shared and sticky, so
+# on the lab machine a fixed path like /tmp/sitl.log is one person's file that
+# nobody else can write, and this test would read their run as yours.
+TMP="${TMPDIR:-/tmp}/drone-smoke-$(id -u)"
+mkdir -p "$TMP"
+SITL_LOG="$TMP/sitl.log"
+GCS_LOG="$TMP/gcs.log"
+ROS_ERR="$TMP/ros-source.err"
+PXH_FIFO="$TMP/pxh"
+
 pin() { [ -f "$DOCKERFILE" ] && sed -n "s/^ARG $1=\(.*\)$/\1/p" "$DOCKERFILE" | head -1; }
 
 # ---------------------------------------------------------------------------
@@ -47,9 +60,9 @@ echo "=== 1. Toolchain present ==="
 echo "  info  architecture: $(uname -m), $( . /etc/os-release && echo "$PRETTY_NAME")"
 
 if [ -f /opt/ros/jazzy/setup.bash ]; then
-    if ! source /opt/ros/jazzy/setup.bash 2>/tmp/ros-source.err; then
+    if ! source /opt/ros/jazzy/setup.bash 2>"$ROS_ERR"; then
         no "sourcing /opt/ros/jazzy/setup.bash failed:"
-        sed 's/^/        /' /tmp/ros-source.err
+        sed 's/^/        /' "$ROS_ERR"
     fi
 else
     no "/opt/ros/jazzy/setup.bash missing. ROS 2 Jazzy is not installed."
@@ -219,6 +232,15 @@ grep -q '^drone_vip$' <<< "$ROS_PKGS" && ok "drone_vip built" \
   || no "drone_vip not built. Run: colcon build --symlink-install"
 grep -q '^drone_swarm$' <<< "$ROS_PKGS" && ok "drone_swarm built" \
   || no "drone_swarm not built. Run: colcon build --symlink-install"
+# The two multi-drone examples. swarm_comms also generates a message type, so a
+# failure here can mean rosidl did not run, not just that colcon was not.
+for pkg in swarm_naive swarm_comms; do
+    grep -q "^$pkg\$" <<< "$ROS_PKGS" && ok "$pkg built" \
+      || no "$pkg not built. Run: colcon build --symlink-install"
+done
+ros2 interface show swarm_comms/msg/SwarmState >/dev/null 2>&1 \
+  && ok "SwarmState message generated" \
+  || no "SwarmState message missing. Rebuild swarm_comms"
 
 note "RMW_IMPLEMENTATION: ${RMW_IMPLEMENTATION:-unset (defaults to rmw_fastrtps_cpp)}"
 note "ROS_DOMAIN_ID     : ${ROS_DOMAIN_ID:-unset (0)}"
@@ -230,9 +252,100 @@ case "${ROS_AUTOMATIC_DISCOVERY_RANGE:-}" in
     *)  skip "discovery range is ${ROS_AUTOMATIC_DISCOVERY_RANGE}, which reaches other machines" ;;
 esac
 
+
+# The drone-gcs bookkeeping that flying a vehicle cannot exercise: whether
+# MAVLink this pymavlink cannot decode gets miscounted as a vehicle, whether a
+# lost link is noticed, and how long to wait for a swarm to assemble. Needs no
+# simulator and takes under a second, so it runs before the flight test below.
+GCS_TEST="$REPO_ROOT/scripts/test-drone-gcs.py"
+if [ -x "$GCS_TEST" ]; then
+    if GCS_TEST_OUT=$("$GCS_TEST" 2>&1); then
+        ok "drone-gcs logic ($(grep -c '  PASS  ' <<< "$GCS_TEST_OUT") checks)"
+    else
+        no "drone-gcs logic checks failed. Run $GCS_TEST to see them all:"
+        grep -E '  FAIL  ' <<< "$GCS_TEST_OUT" | sed 's/^/        /'
+    fi
+else
+    skip "scripts/test-drone-gcs.py not found, cannot check drone-gcs logic"
+fi
+
+# ---------------------------------------------------------------------------
+SECTION="slot check"
+echo "=== 5. Your slot on this machine ==="
+# On your own laptop this is slot 0 and everything here passes without you
+# having set anything: slot 0 IS the single-user setup. It earns its place on a
+# shared machine, where the things it checks are the ones that fail silently
+# and look like your code is broken. docs/LAB-SERVER.md.
+
+SLOT="${DRONE_SLOT:-0}"
+BASE="${PX4_INSTANCE_BASE:-0}"
+note "DRONE_SLOT        : ${DRONE_SLOT:-unset (so slot 0)}"
+note "GZ_PARTITION      : ${GZ_PARTITION:-unset}"
+# Slot 0 also owns instance 0, which is what a bare `drone-sim` runs. No other
+# slot can produce it, so it overlaps nobody. See drone-gcs, sitl_instances().
+if [ "$BASE" -eq 0 ]; then
+    note "SITL instances    : 0-10 (0 is a single drone-sim vehicle)"
+else
+    note "SITL instances    : $((BASE + 1))-$((BASE + 10))"
+fi
+note "XRCE agent port   : ${PX4_UXRCE_DDS_PORT:-unset (8888)}"
+note "drone-gcs port    : ${DRONE_GCS_PORT:-unset (14550)}"
+
+# The derived values have to agree with the slot, or half your traffic goes to
+# one block and half to another and the swarm half-arms.
+if [ "$BASE" -eq $((SLOT * 10)) ]; then
+    ok "instance base $BASE matches slot $SLOT"
+else
+    no "PX4_INSTANCE_BASE is $BASE, but slot $SLOT means it should be $((SLOT * 10))"
+    note "Something set it by hand. Fix it, or unset it and re-source env.sh."
+fi
+
+# The one that hurts most. Without a partition, PX4's px4-rc.gzsim finds the
+# first running world on the machine and spawns into it, which on a shared
+# machine is somebody else's flight.
+if [ -n "${GZ_PARTITION:-}" ]; then
+    ok "Gazebo transport is partitioned as '$GZ_PARTITION'"
+else
+    # Alone on the machine this costs nothing, so it is not a failure.
+    skip "GZ_PARTITION is unset. Alone on a machine that is fine. Sharing one,"
+    note "your PX4 joins the first Gazebo world it finds, which may not be yours."
+    note "Fix: source scripts/native/env.sh"
+fi
+
+# Ports held by somebody else are the difference between "my code is wrong" and
+# "I am the second person to start". Worth naming before the launch test below
+# runs into them.
+if command -v ss >/dev/null 2>&1; then
+    HELD=$(ss -ulnH 2>/dev/null)
+    CLASH=""
+    for port in "${PX4_UXRCE_DDS_PORT:-8888}" "${DRONE_GCS_PORT:-14550}" $((18570 + BASE + 1)); do
+        grep -qE "[:.]${port}[[:space:]]" <<< "$HELD" && CLASH="$CLASH $port"
+    done
+    if [ -z "$CLASH" ]; then
+        ok "your ports are free"
+    else
+        # Your own agent and station being up is the normal state mid-session,
+        # so this reports rather than fails.
+        skip "already in use:$CLASH"
+        note "Yours, if your agent and drone-gcs are running. Someone else's if not."
+        note "Check with: ./scripts/lab/lab-status"
+    fi
+else
+    skip "ss not found, cannot check whether your ports are free"
+fi
+
+OTHERS=$(who 2>/dev/null | awk -v me="$(id -un)" '$1 != me {print $1}' | sort -u | tr '\n' ' ')
+if [ -n "$OTHERS" ] && [ -z "${DRONE_SLOT:-}" ]; then
+    no "other people are logged in ($OTHERS) and you have no DRONE_SLOT"
+    note "You are on slot 0, and so is anyone else who has not set one."
+    note "Fix: export DRONE_SLOT=N in ~/.bashrc. See docs/LAB-SERVER.md."
+elif [ -n "$OTHERS" ]; then
+    note "also logged in: $OTHERS"
+fi
+
 # ---------------------------------------------------------------------------
 SECTION="SITL launch test"
-echo "=== 5. Headless SITL launches and flies ==="
+echo "=== 6. Headless SITL launches and flies ==="
 if [ ! -x "$PX4_BIN" ]; then
     skip "PX4 not built, skipping the launch test"
 else
@@ -241,7 +354,7 @@ else
     export GZ_SIM_RESOURCE_PATH="$PX4_DIR/Tools/simulation/gz/models:$PX4_DIR/Tools/simulation/gz/worlds"
     unset PX4_GZ_STANDALONE
     cd "$PX4_DIR" || exit 1
-    : > /tmp/sitl.log
+    : > "$SITL_LOG"
 
     # PX4 refuses to arm without a ground control station, so supply one. The
     # failsafe stays at NAV_DLL_ACT 2, which is the point.
@@ -249,13 +362,12 @@ else
     [ -z "$GCS_BIN" ] && GCS_BIN="$REPO_ROOT/scripts/native/bin/drone-gcs"
     GCS_PID=""
     if [ -x "$GCS_BIN" ]; then
-        "$GCS_BIN" > /tmp/smoke-gcs.log 2>&1 &
+        "$GCS_BIN" > "$GCS_LOG" 2>&1 &
         GCS_PID=$!
     fi
 
     # A FIFO on stdin so the test can command a takeoff. With /dev/null it could
     # only prove PX4 starts, which is a much weaker claim than "it flies".
-    PXH_FIFO=/tmp/smoke-pxh
     rm -f "$PXH_FIFO"; mkfifo "$PXH_FIFO"
     tail -f /dev/null > "$PXH_FIFO" 2>/dev/null &
     FIFO_HOLDER=$!
@@ -263,14 +375,27 @@ else
     # setsid puts make, px4 and gz in their own process group, so cleanup can
     # target exactly that group and not a PX4 you have running in another
     # terminal.
-    setsid timeout "$SITL_BUDGET" env HEADLESS=1 \
-        make px4_sitl gz_x500 < "$PXH_FIFO" > /tmp/sitl.log 2>&1 &
+    #
+    # Which vehicle to fly depends on whether this machine is shared. `make
+    # px4_sitl` runs the binary with no -i, which is instance 0 for everybody
+    # on the machine, and therefore MAVLink GCS port 18570 for everybody. On a
+    # shared machine the second person to run this test would fail it through
+    # no fault of their own, so above slot 0 it flies the first vehicle of your
+    # own block instead. Same thing drone-sim does, for the same reason.
+    if [ "$BASE" -eq 0 ]; then
+        setsid timeout "$SITL_BUDGET" env HEADLESS=1 \
+            make px4_sitl gz_x500 < "$PXH_FIFO" > "$SITL_LOG" 2>&1 &
+    else
+        note "slot $SLOT, so flying instance $((BASE + 1)) rather than 0"
+        setsid timeout "$SITL_BUDGET" env HEADLESS=1 PX4_SIM_MODEL=gz_x500 \
+            "$PX4_BIN" -i "$((BASE + 1))" < "$PXH_FIFO" > "$SITL_LOG" 2>&1 &
+    fi
     SITL_PID=$!
 
     READY=0; DIED=0
     SITL_T0=$(date +%s)
     for _ in $(seq 1 $(( SITL_BUDGET / 2 ))); do
-        if grep -qiE "Ready for takeoff|INFO\s+\[commander\]" /tmp/sitl.log; then READY=1; break; fi
+        if grep -qiE "Ready for takeoff|INFO\s+\[commander\]" "$SITL_LOG"; then READY=1; break; fi
         if ! kill -0 "$SITL_PID" 2>/dev/null; then DIED=1; break; fi
         sleep 2
     done
@@ -285,19 +410,19 @@ else
             for _ in $(seq 1 12); do
                 echo "commander takeoff" > "$PXH_FIFO" 2>/dev/null
                 sleep 5
-                if tr '\r' '\n' < /tmp/sitl.log | grep -q "Takeoff detected"; then FLEW=1; break; fi
+                if tr '\r' '\n' < "$SITL_LOG" | grep -q "Takeoff detected"; then FLEW=1; break; fi
             done
             if [ "$FLEW" -eq 1 ]; then
                 ok "vehicle armed and took off"
-                RTF=$(tr '\r' '\n' < /tmp/sitl.log | sed -n 's/.*[Rr]eal.time factor[: ]*\([0-9.]*\).*/\1/p' | tail -1)
+                RTF=$(tr '\r' '\n' < "$SITL_LOG" | sed -n 's/.*[Rr]eal.time factor[: ]*\([0-9.]*\).*/\1/p' | tail -1)
                 [ -n "$RTF" ] && note "real-time factor reported: $RTF"
             else
                 no "vehicle never left the ground"
-                if tr '\r' '\n' < /tmp/sitl.log | grep -q "ground control station"; then
+                if tr '\r' '\n' < "$SITL_LOG" | grep -q "ground control station"; then
                     note "PX4 is refusing to arm because it sees no GCS link. Run drone-gcs."
                     note "Do NOT set NAV_DLL_ACT 0, that deletes the failsafe instead of supplying the link."
                 fi
-                tr '\r' '\n' < /tmp/sitl.log | grep -E "Arming denied|Preflight Fail" \
+                tr '\r' '\n' < "$SITL_LOG" | grep -E "Arming denied|Preflight Fail" \
                     | sort -u | tail -4 | sed 's/^/        /'
             fi
         else
@@ -305,14 +430,14 @@ else
         fi
     else
         if [ "$DIED" -eq 1 ]; then
-            no "PX4 SITL exited after ${SITL_ELAPSED}s without becoming ready (full log: /tmp/sitl.log)"
+            no "PX4 SITL exited after ${SITL_ELAPSED}s without becoming ready (full log: $SITL_LOG)"
         else
-            no "PX4 SITL still not ready after ${SITL_BUDGET}s. Retry with SITL_BUDGET=300 on a slow machine. (full log: /tmp/sitl.log)"
+            no "PX4 SITL still not ready after ${SITL_BUDGET}s. Retry with SITL_BUDGET=300 on a slow machine. (full log: $SITL_LOG)"
         fi
-        if grep -q "Standalone PX4 launch" /tmp/sitl.log; then
+        if grep -q "Standalone PX4 launch" "$SITL_LOG"; then
             note "PX4 is waiting for a Gazebo server nothing started. unset PX4_GZ_STANDALONE."
         fi
-        tail -20 /tmp/sitl.log | sed 's/^/        /'
+        tail -20 "$SITL_LOG" | sed 's/^/        /'
     fi
 
     kill -TERM -- -"$SITL_PID" 2>/dev/null
@@ -327,7 +452,7 @@ fi
 
 # ---------------------------------------------------------------------------
 SECTION="display check"
-echo "=== 6. Graphics ==="
+echo "=== 7. Graphics ==="
 # Native runs on your own session and your own GPU driver. There is no VNC
 # desktop and no VirtualGL in the path, which is the one place native beats the
 # container outright.

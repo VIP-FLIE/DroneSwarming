@@ -1,8 +1,9 @@
 # Compatibility
 
 What runs where. Setup is in [docs/SETUP.md](docs/SETUP.md) for the dev
-container and [docs/NATIVE-SETUP.md](docs/NATIVE-SETUP.md) for a native
-install.
+container, [docs/NATIVE-SETUP.md](docs/NATIVE-SETUP.md) for a native install,
+and [docs/LAB-SERVER.md](docs/LAB-SERVER.md) for the shared machine in Evans
+153.
 
 **Status meanings**
 
@@ -56,6 +57,28 @@ toolkit. This is the one place native beats the container: in the container
 only NVIDIA can be passed through, and everything else falls back to software.
 
 Verify a native machine with `./scripts/native/smoke-test.sh`.
+
+## The shared lab machine
+
+One native install on one Ubuntu 24.04 box with an NVIDIA card, that several
+people SSH into at once. The stack is the native one above, unchanged and at
+the same pins. What is added is per-user isolation and a way to see the GUI
+from a machine that is not it.
+
+| Your machine | Needs | Status |
+|---|---|---|
+| macOS, Apple Silicon or Intel | An SSH client and a browser | Untested |
+| Windows 10 or 11 | An SSH client and a browser | Untested |
+| Linux, any distro | An SSH client and a browser | Untested |
+| iPad, Chromebook | A browser and an SSH client | Untested, should work |
+
+Your own OS stops mattering: nothing of the stack runs on it. ROS 2, Gazebo and
+PX4 all run on the lab machine, it renders on its own GPU, and you get pixels.
+A TurboVNC Viewer is faster than the browser, and both show the same desktop.
+
+Up to ten people can be assigned slots, though the machine runs out of cores
+long before it runs out of slots. Setup, accounts and the slot table are in
+[docs/LAB-SERVER.md](docs/LAB-SERVER.md).
 
 ## GPU, dev container
 
