@@ -1,0 +1,14 @@
+// Project-local LSP configuration.
+// Only settings that differ from user defaults live here.
+{
+  "lsp": {
+    "clangd": {
+      "binary": {
+        "path": "/usr/bin/clangd",
+        "arguments": [
+          "--query-driver=/usr/bin/c++"
+        ]
+      }
+    }
+  }
+}
