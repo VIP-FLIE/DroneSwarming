@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'drone_vip'
+package_name = 'py_single_square'
 
 setup(
     name=package_name,
@@ -18,8 +18,8 @@ setup(
     license='MIT',
     entry_points={
         'console_scripts': [
-            'listener = drone_vip.listener:main',
-            'fly = drone_vip.takeoff_and_fly:main',
+            'listener = py_single_square.listener:main',
+            'fly = py_single_square.takeoff_and_fly:main',
         ],
     },
 )

@@ -228,10 +228,10 @@ grep -q '^px4_msgs$' <<< "$ROS_PKGS" && ok "px4_msgs importable" \
   || no "px4_msgs not built. Run: ./scripts/native/install.sh --rebuild-msgs"
 ros2 interface show px4_msgs/msg/VehicleLocalPosition >/dev/null 2>&1 \
   && ok "VehicleLocalPosition message" || no "VehicleLocalPosition message"
-grep -q '^drone_vip$' <<< "$ROS_PKGS" && ok "drone_vip built" \
-  || no "drone_vip not built. Run: colcon build --symlink-install"
-grep -q '^drone_swarm$' <<< "$ROS_PKGS" && ok "drone_swarm built" \
-  || no "drone_swarm not built. Run: colcon build --symlink-install"
+grep -q '^py_single_square$' <<< "$ROS_PKGS" && ok "py_single_square built" \
+  || no "py_single_square not built. Run: colcon build --symlink-install"
+grep -q '^cpp_single_hop$' <<< "$ROS_PKGS" && ok "cpp_single_hop built" \
+  || no "cpp_single_hop not built. Run: colcon build --symlink-install"
 # The two multi-drone examples. swarm_comms also generates a message type, so a
 # failure here can mean rosidl did not run, not just that colcon was not.
 for pkg in swarm_naive swarm_comms; do

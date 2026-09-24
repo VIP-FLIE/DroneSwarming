@@ -12,8 +12,8 @@ Two build types, and a package is one or the other:
 
 | Build type | Language | Examples here |
 |---|---|---|
-| `ament_python` | Python | `src/drone_vip` |
-| `ament_cmake` | C++ | `src/drone_swarm`, `src/swarm_naive`, `src/swarm_comms` |
+| `ament_python` | Python | `src/py_single_square` |
+| `ament_cmake` | C++ | `src/cpp_single_hop`, `src/swarm_naive`, `src/swarm_comms` |
 
 A package cannot hold both. A project that needs both gets two packages.
 
@@ -77,7 +77,7 @@ import rclpy
 from rclpy.node import Node
 from px4_msgs.msg import VehicleLocalPosition
 
-from drone_vip.px4_qos import PX4_QOS, topic_prefix
+from py_single_square.px4_qos import PX4_QOS, topic_prefix
 
 
 class YourNode(Node):
@@ -122,14 +122,14 @@ Three things in there are specific to this project:
 - `main` takes `args=None` and calls `rclpy.init`, because the entry point below
   calls it with no arguments.
 
-Importing `drone_vip.px4_qos` means `drone_vip` is a dependency. Add it to
+Importing `py_single_square.px4_qos` means `py_single_square` is a dependency. Add it to
 `package.xml`:
 
 ```xml
-<depend>drone_vip</depend>
+<depend>py_single_square</depend>
 ```
 
-`src/drone_vip/drone_vip/listener.py` is the same shape with more in it.
+`src/py_single_square/py_single_square/listener.py` is the same shape with more in it.
 
 ## 4. Register the entry point
 
@@ -223,7 +223,7 @@ Line by line:
 
 The generated template uses `ament_target_dependencies(your_node "rclcpp" "px4_msgs")`
 instead of `target_link_libraries`. It works, and this repo uses the target form
-because it is the current ROS 2 style and matches `src/drone_swarm`. Pick one,
+because it is the current ROS 2 style and matches `src/cpp_single_hop`. Pick one,
 and do not mix them in the same target.
 
 Adding a second node to the same package means a second `add_executable`,
@@ -277,7 +277,7 @@ int main(int argc, char ** argv)
 The header path is the message name in snake_case: `VehicleLocalPosition` is
 `px4_msgs/msg/vehicle_local_position.hpp`. The QoS is the same profile the
 Python side gets from `PX4_QOS`, and `/fmu/in/vehicle_command` is the exception
-that needs `reliable()` instead of `best_effort()`. `src/drone_swarm/src/hop.cpp`
+that needs `reliable()` instead of `best_effort()`. `src/cpp_single_hop/src/hop.cpp`
 has both, with the reasoning next to them.
 
 ## 4. Build and run
@@ -429,7 +429,7 @@ build first and rosdep what to install.
 |---|---|---|---|
 | ROS 2 client library | `<depend>rclpy</depend>` or `<depend>rclcpp</depend>` | `import rclpy` | `find_package(rclcpp REQUIRED)` and link `rclcpp::rclcpp` |
 | PX4 messages | `<depend>px4_msgs</depend>` | `from px4_msgs.msg import ...` | `find_package(px4_msgs REQUIRED)` and link `${px4_msgs_TARGETS}` |
-| The shared QoS profile | `<depend>drone_vip</depend>` | `from drone_vip.px4_qos import PX4_QOS` | Not applicable, C++ defines its own in the node |
+| The shared QoS profile | `<depend>py_single_square</depend>` | `from py_single_square.px4_qos import PX4_QOS` | Not applicable, C++ defines its own in the node |
 | A plain pip package | `<exec_depend>python3-numpy</exec_depend>` | `import numpy` | Not applicable |
 | A message of your own | `<buildtool_depend>rosidl_default_generators</buildtool_depend>`, `<exec_depend>rosidl_default_runtime</exec_depend>`, `<member_of_group>rosidl_interface_packages</member_of_group>` | `from your_package.msg import YourMessage` | `rosidl_generate_interfaces(...)` and link the target from `rosidl_get_typesupport_target` |
 | Launch files | `<exec_depend>launch</exec_depend>`, `<exec_depend>launch_ros</exec_depend>` | Install `launch/` in `setup.py` | `install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})` |
@@ -492,8 +492,8 @@ To keep colcon out of a directory, put an empty `COLCON_IGNORE` file in it.
 
 - [HOW-IT-WORKS.md](HOW-IT-WORKS.md), the pipeline your node plugs into
 - [QUICKSTART.md](../QUICKSTART.md), QoS, offboard mode and multi-vehicle
-- `src/drone_vip/drone_vip/listener.py`, the smallest complete Python node here
-- `src/drone_swarm/src/hop.cpp`, the same for C++, with the three PX4 rules marked
+- `src/py_single_square/py_single_square/listener.py`, the smallest complete Python node here
+- `src/cpp_single_hop/src/hop.cpp`, the same for C++, with the three PX4 rules marked
 - [SWARM.md](SWARM.md), and `src/swarm_naive` and `src/swarm_comms`, for launch files and a message of your own in use
 - [Creating custom msg files](https://docs.ros.org/en/jazzy/Tutorials/Beginner-Client-Libraries/Custom-ROS2-Interfaces.html), the upstream tutorial
 - [Creating launch files](https://docs.ros.org/en/jazzy/Tutorials/Intermediate/Launch/Creating-Launch-Files.html), the upstream tutorial

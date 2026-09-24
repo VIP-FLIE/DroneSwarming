@@ -54,7 +54,7 @@ PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4
 ```
 
 ```bash
-ros2 run drone_swarm hop
+ros2 run cpp_single_hop hop
 ```
 
 One environment variable and a binary is the whole of terminal 3. It brings up

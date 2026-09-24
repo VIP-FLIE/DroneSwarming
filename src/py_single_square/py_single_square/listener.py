@@ -1,17 +1,17 @@
 """Prints the drone's position. The smallest useful PX4 + ROS 2 node.
 
 Run it with:
-    ros2 run drone_vip listener
+    ros2 run py_single_square listener
 
 For the second vehicle in a multi-vehicle sim:
-    ros2 run drone_vip listener --ros-args -p px4_ns:=px4_1
+    ros2 run py_single_square listener --ros-args -p px4_ns:=px4_1
 """
 
 import rclpy
 from px4_msgs.msg import VehicleLocalPosition, VehicleStatus
 from rclpy.node import Node
 
-from drone_vip.px4_qos import PX4_QOS, topic_prefix
+from py_single_square.px4_qos import PX4_QOS, topic_prefix
 
 def _constants(msg_class, prefix):
     """Build a value -> name table from a message class's own constants.

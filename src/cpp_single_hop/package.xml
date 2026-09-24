@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>drone_swarm</name>
+  <name>cpp_single_hop</name>
   <version>0.1.0</version>
   <description>C++ PX4 offboard flight for the UD Drone VIP swarm project. Starts at one drone.</description>
   <maintainer email="dmihovch@udel.edu">UD Drone VIP</maintainer>

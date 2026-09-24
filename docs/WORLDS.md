@@ -13,7 +13,7 @@ of PX4.
 
 Your code does not change for any of this. The world is a Gazebo concern. PX4
 publishes the same topics, your node subscribes to the same topics, and
-`ros2 run drone_swarm hop` behaves identically in all of them.
+`ros2 run cpp_single_hop hop` behaves identically in all of them.
 
 ## Fly in a world PX4 already ships
 
@@ -62,7 +62,7 @@ Terminal 3 is the only line that changes:
 MicroXRCEAgent udp4 -p 8888              # 1
 drone-gcs                                # 2
 PX4_GZ_WORLD=walls drone-sim             # 3
-ros2 run drone_swarm hop                 # 4
+ros2 run cpp_single_hop hop                 # 4
 ```
 
 `hop` takes off, flies 3 m forward and lands, in `walls` exactly as it does in

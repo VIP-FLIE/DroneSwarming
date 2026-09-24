@@ -109,7 +109,7 @@ RTF in Gazebo's bottom bar is the fidelity gauge.
   faster relative to simulated time than it will in reality. Control rates,
   timeouts and staleness checks stop transferring.
 
-The nodes in `src/drone_vip/` use `self.get_clock().now()` and `create_timer()`
+The nodes in `src/py_single_square/` use `self.get_clock().now()` and `create_timer()`
 rather than `time.time()` and `sleep()`. Keep that. `time.time()` in a control
 loop is the bug.
 
@@ -118,7 +118,7 @@ loop is the bug.
 PX4 is set up with `--no-nuttx` in both the dev container and a native install,
 so it builds SITL only. It cannot compile firmware for a Pixhawk.
 
-That fits the architecture: the ROS 2 nodes in `src/drone_vip/` are what goes
+That fits the architecture: the ROS 2 nodes in `src/py_single_square/` are what goes
 on the drone's companion computer, identical between sim and hardware, and PX4
 firmware is flashed from an official release via QGroundControl.
 

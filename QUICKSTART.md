@@ -91,19 +91,19 @@ source install/setup.bash
 Starting a package of your own rather than editing these two:
 [docs/NEW-PACKAGE.md](docs/NEW-PACKAGE.md).
 
-`src/drone_vip` has two Python nodes:
+`src/py_single_square` has two Python nodes:
 
 ```bash
-ros2 run drone_vip listener      # position, altitude, heading, mode, 1 Hz
-ros2 run drone_vip fly           # arms, goes offboard, flies a square, lands
-ros2 run drone_vip fly --ros-args -p altitude:=8.0 -p side:=10.0
+ros2 run py_single_square listener      # position, altitude, heading, mode, 1 Hz
+ros2 run py_single_square fly           # arms, goes offboard, flies a square, lands
+ros2 run py_single_square fly --ros-args -p altitude:=8.0 -p side:=10.0
 ```
 
-`src/drone_swarm` is the C++ package, with one node:
+`src/cpp_single_hop` is the C++ package, with one node:
 
 ```bash
-ros2 run drone_swarm hop         # takes off, flies 3 m forward, lands
-ros2 run drone_swarm hop --ros-args -p altitude_m:=6.0 -p forward_m:=10.0
+ros2 run cpp_single_hop hop         # takes off, flies 3 m forward, lands
+ros2 run cpp_single_hop hop --ros-args -p altitude_m:=6.0 -p forward_m:=10.0
 ```
 
 `hop` is the starting point for flight code, and
@@ -146,7 +146,7 @@ gets zero callbacks.
 Use the shared profile on anything touching `/fmu/`:
 
 ```python
-from drone_vip.px4_qos import PX4_QOS
+from py_single_square.px4_qos import PX4_QOS
 
 self.create_subscription(
     VehicleLocalPosition, '/fmu/out/vehicle_local_position',
@@ -205,9 +205,9 @@ commands addressed to a different system, so getting it wrong looks like a node
 that runs fine while nothing arms.
 
 ```bash
-ros2 run drone_vip listener --ros-args -p px4_ns:=px4_1
-ros2 run drone_vip fly --ros-args -p px4_ns:=px4_2 -p sys_id:=3
-ros2 run drone_swarm hop --ros-args -p px4_ns:=px4_2 -p system_id:=3
+ros2 run py_single_square listener --ros-args -p px4_ns:=px4_1
+ros2 run py_single_square fly --ros-args -p px4_ns:=px4_2 -p sys_id:=3
+ros2 run cpp_single_hop hop --ros-args -p px4_ns:=px4_2 -p system_id:=3
 ```
 
 Watch `drone-gcs` while they boot. It prints one line per vehicle, and the count
@@ -270,7 +270,7 @@ Run the smoke test first. It names the broken piece:
 | Gazebo at 2 fps | Software rendering | The smoke test's graphics section names the renderer |
 | Offboard rejected | Setpoint stream not running | Publish setpoints before the mode change |
 | Arms then disarms | Failsafe tripped | `pxh> commander status` |
-| `ros2 run drone_vip` not found | Overlay not sourced | `source install/setup.bash` |
+| `ros2 run py_single_square` not found | Overlay not sourced | `source install/setup.bash` |
 | Node runs but never arms | Wrong `system_id` for that instance | Instance N needs system id N + 1 |
 | First drone flies, the rest never arm | `drone-gcs` is serving only one vehicle | It should print one linked system per drone. Check the path it prints is the copy you edited |
 | New drones spawn into a field that already has drones in it | A Gazebo server survived the last run | `pkill -f 'gz sim'` |

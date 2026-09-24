@@ -1,9 +1,9 @@
 """Arms, climbs, flies a square, lands. Offboard control, no mission upload.
 
 Run it with PX4 SITL and MicroXRCEAgent already running:
-    ros2 run drone_vip fly
-    ros2 run drone_vip fly --ros-args -p altitude:=8.0 -p side:=10.0
-    ros2 run drone_vip fly --ros-args -p px4_ns:=px4_1 -p sys_id:=2
+    ros2 run py_single_square fly
+    ros2 run py_single_square fly --ros-args -p altitude:=8.0 -p side:=10.0
+    ros2 run py_single_square fly --ros-args -p px4_ns:=px4_1 -p sys_id:=2
 
 Offboard mode has one rule that trips everyone up: PX4 will not accept the
 mode switch until it is already receiving a stream of setpoints, and it will
@@ -24,7 +24,7 @@ from px4_msgs.msg import (
 )
 from rclpy.node import Node
 
-from drone_vip.px4_qos import PX4_QOS, PX4_CMD_QOS, topic_prefix
+from py_single_square.px4_qos import PX4_QOS, PX4_CMD_QOS, topic_prefix
 
 TICK_HZ = 10.0
 SETPOINTS_BEFORE_ARM = 10            # 1 second of stream at 10 Hz

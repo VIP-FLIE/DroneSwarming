@@ -8,7 +8,7 @@ Two packages, both C++, both worked examples meant to be read.
 | `swarm_comms` | Slot 0 flies the ring, the rest chase the drone ahead | Position and state, 10 Hz, over `/swarm/state` |
 
 Read [HOW-IT-WORKS.md](HOW-IT-WORKS.md) and
-[`src/drone_swarm/src/hop.cpp`](../src/drone_swarm/src/hop.cpp) first. One drone
+[`src/cpp_single_hop/src/hop.cpp`](../src/cpp_single_hop/src/hop.cpp) first. One drone
 taking off, flying forward and landing is the whole of the PX4 conversation, and
 neither package here changes any of it.
 
@@ -522,7 +522,7 @@ swarm that cannot assemble.
 ## Reference
 
 - [HOW-IT-WORKS.md](HOW-IT-WORKS.md), the pipeline and the three rules PX4 imposes
-- [`src/drone_swarm/src/hop.cpp`](../src/drone_swarm/src/hop.cpp), one drone, read it first
+- [`src/cpp_single_hop/src/hop.cpp`](../src/cpp_single_hop/src/hop.cpp), one drone, read it first
 - [NEW-PACKAGE.md](NEW-PACKAGE.md), starting a package of your own
 - [UNDER-THE-SCRIPTS.md](UNDER-THE-SCRIPTS.md), what the launch files are doing when they run the PX4 binary directly
 - [SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md), what the simulator gets right

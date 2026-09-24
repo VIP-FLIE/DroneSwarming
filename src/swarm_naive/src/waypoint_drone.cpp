@@ -13,7 +13,7 @@
 // ring, comes back over its pad and lands. The ring has one vertex per drone
 // and each drone enters at its own vertex, so they chase each other round it.
 //
-// WHAT THIS ADDS TO drone_swarm/hop.cpp
+// WHAT THIS ADDS TO cpp_single_hop/hop.cpp
 // -------------------------------------
 // hop.cpp is one drone and is the file to read first. It covers the three
 // rules PX4 imposes on any offboard program, and this file obeys the same

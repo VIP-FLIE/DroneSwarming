@@ -6,7 +6,7 @@ for a native install, and [QUICKSTART.md](../QUICKSTART.md) is the command
 reference. This is the one that explains *why* any of it is shaped the way it
 is.
 
-The worked example is [`src/drone_swarm/src/hop.cpp`](../src/drone_swarm/src/hop.cpp):
+The worked example is [`src/cpp_single_hop/src/hop.cpp`](../src/cpp_single_hop/src/hop.cpp):
 one drone, takes off, flies three metres forward, lands. It is one file and it
 is heavily commented, so read it alongside this. Everything a swarm needs is
 already in there except the swarm.
@@ -21,7 +21,7 @@ native install.
 MicroXRCEAgent udp4 -p 8888     # 1. the bridge between PX4 and ROS 2
 drone-gcs                       # 2. the ground station link PX4 requires
 drone-sim                       # 3. PX4 + Gazebo, gives you a pxh> prompt
-ros2 run drone_swarm hop        # 4. your flight program
+ros2 run cpp_single_hop hop        # 4. your flight program
 ```
 
 Watch it in Gazebo, which is at <http://localhost:6080> in the dev container and
@@ -39,7 +39,7 @@ a window on your desktop natively. Expect this:
 Change the flight without touching the code:
 
 ```bash
-ros2 run drone_swarm hop --ros-args -p altitude_m:=6.0 -p forward_m:=10.0
+ros2 run cpp_single_hop hop --ros-args -p altitude_m:=6.0 -p forward_m:=10.0
 ```
 
 ## The pipeline
@@ -229,7 +229,7 @@ constexpr std::array<Position, 4> WAYPOINTS = {{
 
 Then `FlyingForward` becomes "advance the index when `has_arrived()`, and land
 when the index runs off the end". That is what the Python node
-[`takeoff_and_fly.py`](../src/drone_vip/drone_vip/takeoff_and_fly.py) does, so
+[`takeoff_and_fly.py`](../src/py_single_square/py_single_square/takeoff_and_fly.py) does, so
 compare the two.
 
 **Fly a function instead of waypoints.** Make the target a function of elapsed
@@ -280,8 +280,8 @@ Three things are now instance-dependent, and all three will bite you:
   `drone-gcs` handles this; watch it count linked systems.
 
 ```bash
-ros2 run drone_swarm hop --ros-args -p px4_ns:=px4_1 -p system_id:=2
-ros2 run drone_swarm hop --ros-args -p px4_ns:=px4_2 -p system_id:=3
+ros2 run cpp_single_hop hop --ros-args -p px4_ns:=px4_1 -p system_id:=2
+ros2 run cpp_single_hop hop --ros-args -p px4_ns:=px4_2 -p system_id:=3
 ```
 
 Two drones now fly the same hop independently. That is a fleet, not yet a swarm.

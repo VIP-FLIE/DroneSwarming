@@ -402,7 +402,7 @@ fi
 source "$WS_DIR/install/setup.bash"
 ( cd "$REPO_ROOT" && colcon build --symlink-install --parallel-workers "$JOBS" ) \
     || die "this repo's packages failed to build"
-info "drone_vip and drone_swarm built"
+info "py_single_square and cpp_single_hop built"
 
 # =============================================================================
 stamp_set PX4_VERSION "$PX4_VERSION"

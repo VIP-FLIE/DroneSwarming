@@ -287,7 +287,7 @@ Run `./scripts/native/smoke-test.sh` first. It names the broken piece.
 | No `/fmu/` topics | Agent not running, or started after PX4 | Start `MicroXRCEAgent`, restart PX4 |
 | `MicroXRCEAgent: command not found` right after install | `/usr/local/bin` not on `PATH`, or the linker cache is stale | `sudo ldconfig /usr/local/lib`, then open a new terminal |
 | Callback never fires but `ros2 topic echo` shows data | QoS mismatch | Use `PX4_QOS`, see QUICKSTART |
-| `ros2 run drone_vip` not found | Overlay not sourced | `source install/setup.bash`, or source `env.sh` |
+| `ros2 run py_single_square` not found | Overlay not sourced | `source install/setup.bash`, or source `env.sh` |
 | Drones you did not launch appear on your topics | Subnet-wide discovery | `source scripts/native/env.sh` |
 | `colcon build` fails with paths under `/workspaces` | Build output left from a dev container run | `rm -rf build install log`, then rebuild |
 | PX4 build dies and the machine swaps | Too many parallel jobs | `JOBS=2 ./scripts/native/install.sh --rebuild-px4` |

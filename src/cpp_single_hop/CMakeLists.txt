@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(drone_swarm)
+project(cpp_single_hop)
 
 # Writes build/<package>/compile_commands.json, which colcon merges into
 # build/compile_commands.json. That is what .vscode/c_cpp_properties.json points
@@ -22,7 +22,7 @@ target_compile_features(hop PRIVATE cxx_std_17)
 target_link_libraries(hop PRIVATE rclcpp::rclcpp ${px4_msgs_TARGETS})
 
 # ros2 run looks for executables in lib/<package>, so this is what makes
-# `ros2 run drone_swarm hop` work.
+# `ros2 run cpp_single_hop hop` work.
 install(TARGETS hop DESTINATION lib/${PROJECT_NAME})
 
 ament_package()

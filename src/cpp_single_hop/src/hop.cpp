@@ -6,8 +6,8 @@
 //
 // Run it with the simulator already up (see docs/HOW-IT-WORKS.md):
 //
-//     ros2 run drone_swarm hop
-//     ros2 run drone_swarm hop --ros-args -p altitude_m:=5.0 -p forward_m:=6.0
+//     ros2 run cpp_single_hop hop
+//     ros2 run cpp_single_hop hop --ros-args -p altitude_m:=5.0 -p forward_m:=6.0
 //
 // WHAT THIS PROGRAM IS ACTUALLY DOING
 // -----------------------------------
@@ -49,7 +49,7 @@
 #include <px4_msgs/msg/vehicle_status.hpp>
 #include <rclcpp/rclcpp.hpp>
 
-namespace drone_swarm
+namespace cpp_single_hop
 {
 namespace
 {
@@ -187,12 +187,11 @@ using px4_msgs::msg::VehicleStatus;
 class Hop : public rclcpp::Node
 {
 public:
-  Hop()
-  : Node("hop")
+  Hop() : Node("hop")
   {
     // -- Parameters -------------------------------------------------------
     // Declared with defaults, overridable from the command line:
-    //   ros2 run drone_swarm hop --ros-args -p altitude_m:=5.0
+    //   ros2 run cpp_single_hop hop --ros-args -p altitude_m:=5.0
     const std::string px4_namespace = declare_parameter<std::string>("px4_ns", "");
     system_id_ = static_cast<uint8_t>(declare_parameter<int>("system_id", DEFAULT_SYSTEM_ID));
     altitude_m_ = declare_parameter<double>("altitude_m", DEFAULT_ALTITUDE_M);
@@ -571,7 +570,7 @@ private:
   rclcpp::TimerBase::SharedPtr control_timer_;
 };
 
-}  // namespace drone_swarm
+}  // namespace cpp_single_hop
 
 int main(int argc, char ** argv)
 {
@@ -579,7 +578,7 @@ int main(int argc, char ** argv)
   try {
     // make_shared, and rclcpp owns it from here. There is no new or delete in
     // this file and nothing to free by hand.
-    rclcpp::spin(std::make_shared<drone_swarm::Hop>());
+    rclcpp::spin(std::make_shared<cpp_single_hop::Hop>());
   } catch (const std::exception & error) {
     RCLCPP_FATAL(rclcpp::get_logger("hop"), "%s", error.what());
     rclcpp::shutdown();
