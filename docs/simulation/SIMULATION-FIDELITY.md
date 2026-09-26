@@ -1,7 +1,7 @@
 # Simulation fidelity
 
-Code written here goes onto real X500s, so the question is whether it behaves
-the same in the air. This lists what is faithful, what is not, and the numbers.
+Code written here goes onto real X500s. This document lists what is faithful,
+what is not, and the numbers.
 
 ## Nothing in the simulation was changed
 
@@ -29,11 +29,11 @@ for real flight controllers and unused by SITL. Nothing in this repo sets a PX4
 parameter or changes one of PX4's worlds, airframes or sensor definitions.
 
 Once you have run `./scripts/install-worlds.sh`, the first command also lists
-`Tools/simulation/gz`, the submodule PX4 keeps its worlds and models in. That is
-this repo's worlds and models linked in beside PX4's own, which is the only way
-PX4 will load them, see [WORLDS.md](WORLDS.md). The links add files and change
-none of PX4's, which is what the third command shows: every line is `??`.
-`scripts/native/smoke-test.sh` reads the tree by that same rule.
+`Tools/simulation/gz`, the submodule PX4 keeps its worlds and models in. That
+is this repo's worlds and models linked in beside PX4's own, which is the only
+way PX4 will load them, see [WORLDS.md](WORLDS.md). The links add files and
+change none of PX4's, which is what the third command shows: every line is
+`??`. `scripts/native/smoke-test.sh` reads the tree by that same rule.
 
 ## Your hardware does not change the physics
 
@@ -96,8 +96,8 @@ It listens on udp 14550 and also heartbeats each SITL instance's own GCS port,
 vehicle enforces this failsafe separately, so a station that reaches only one
 of them leaves the rest correctly refusing to arm.
 
-Killing `drone-gcs` mid-flight is now a test: it fires the datalink-loss
-failsafe. Apply the same rule to any other PX4 refusal.
+Killing `drone-gcs` mid-flight fires the datalink-loss failsafe. Apply the same
+rule to any other PX4 refusal.
 
 ## Watch the real-time factor
 
@@ -109,26 +109,26 @@ RTF in Gazebo's bottom bar is the fidelity gauge.
   faster relative to simulated time than it will in reality. Control rates,
   timeouts and staleness checks stop transferring.
 
-The nodes in `src/py_single_square/` use `self.get_clock().now()` and `create_timer()`
-rather than `time.time()` and `sleep()`. Keep that. `time.time()` in a control
-loop is the bug.
+The nodes in `src/py_single_square/` use `self.get_clock().now()` and
+`create_timer()` rather than `time.time()` and `sleep()`. Keep that.
+`time.time()` in a control loop is the bug.
 
 ## This tree cannot build firmware
 
 PX4 is set up with `--no-nuttx` in both the dev container and a native install,
 so it builds SITL only. It cannot compile firmware for a Pixhawk.
 
-That fits the architecture: the ROS 2 nodes in `src/py_single_square/` are what goes
-on the drone's companion computer, identical between sim and hardware, and PX4
-firmware is flashed from an official release via QGroundControl.
+That fits the architecture: the ROS 2 nodes in `src/py_single_square/` are what
+goes on the drone's companion computer, identical between sim and hardware, and
+PX4 firmware is flashed from an official release via QGroundControl.
 
 For custom firmware, drop `--no-nuttx` from the `Tools/setup/ubuntu.sh` call and
-stop pruning `platforms/nuttx/NuttX`, in `.devcontainer/Dockerfile` section 7 and
-in `scripts/native/install.sh`. Both also need `--shallow-submodules` removed
-from the PX4 clone, because `src/lib/version/px_update_git_header.py` reads the
-newest NuttX tag and a shallow submodule checkout has none, which crashes every
-build including SITL. Adds the ARM cross toolchain and about 250 MB. Make it its
-own commit.
+stop pruning `platforms/nuttx/NuttX`, in `.devcontainer/Dockerfile` section 7
+and in `scripts/native/install.sh`. Both also need `--shallow-submodules`
+removed from the PX4 clone, because
+`src/lib/version/px_update_git_header.py` reads the newest NuttX tag and a
+shallow submodule checkout has none, which crashes every build including SITL.
+Adds the ARM cross toolchain and about 250 MB. Make it its own commit.
 
 ## What SITL never gets right
 
@@ -140,5 +140,4 @@ own commit.
   target.
 - Timing jitter. Lockstep is deterministic. Hardware is not.
 
-These are reasons to keep hardware-in-the-loop and flight testing, not reasons
-to distrust the simulation.
+Keep hardware-in-the-loop and flight testing for these four.

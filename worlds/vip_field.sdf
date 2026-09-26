@@ -8,16 +8,16 @@
 
   Fly in it with:
 
-      PX4_GZ_WORLD=vip_field drone-sim
+      cd ~/PX4-Autopilot && PX4_GZ_WORLD=vip_field PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4
 
   after ./scripts/install-worlds.sh has put it where PX4 looks. The full
-  explanation, and how to write your own, is in docs/WORLDS.md.
+  explanation, and how to write your own, is in docs/simulation/WORLDS.md.
 
   Everything above the obstacles is copied unchanged from PX4's default.sdf:
   the physics step, gravity, the magnetic field and the latitude and longitude.
   Those four are the parts of a world the flight code can feel, so they are the
-  parts you do not change casually. docs/WORLDS.md explains what each one costs
-  you if you get it wrong.
+  parts you do not change casually. docs/simulation/WORLDS.md explains what
+  each one costs you if you get it wrong.
 -->
 <sdf version="1.9">
   <world name="vip_field">

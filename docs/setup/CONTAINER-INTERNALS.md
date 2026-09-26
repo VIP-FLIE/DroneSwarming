@@ -1,6 +1,6 @@
 # How the container works
 
-Design notes. To just get running, see [docs/SETUP.md](../docs/SETUP.md).
+Design notes. Setup instructions are in [SETUP.md](SETUP.md).
 
 ## The display path
 
@@ -96,8 +96,10 @@ the image, so editing them takes effect on the next container start with no
 rebuild. Falls back to `/opt`, then to bare `sleep infinity` so you always get
 a shell.
 
-`drone-gui` reports and restarts the desktop. `drone-sim` launches PX4 SITL.
-`drone-gcs` provides the GCS link PX4 needs to arm.
+`drone-gui` reports and restarts the desktop. `drone-gcs` provides the GCS link
+PX4 needs to arm. PX4 SITL starts with
+`PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4` inside
+`~/PX4-Autopilot`.
 
 ## `.devcontainer/.env`
 
@@ -153,7 +155,6 @@ lowercase, so the published image does not match the repo's display casing.
     container-entry.sh  container command: starts the desktop, stays alive
     start-display.sh    Xvfb + x11vnc + noVNC
     drone-gui           report and restart the desktop
-    drone-sim           launch PX4 SITL with the x500
     drone-gcs           GCS heartbeat so PX4 can arm
     post-create.sh      first-run setup
     build-workspace.sh  compiles anything not baked in

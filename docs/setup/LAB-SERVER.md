@@ -21,12 +21,11 @@ getting an account. Part 3 is a team member on a normal day.
 Gazebo needs a GPU and ROS 2 Jazzy needs Ubuntu 24.04. The lab machine has
 both. Most of the team is on macOS, which has neither.
 
-X11 forwarding over SSH does not work here. It ships every
-OpenGL call across the network to be rendered on the client, so it needs a
-working X server on the Mac (XQuartz), it needs indirect GLX, and Gazebo's
-ogre2 render engine does not survive the trip. Instead:
-render on the lab machine's NVIDIA card, compress the finished frames, and send
-pixels.
+X11 forwarding over SSH does not work here. It ships every OpenGL call across
+the network to be rendered on the client, so it needs a working X server on the
+Mac (XQuartz), it needs indirect GLX, and Gazebo's ogre2 render engine does not
+survive the trip. Instead: render on the lab machine's NVIDIA card, compress the
+finished frames, and send pixels.
 
 | | Where GL runs | Client needs | Gazebo |
 |---|---|---|---|
@@ -35,10 +34,9 @@ pixels.
 | VNC of a virtual desktop, VirtualGL | Lab machine, NVIDIA card | Browser or VNC client | Works |
 
 The last row is what the dev container already does inside Docker, with Xvfb
-and x11vnc. The lab machine does the same thing with TurboVNC in place of
-Xvfb plus x11vnc, because TurboVNC is built for exactly this job and is
-noticeably faster on 3D content. See
-[What differs from the container](#what-differs-from-the-container).
+and x11vnc. The lab machine does the same thing with TurboVNC in place of Xvfb
+plus x11vnc, because TurboVNC is built for exactly this job and is faster on 3D
+content. See [What differs from the container](#what-differs-from-the-container).
 
 ## Decisions
 
@@ -48,7 +46,7 @@ four are specific to this stack rather than general hygiene.
 | | |
 |---|---|
 | Home directories | Every user needs their own `~/PX4-Autopilot`, `~/ros2_ws`, `~/.ros`, `~/.gz` and `~/.config`. PX4 SITL writes its rootfs under `build/px4_sitl_default/rootfs/<instance>` at runtime, so two people sharing one tree corrupt each other's vehicles |
-| `pkill` | [SWARM.md](SWARM.md) tells you to run `pkill -f 'gz sim'` when a server survives a launch. As a normal user that signals only your own processes. As root it kills every simulation on the machine, mid-flight |
+| `pkill` | [SWARM.md](../swarm/SWARM.md) tells you to run `pkill -f 'gz sim'` when a server survives a launch. As a normal user that signals only your own processes. As root it kills every simulation on the machine, mid-flight |
 | Displays | Each user needs their own X display, VNC port and `~/.vnc`. One shared account means one desktop that everybody fights over |
 | Slots | The whole isolation scheme below keys off who you are logged in as |
 | Attribution | When the GPU is pinned and real-time factor drops, `w`, `last` and `nvidia-smi` have to name whose run is doing it |
@@ -57,9 +55,9 @@ four are specific to this stack rather than general hygiene.
 | Audit | `journalctl _COMM=sudo` is only useful if sudo is tied to a person |
 | Habit | Working as root for months is a habit that follows people to machines where it matters more |
 
-Team members get **no sudo**. They do not need it. The parts of
-`install.sh` that want root install system packages, and those are installed
-once by the administrator in Part 1. Team members run it with `--skip-apt`.
+Team members get **no sudo**. They do not need it. The parts of `install.sh`
+that want root install system packages, and those are installed once by the
+administrator in Part 1. Team members run it with `--skip-apt`.
 
 **Reach the machine over Tailscale.** The campus network does not accept
 inbound connections from outside, so without something the team has to be on
@@ -69,12 +67,12 @@ no firewall changes and nothing listening on the public internet. The free
 Personal plan covers 6 users and unlimited devices, which fits a team of five
 with one spare.
 
-Two things to be deliberate about, because this is a university network:
+On a university network, two constraints apply:
 
 - Bring it up with whoever administers the lab and the network first. An
-  overlay network on a campus machine is exactly the kind of thing network
-  security wants to know about, and it is a short conversation if you have it
-  before rather than after.
+  overlay network on a campus machine is the kind of thing network security
+  wants to know about, and it is a short conversation if you have it before
+  rather than after.
 - Do not advertise subnet routes and do not make it an exit node. Without
   those, Tailscale exposes this one host and nothing else on the campus
   network. With them it becomes a way around the campus firewall for the whole
@@ -86,10 +84,8 @@ document is unchanged. Part 1.3 covers both.
 
 ## The isolation problem
 
-This is the part that is specific to this project, and the part that will waste
-a day if it is skipped. Several fixed resources in the stack are hardcoded to
-one value. On your own laptop that is fine. On a shared machine the second
-person to start hits them.
+Several fixed resources in the stack are hardcoded to one value. On your own
+laptop that is fine. On a shared machine the second person to start hits them.
 
 Every row below was read out of the pinned PX4 v1.16.1 tree or this repo, not
 recalled.
@@ -103,14 +99,13 @@ recalled.
 | XRCE-DDS agent | `8888` | `MicroXRCEAgent udp4 -p 8888` | Cannot bind. No `/fmu/` topics | `8888 + slot`, and `PX4_UXRCE_DDS_PORT` to match |
 | `drone-gcs` listener | `udpin:0.0.0.0:14550` | `.devcontainer/scripts/drone-gcs` | Cannot bind | `14550 + slot` |
 | `drone-gcs` heartbeats | `18570` through `18579` | same file | Heartbeats the other user's vehicles as well as its own | derive from the instance block |
-| `drone-sim`, one vehicle | instance `0` | `make px4_sitl`, which has no way to pass `-i` | Everybody's single-drone run is instance 0, so everybody wants port 18570 | run the binary with `-i` above slot 0 |
+| Raw SITL command, one vehicle | instance `0` | `make px4_sitl`, which has no way to pass `-i` | Everybody's single-drone run is instance 0, so everybody wants port 18570 | run the binary with `-i` above slot 0 |
 | Smoke test scratch files | `/tmp/sitl.log` | `scripts/native/smoke-test.sh` | `/tmp` is sticky, so the second person cannot write it and reads the first person's run as their own | per-user scratch directory |
 | X display | `:1` | container only | Nothing to collide with natively, but each user still needs their own | `:10 + slot` |
 
-The `Arming denied` row is the one to remember. It is the same message you get
-with no `drone-gcs` running at all, so the natural reaction is to go and check
-`drone-gcs`, which is up and looks healthy. The actual cause is somebody else's
-PX4 already holding the port.
+The `Arming denied` message is the same one that appears when no `drone-gcs`
+runs at all. Check `drone-gcs` first: if it is up and healthy, the cause is
+somebody else's PX4 holding the port.
 
 ### Slots
 
@@ -144,12 +139,12 @@ Three notes on the numbering.
 
 PX4 derives the topic namespace from the instance, so slot 1's first drone is
 `/px4_11/fmu/...`, not `/px4_1/`. Nothing in this repo hardcodes that, because
-the launch files pass `px4_ns` as a parameter, but anything you write by hand
+the launch files pass `px4_ns` as a parameter. Anything you write by hand
 should read it rather than assume it.
 
-Slot 0 also owns instance 0, which is what a bare `drone-sim` runs: one
-vehicle on bare `/fmu/` with no namespace, the way a real aircraft publishes.
-No other slot can produce instance 0, so it costs nobody anything.
+Slot 0 also owns instance 0, which is what the raw SITL command without `-i`
+runs: one vehicle on bare `/fmu/` with no namespace, the way a real aircraft
+publishes. No other slot can produce instance 0, so it costs nobody anything.
 
 Ten instances starting at base+1 rather than base also fixed a bug that was
 already there. `drone-gcs` covered ports 18570 through 18579, which is
@@ -165,14 +160,13 @@ One thing the blocks do not separate. PX4's mavlink module defaults its
 vehicle nobody has contacted yet broadcasts toward that port, which is slot 0's
 listen port. Slot 0's station may therefore count a vehicle that is not its own
 for a few seconds. It resolves itself once that vehicle's real station
-heartbeats its instance directly, and nothing mis-flies, but slot 0 seeing a
+heartbeats its instance directly, and nothing mis-flies. Slot 0 seeing a
 transient extra drone in its tally is expected rather than a fault.
 
 `px4-rc.mavlink` collapses the offboard *remote* port to 14549 for every
 instance above 9, so all slots above 0 share it. Nothing in this repo binds
-that port. It matters only if somebody starts using MAVSDK or
-QGroundControl's offboard link, at which point those slots need a scheme of
-their own.
+that port. It matters only if somebody starts using MAVSDK or QGroundControl's
+offboard link, at which point those slots need a scheme of their own.
 
 ---
 
@@ -246,8 +240,8 @@ sudo -u gdm dbus-run-session -- gsettings set \
 
 **Fix the clock.** Windows keeps the hardware clock in local time and Ubuntu
 keeps it in UTC, so a dual-boot machine's clock jumps by the UTC offset every
-time you switch. Log timestamps and anything time-sensitive in DDS get
-confusing fast. Pick UTC on both sides:
+time you switch. Log timestamps and anything time-sensitive in DDS then
+disagree. Set UTC on both sides:
 
 ```bash
 timedatectl set-local-rtc 0
@@ -273,9 +267,9 @@ sudo ethtool -s <iface> wol g                    # and make it persist in netpla
 sudo ./scripts/lab/install-lab.sh --harden-ssh
 ```
 
-Separate and opt-in, because getting this wrong locks you out of a machine that
-is by definition not in front of you. The script refuses to run at all until
-some account on the machine has a key in its `authorized_keys`, validates with
+Separate and opt-in, because getting this wrong locks you out of a machine
+that is not in front of you. The script refuses to run at all until some
+account on the machine has a key in its `authorized_keys`, validates with
 `sshd -t` before restarting, and removes its own file if sshd rejects it.
 
 What it writes to `/etc/ssh/sshd_config.d/10-flie.conf`:
@@ -291,15 +285,15 @@ ClientAliveCountMax 10
 
 **Keep your current session open until you have proved a new one works.**
 
-Two things about this on 24.04. Ubuntu socket-activates sshd, so
-`Port` and `ListenAddress` in `sshd_config` are ignored and live in the
-`ssh.socket` unit instead. Authentication still reads from `sshd_config`, which
-is all of the above.
+Two things about this on 24.04. Ubuntu socket-activates sshd, so `Port` and
+`ListenAddress` in `sshd_config` are ignored and live in the `ssh.socket` unit
+instead. Authentication still reads from `sshd_config`, which is all of the
+above.
 
-`ClientAlive*` is not decoration. A long headless swarm run with an idle
-terminal is exactly the shape of connection a NAT or a campus firewall times
-out, and losing the SSH session kills whatever is attached to it. Part 3 covers
-`tmux` for the same reason.
+`ClientAlive*` exists because a long headless swarm run with an idle terminal
+is the connection shape a NAT or a campus firewall times out, and losing the
+SSH session kills whatever is attached to it. Part 3 covers `tmux` for the same
+reason.
 
 ## 1.3 Network reach
 
@@ -310,9 +304,9 @@ curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up --hostname=flie-lab
 ```
 
-That script adds Tailscale's apt repository and installs from it. If you would
-rather see each step, the repository instructions at
-<https://tailscale.com/download/linux> do the same thing by hand.
+That script adds Tailscale's apt repository and installs from it. The
+repository instructions at <https://tailscale.com/download/linux> do the same
+thing by hand.
 
 Do not pass `--advertise-routes` or `--advertise-exit-node`, for the reason in
 Decisions.
@@ -408,19 +402,19 @@ That is 1.6 and 1.7 in one command, and it is safe to re-run. It:
 - creates the `flie` and `flie-ssh` groups and `/srv/flie/shared`
 - finishes by running `--check` and telling you what is left
 
-Two things to understand rather than just run:
+Two mechanisms to understand before running it:
 
-**Why EGL.** Nobody is logged in at the console, so there is no X server on
-`:0` and no desktop session owning the card. VirtualGL's EGL back end renders
+**EGL.** Nobody is logged in at the console, so there is no X server on `:0`
+and no desktop session owning the card. VirtualGL's EGL back end renders
 through an EGL device directly, with no 3D X server involved. No dummy plug, no
-`xorg.conf`. It is already what the dev container uses.
+`xorg.conf`. The dev container uses the same mechanism.
 
 If `vglrun` cannot reach the card, the usual cause is group membership, and
 group changes need a fresh login to take effect. `/dev/dri/renderD128` is
 `root:render` mode 0660 on Ubuntu, so the `render` group is what grants it. The
 documented alternative is `sudo /opt/VirtualGL/bin/vglserver_config`, option 2,
 "Configure server for use with VirtualGL (EGL back end only)". Prove which one
-you needed rather than assuming:
+is needed rather than assuming:
 
 ```bash
 sudo -u your_username vglrun -d egl glxinfo | grep 'OpenGL renderer'
@@ -428,12 +422,11 @@ sudo -u your_username vglrun -d egl glxinfo | grep 'OpenGL renderer'
 
 You want the card named. `llvmpipe` means software rendering.
 
-**Why both `gz` wrappers.** PATH ordering alone is not enough, and this bit the
-project for real. ROS 2 ships its own gz-tools at
-`/opt/ros/jazzy/opt/gz_tools_vendor/bin`, and `source /opt/ros/jazzy/setup.bash`
-prepends that directory. Every script that sources ROS therefore puts ROS's
-`gz` in front of `/usr/local/bin` and silently drops VirtualGL. You lose the
-GPU with nothing reporting an error.
+**Both `gz` wrappers.** PATH ordering alone is not enough. ROS 2 ships its own
+gz-tools at `/opt/ros/jazzy/opt/gz_tools_vendor/bin`, and
+`source /opt/ros/jazzy/setup.bash` prepends that directory. Every script that
+sources ROS therefore puts ROS's `gz` in front of `/usr/local/bin` and silently
+drops VirtualGL. The GPU is lost with nothing reporting an error.
 
 | Binary | Wrapped because |
 |---|---|
@@ -447,7 +440,7 @@ same desktop:
 
 | | Install on the laptop | Use it for |
 |---|---|---|
-| TurboVNC Viewer | A `.dmg`, `.exe` or `.deb` from <https://turbovnc.org> | Flying. Noticeably faster on 3D |
+| TurboVNC Viewer | A `.dmg`, `.exe` or `.deb` from <https://turbovnc.org> | Flying. Faster on 3D |
 | Browser, noVNC | Nothing at all | A quick look, or a machine you cannot install on |
 
 ## 1.8 Check before handing it out
@@ -559,14 +552,15 @@ Four panes, as [NATIVE-SETUP.md](NATIVE-SETUP.md) describes, with the one
 difference that the agent port is yours:
 
 ```bash
-MicroXRCEAgent udp4 -p $PX4_UXRCE_DDS_PORT    # 1. PX4 to ROS 2 bridge
-drone-gcs                                     # 2. ground control station link
-drone-sim                                     # 3. simulator, gives you a pxh> prompt
-ros2 topic list | grep fmu                    # 4. your side
+MicroXRCEAgent udp4 -p $PX4_UXRCE_DDS_PORT                    # 1. PX4 to ROS 2 bridge
+drone-gcs                                                     # 2. ground control station link
+cd ~/PX4-Autopilot                                            # 3. simulator
+PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4 -i $((PX4_INSTANCE_BASE + 1))   # gives you a pxh> prompt
+ros2 topic list | grep fmu                                    # 4. your side
 ```
 
-`drone-gcs` and `drone-sim` read the rest of it from the environment, so there
-is nothing else to remember. Swarms are unchanged:
+`drone-gcs` reads the rest of it from the environment, so there is nothing else
+to remember. Swarms are unchanged:
 
 ```bash
 ros2 launch swarm_naive swarm.launch.py
@@ -590,9 +584,9 @@ assume it is their own code.
 
 | | |
 |---|---|
-| Run headless unless you are looking | `HEADLESS=1`. The single biggest thing you can do for everyone else, and swarm work needs it anyway |
+| Run headless unless you are looking | `HEADLESS=1`. Saves the GPU and the CPU for everyone else, and swarm work needs it anyway |
 | Check before you launch | `lab-status` names who is flying and what the GPU is doing |
-| Check RTF before you trust a run | Real-time factor is a shared resource now. A run at 0.6 is not telling you what your controller does |
+| Check RTF before you trust a run | Real-time factor is a shared resource. A run at 0.6 does not show what your controller does |
 | Say so for anything long | If you are taking the machine for an hour, put it in GroupMe |
 | Kill what you finished | `pkill -f 'gz sim'` reaches only your own processes. Leaving a server running means your next launch joins it |
 | Do not reboot into Windows remotely | Nobody can get it back |
@@ -618,24 +612,23 @@ TurboVNC in place of Xvfb plus x11vnc is the one deliberate divergence.
 The Dockerfile's reason for Xvfb is that it exposes Mesa llvmpipe with OpenGL
 4.5, which matters on the many team laptops with no usable GPU. The lab machine
 has a GPU and VirtualGL handles GL either way, so that reason does not apply
-here, and TurboVNC is materially faster on 3D content.
+here, and TurboVNC is faster on 3D content.
 
 ---
 
-# Part 4. What changed in the repo
+# Part 4. Where the slot scheme lives
 
-Done, and all of it defaults to slot 0, which is the single-user setup exactly
-as it was. Nobody on their own laptop sets anything or notices any of this.
+All of it defaults to slot 0, which is the single-user setup exactly as it was.
+`DRONE_SLOT` stays unset on a laptop.
 
 | File | Change |
 |---|---|
-| [scripts/native/env.sh](../scripts/native/env.sh) | Derives `ROS_DOMAIN_ID`, `GZ_PARTITION`, `PX4_INSTANCE_BASE`, `PX4_UXRCE_DDS_PORT` and `DRONE_GCS_PORT` from one `DRONE_SLOT`. Rejects a slot that is not 0-9 and falls back to 0, loudly |
-| [.devcontainer/scripts/drone-gcs](../.devcontainer/scripts/drone-gcs) | `--listen-port` and `--instance-base`, defaulting from the environment. Serves a block of ten instances starting at base+1, which also fixed the missing tenth drone |
-| [scripts/native/bin/drone-sim](../scripts/native/bin/drone-sim) | Above slot 0 it runs the PX4 binary with `-i` rather than `make px4_sitl`, because the make target has no way to pass an instance and would put everybody on instance 0 |
-| [src/swarm_naive/launch/swarm.launch.py](../src/swarm_naive/launch/swarm.launch.py) | `instance_base` launch argument, `instance = instance_base + slot + 1`, and a validation that refuses a base that would overlap the next slot |
-| [src/swarm_comms/launch/swarm.launch.py](../src/swarm_comms/launch/swarm.launch.py) | The same |
-| [scripts/native/smoke-test.sh](../scripts/native/smoke-test.sh) | New section 5, the slot check. Also moved its scratch files out of `/tmp`, which is shared and sticky, and made its own SITL run use your instance rather than 0 |
-| [scripts/test-drone-gcs.py](../scripts/test-drone-gcs.py) | Four new tests: the block reaches instance 10, blocks do not overlap, the arguments validate, and the environment defaults work and survive a typo |
+| [scripts/native/env.sh](../../scripts/native/env.sh) | Derives `ROS_DOMAIN_ID`, `GZ_PARTITION`, `PX4_INSTANCE_BASE`, `PX4_UXRCE_DDS_PORT` and `DRONE_GCS_PORT` from one `DRONE_SLOT`. Rejects a slot that is not 0-9 and falls back to 0, loudly |
+| [.devcontainer/scripts/drone-gcs](../../.devcontainer/scripts/drone-gcs) | `--listen-port` and `--instance-base`, defaulting from the environment. Serves a block of ten instances starting at base+1, which also fixed the missing tenth drone |
+| [src/swarm_naive/launch/swarm.launch.py](../../src/swarm_naive/launch/swarm.launch.py) | `instance_base` launch argument, `instance = instance_base + slot + 1`, and a validation that refuses a base that would overlap the next slot |
+| [src/swarm_comms/launch/swarm.launch.py](../../src/swarm_comms/launch/swarm.launch.py) | The same |
+| [scripts/native/smoke-test.sh](../../scripts/native/smoke-test.sh) | New section 5, the slot check. Also moved its scratch files out of `/tmp`, which is shared and sticky, and made its own SITL run use your instance rather than 0 |
+| [scripts/test-drone-gcs.py](../../scripts/test-drone-gcs.py) | Tests: the block reaches instance 10, blocks do not overlap, the arguments validate, and the environment defaults work and survive a typo |
 | `scripts/lab/install-lab.sh` | The administrator's tool. `--check`, `--add-user`, `--harden-ssh`, and the default system setup |
 | `scripts/lab/lab-desktop` | Your TurboVNC desktop and noVNC, on your slot's display and ports |
 | `scripts/lab/lab-status` | Who is on, what is flying, which slots hold ports, the GPU, and your own environment |
@@ -646,7 +639,7 @@ Nothing here changes what the container does. The container is always slot 0,
 ## Checking it yourself
 
 ```bash
-./scripts/test-drone-gcs.py                       # 43 checks, under a second
+./scripts/test-drone-gcs.py                       # checks the drone-gcs bookkeeping
 ./scripts/native/smoke-test.sh                    # section 5 is the slot check
 DRONE_SLOT=3 bash -c 'source scripts/native/env.sh; echo $PX4_INSTANCE_BASE'
 ```
@@ -691,7 +684,7 @@ run on the actual lab machine yet.
 | | Status |
 |---|---|
 | The isolation problem | Verified. Read out of PX4 v1.16.1 (`px4-rc.mavlink`, `px4-rc.gzsim`, `rcS`, `platforms/posix/CMakeLists.txt`) and this repo. The Gazebo variable names confirmed present in the `libgz-transport13` that Harmonic loads |
-| Part 4, the repo changes | Verified on one machine. Native smoke test 28/28 including a vehicle arming and flying, `test-drone-gcs.py` 43/43, both launch files' `instance_base` default tracks `DRONE_SLOT` |
+| Part 4, the repo changes | Verified on one machine. The native smoke test passed, including a vehicle arming and flying; section 5 is the slot check; `./scripts/test-drone-gcs.py` runs the drone-gcs checks; both launch files' `instance_base` default tracks `DRONE_SLOT` |
 | Part 4, two users at once | Untested. One machine, one user is what has actually been run |
 | Tailscale limits | 6 users, unlimited user devices on the free Personal plan, confirmed September 2026 |
 | VirtualGL EGL back end | The mechanism is what the container already uses. `vglserver_config` option 2 versus plain `render` group membership is untested, hence the check in 1.6 |
@@ -699,8 +692,7 @@ run on the actual lab machine yet.
 | Everything else in Part 1 | Untested |
 
 Measure it once it is up, and put the numbers in
-[SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md) next to the existing ones:
-Gazebo GUI framerate over TurboVNC against the same scene on the console, and
-real-time factor with two people flying at once. That second number is the one
-that decides how many people can usefully share the machine, and right now
-nobody knows it.
+[SIMULATION-FIDELITY.md](../simulation/SIMULATION-FIDELITY.md) next to the
+existing ones: Gazebo GUI framerate over TurboVNC against the same scene on the
+console, and real-time factor with two people flying at once. The second number
+decides how many people can share the machine. It is unmeasured.

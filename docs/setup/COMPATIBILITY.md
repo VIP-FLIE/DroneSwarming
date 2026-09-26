@@ -1,9 +1,8 @@
 # Compatibility
 
-What runs where. Setup is in [docs/SETUP.md](docs/SETUP.md) for the dev
-container, [docs/NATIVE-SETUP.md](docs/NATIVE-SETUP.md) for a native install,
-and [docs/LAB-SERVER.md](docs/LAB-SERVER.md) for the shared machine in Evans
-153.
+What runs where. Setup is in [SETUP.md](SETUP.md) for the dev container,
+[NATIVE-SETUP.md](NATIVE-SETUP.md) for a native install, and
+[LAB-SERVER.md](LAB-SERVER.md) for the shared machine in Evans 153.
 
 **Status meanings**
 
@@ -53,8 +52,8 @@ only, so a native install needs noble or a distro built on it.
 
 Native rendering goes through your own GL driver, so NVIDIA, AMD and Intel
 graphics are all hardware accelerated, and none of them need a container
-toolkit. This is the one place native beats the container: in the container
-only NVIDIA can be passed through, and everything else falls back to software.
+toolkit. In the container only NVIDIA can be passed through; everything else
+falls back to software.
 
 Verify a native machine with `./scripts/native/smoke-test.sh`.
 
@@ -76,9 +75,9 @@ Your own OS stops mattering: nothing of the stack runs on it. ROS 2, Gazebo and
 PX4 all run on the lab machine, it renders on its own GPU, and you get pixels.
 A TurboVNC Viewer is faster than the browser, and both show the same desktop.
 
-Up to ten people can be assigned slots, though the machine runs out of cores
-long before it runs out of slots. Setup, accounts and the slot table are in
-[docs/LAB-SERVER.md](docs/LAB-SERVER.md).
+Up to ten people can be assigned slots. The machine runs out of cores before it
+runs out of slots. Setup, accounts and the slot table are in
+[LAB-SERVER.md](LAB-SERVER.md).
 
 ## GPU, dev container
 
@@ -99,23 +98,9 @@ Both viewing options get the same rendering.
 Run `./smoke-test.sh` and read section 5. It prints the renderer it actually
 got. `llvmpipe` means software.
 
-## What software rendering costs
-
-Measured in-container:
-
-| | Software | NVIDIA GPU |
-|---|---|---|
-| Flight dynamics | identical | identical |
-| RTF, 1 vehicle, GUI open | 0.99 | 0.99 |
-| Gazebo GUI framerate | low | normal |
-| Camera at 30 Hz configured | 11.5 Hz | 28.5 Hz |
-
-Headless multi-vehicle does not render, so rendering is irrelevant to it:
-8 vehicles held RTF 0.999, including when limited to 4 CPU cores.
-
-PX4 runs in lockstep, so physics does not change with your hardware. Cameras
-are the exception. Anything vision-based needs a GPU. See
-[docs/SIMULATION-FIDELITY.md](docs/SIMULATION-FIDELITY.md).
+Camera at 30 Hz configured: 11.5 Hz software rendering (llvmpipe), 28.5 Hz
+NVIDIA GPU. Flight dynamics identical. See
+[SIMULATION-FIDELITY.md](../simulation/SIMULATION-FIDELITY.md).
 
 ## Requirements
 
@@ -131,5 +116,4 @@ Settings > Resources. Too little RAM looks like a hung build.
 ## Adding a row
 
 If your setup is Untested, run `./smoke-test.sh` and open an Issue with the
-output and your OS, arch and GPU. That is the most useful thing you can
-contribute right now.
+output and your OS, arch and GPU.

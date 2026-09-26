@@ -36,8 +36,8 @@ second, and PX4's position controller flies the drone there.
 | Handling telemetry that has not arrived yet | `std::optional` members |
 | ROS 2 parameters | The constructor |
 
-[docs/HOW-IT-WORKS.md](../../docs/HOW-IT-WORKS.md) explains the whole
-pipeline behind this node and is written to be read alongside it.
+[docs/simulation/HOW-IT-WORKS.md](../../docs/simulation/HOW-IT-WORKS.md) explains the whole
+pipeline behind this node.
 
 ## 3. How to run it
 
@@ -67,7 +67,8 @@ drone-gcs                        # 2. ground station link. PX4 will not arm with
 ```
 
 ```bash
-drone-sim                        # 3. PX4 and Gazebo, one x500
+cd ~/PX4-Autopilot               # 3. PX4 and Gazebo, one x500
+PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4
 ```
 
 ```bash
@@ -80,7 +81,7 @@ Start terminal 4 once terminal 3 prints `Ready for takeoff!`.
 |---|---|
 | Dev container | Gazebo is in the browser desktop at <http://localhost:6080> |
 | Native | Gazebo opens a window on your desktop |
-| No rendering | `HEADLESS=1 drone-sim` in terminal 3. The flight is identical |
+| No rendering | `HEADLESS=1 PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4` in terminal 3. The flight is identical |
 
 Output from a real run:
 
@@ -115,15 +116,21 @@ ros2 run cpp_single_hop hop --ros-args -p altitude_m:=6.0 -p forward_m:=10.0
 ros2 run cpp_single_hop hop --ros-args -p px4_ns:=px4_1 -p system_id:=2
 ```
 
-On a shared machine where `DRONE_SLOT` is set, `drone-sim` does not use instance
-0. It prints `Slot N, so this is SITL instance I.` Pass `px4_ns:=px4_I` and
-`system_id:=` I + 1. [docs/LAB-SERVER.md](../../docs/LAB-SERVER.md) explains why.
+On a shared machine, start PX4 with:
+
+```bash
+cd ~/PX4-Autopilot && PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4 -i $((PX4_INSTANCE_BASE + 1))
+```
+
+PX4 reports instance `$((PX4_INSTANCE_BASE + 1))`. Pass
+`px4_ns:=px4_<that instance>` and `system_id:=<instance + 1>`.
+[docs/setup/LAB-SERVER.md](../../docs/setup/LAB-SERVER.md) explains why.
 
 ### Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `No telemetry from the flight controller yet` every 5 s | Agent not running, agent started after PX4, or `px4_ns` wrong | Start the agent, then restart `drone-sim` |
+| `No telemetry from the flight controller yet` every 5 s | Agent not running, agent started after PX4, or `px4_ns` wrong | Start the agent, then restart PX4 with `cd ~/PX4-Autopilot && PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4` |
 | `not armed yet ... no ground control station link` | `drone-gcs` is not running | Start it. Do not set `NAV_DLL_ACT 0` |
 | `not armed yet ... preflight checks still failing` | PX4 is still settling its position estimate | Wait. Check `commander status` at the `pxh>` prompt if it lasts |
 | `PX4 reports itself ready, so the command may not be reaching it` | `system_id` does not match the vehicle | Instance N needs `system_id` N + 1 |
@@ -131,7 +138,8 @@ On a shared machine where `DRONE_SLOT` is set, `drone-sim` does not use instance
 | `Package 'cpp_single_hop' not found` | Overlay not sourced in this terminal | `source install/setup.bash` |
 | Exits at once with `altitude_m must be greater than zero.` | Bad parameter | Pass a positive altitude |
 
-The full table for the stack is in [QUICKSTART.md](../../QUICKSTART.md).
+The full table for the stack is in
+[QUICKSTART.md](../../docs/simulation/QUICKSTART.md).
 
 ## 4. How it works
 
@@ -152,8 +160,8 @@ hop  --setpoints-->  MicroXRCEAgent  -->  PX4 (commander, position controller)  
 
 `hop` publishes ROS 2 topics. `MicroXRCEAgent` bridges them into PX4. PX4's
 position controller turns each target position into attitude and thrust
-commands. The position controller is the same code on a real Pixhawk. A bug in `hop` can
-send the drone to the wrong place. It cannot bypass PX4's controller.
+commands. The position controller is the same code on a real Pixhawk. A bug in
+`hop` can send the drone to the wrong place. It cannot bypass PX4's controller.
 
 `drone-gcs` is a separate link. It sends MAVLink heartbeats so PX4's
 datalink-loss failsafe has the ground station it expects. It sends no commands.
@@ -201,15 +209,14 @@ until `Landing`. During `Priming` and `Arming` the setpoint is the point
 directly above the pad. PX4 ignores it until offboard is engaged, and the stream
 has to exist regardless.
 
-The stream stops at `Landing`, because PX4's land mode has the vehicle and no
-longer wants setpoints.
+The stream stops at `Landing`. PX4's land mode controls the vehicle.
 
 ### Rule 3: arming
 
-PX4 runs preflight checks and refuses to arm until they pass. The check that
-catches everyone is the datalink check. The x500 airframe sets
-`NAV_DLL_ACT 2`, return home on datalink loss, and PX4 will not take off with a
-failsafe whose precondition is already broken. `drone-gcs` supplies the link.
+PX4 runs preflight checks and refuses to arm until they pass. The x500 airframe
+sets `NAV_DLL_ACT 2`, return home on datalink loss, and PX4 will not take off
+with a failsafe whose precondition is already broken. `drone-gcs` supplies the
+link.
 
 `run_arming()` retries at 2 Hz for up to 60 s. It stays quiet for the first
 3 s, because a healthy vehicle arms inside that. After that it prints
@@ -218,7 +225,8 @@ failsafe whose precondition is already broken. `drone-gcs` supplies the link.
 failing.
 
 This repo satisfies PX4's checks and never disables them.
-[docs/SIMULATION-FIDELITY.md](../../docs/SIMULATION-FIDELITY.md) explains why.
+[docs/simulation/SIMULATION-FIDELITY.md](../../docs/simulation/SIMULATION-FIDELITY.md)
+explains why.
 
 ### The state machine
 
@@ -291,7 +299,7 @@ coming from outside the flight controller, as a companion computer's would.
 
 | To | Read |
 |---|---|
-| Fly a path or a function of time | "Changing the flight" in [docs/HOW-IT-WORKS.md](../../docs/HOW-IT-WORKS.md) |
+| Fly a path or a function of time | "Changing the flight" in [docs/simulation/HOW-IT-WORKS.md](../../docs/simulation/HOW-IT-WORKS.md) |
 | Compare the same flight in Python | [`../py_single_square`](../py_single_square/README.md) |
 | Fly several drones | [`../swarm_naive`](../swarm_naive/README.md) |
-| Start your own package | [docs/NEW-PACKAGE.md](../../docs/NEW-PACKAGE.md) |
+| Start your own package | [docs/development/NEW-PACKAGE.md](../../docs/development/NEW-PACKAGE.md) |

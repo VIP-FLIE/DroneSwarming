@@ -4,7 +4,7 @@
 // One drone. Takes off, flies a few metres forward, lands. One file, no
 // abstractions to chase, nothing here you will not need again.
 //
-// Run it with the simulator already up (see docs/HOW-IT-WORKS.md):
+// Run it with the simulator already up (see docs/simulation/HOW-IT-WORKS.md):
 //
 //     ros2 run cpp_single_hop hop
 //     ros2 run cpp_single_hop hop --ros-args -p altitude_m:=5.0 -p forward_m:=6.0
@@ -231,7 +231,7 @@ public:
     // -- The clock --------------------------------------------------------
     // rclcpp::create_timer with the node's clock, rather than a wall timer, so
     // the loop follows ROS time. That matters the moment simulated time and
-    // wall-clock time stop agreeing. See docs/SIMULATION-FIDELITY.md.
+    // wall-clock time stop agreeing. See docs/simulation/SIMULATION-FIDELITY.md.
     arming_started_ = now();
     control_timer_ = rclcpp::create_timer(
       this, get_clock(), rclcpp::Duration::from_seconds(1.0 / CONTROL_LOOP_HZ),

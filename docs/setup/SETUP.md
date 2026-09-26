@@ -4,9 +4,10 @@ ROS 2 Jazzy, Gazebo Harmonic and PX4 run in a container. You install Docker and
 VS Code. Nothing else, on any OS.
 
 This is the dev container guide. To install the same stack directly on Ubuntu
-24.04 instead, use [NATIVE-SETUP.md](NATIVE-SETUP.md).
+24.04 instead, use [NATIVE-SETUP.md](NATIVE-SETUP.md). Container design notes
+are in [CONTAINER-INTERNALS.md](CONTAINER-INTERNALS.md).
 
-Check [COMPATIBILITY.md](../COMPATIBILITY.md) for your machine first.
+Check [COMPATIBILITY.md](COMPATIBILITY.md) for your machine first.
 Needs 15 GB disk and 8 GB RAM. The first build takes 20 to 40 minutes once.
 
 ## 1. Install
@@ -74,22 +75,21 @@ You want `Stack is good.`
 
 Gazebo does not open a window on your desktop. The container runs a desktop of
 its own, and you connect to it from your machine. There are two ways to
-connect. They show the same desktop, so use whichever you prefer. If you have a
-GPU, VirtualGL renders on it either way.
+connect, and they show the same desktop. If you have a GPU, VirtualGL renders
+on it either way.
 
 ### Option A: your browser
 
 Open <http://localhost:6080>. Nothing to install.
 
-VS Code usually forwards the port for you. The Ports tab has it otherwise. If
-the page is blank, run `drone-gui` in the container. It reports each piece of
-the desktop and restarts anything that is stopped.
+VS Code forwards the port when it can. The Ports tab has it otherwise. If the
+page is blank, run `drone-gui` in the container. It reports each piece of the
+desktop and restarts anything that is stopped.
 
 ### Option B: a VNC client
 
-This puts the desktop in a normal application window instead of a browser tab.
-The container publishes it on port **5901**. Install a client once, then
-connect to `localhost:5901`.
+The container publishes the desktop on port **5901**. Install a client once,
+then connect to `localhost:5901`.
 
 **Linux**
 
@@ -132,13 +132,14 @@ one.
 
 ## 5. Fly
 
-Four terminals, `Terminal > New Terminal`. You are already in the container.
+Four terminals, `Terminal > New Terminal`. You are in the container.
 
 ```bash
-MicroXRCEAgent udp4 -p 8888     # 1. PX4 to ROS 2 bridge
-drone-gcs                       # 2. ground control station link
-drone-sim                       # 3. simulator, gives you a pxh> prompt
-ros2 topic list | grep fmu      # 4. your side
+MicroXRCEAgent udp4 -p 8888                                 # 1. PX4 to ROS 2 bridge
+drone-gcs                                                   # 2. ground control station link
+cd ~/PX4-Autopilot                                          # 3. simulator
+PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4      #    gives you a pxh> prompt
+ros2 topic list | grep fmu                                  # 4. your side
 ```
 
 Then at the `pxh>` prompt:
@@ -150,14 +151,15 @@ pxh> commander land
 
 `drone-gcs` is required. PX4's x500 airframe arms its datalink-loss failsafe,
 so it will not arm without a GCS, same as a real aircraft. Without it you get
-`Arming denied: Resolve system health failures first`. Do not fix that with
-`param set NAV_DLL_ACT 0`, which deletes the failsafe instead of supplying the
-link. See [SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md).
+`Arming denied: Resolve system health failures first`. Setting
+`param set NAV_DLL_ACT 0` deletes the failsafe instead of supplying the link.
+Do not set it. See [SIMULATION-FIDELITY.md](../simulation/SIMULATION-FIDELITY.md).
 
-`drone-sim` wraps `make px4_sitl gz_x500`. Bare `gz sim` does not start the
-drone, it opens Gazebo's world chooser.
+`make px4_sitl gz_x500` is PX4's own build target: it builds SITL if out of
+date and then runs it. Bare `gz sim` opens Gazebo's world chooser and starts no
+drone.
 
-[QUICKSTART.md](../QUICKSTART.md) covers writing your first node.
+[QUICKSTART.md](../simulation/QUICKSTART.md) covers writing your first node.
 
 ## Problems
 
@@ -166,7 +168,7 @@ Run `./smoke-test.sh` first. It names the broken piece.
 | Symptom | Fix |
 |---|---|
 | `Arming denied: Resolve system health failures first` | Run `drone-gcs` |
-| Gazebo shows a chooser of demo worlds | You ran `gz sim`. Run `drone-sim` |
+| Gazebo shows a chooser of demo worlds | You ran `gz sim`. Run `cd ~/PX4-Autopilot`, then `PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4` |
 | Blank grey 3D view | Normal. PX4's world is untextured grey, the camera starts far out. Scroll to zoom |
 | Nothing at localhost:6080 | `drone-gui` |
 | VNC client cannot connect to 5901 | Run `drone-gui`. The desktop has to be running before a client can attach |
@@ -177,7 +179,7 @@ Run `./smoke-test.sh` first. It names the broken piece.
 | Doctor says Docker did not answer | Docker Desktop is still starting. Wait, rerun |
 | Build looks frozen on Mac or Windows | Docker memory. Settings > Resources > 8 GB+ |
 | Build dies, machine swaps | `JOBS=2 bash .devcontainer/scripts/build-workspace.sh` |
-| Gazebo choppy | Check renderer in smoke test section 5. `llvmpipe` is software. Use `HEADLESS=1 make px4_sitl gz_x500` for heavy runs |
+| Gazebo choppy | Check renderer in smoke test section 5. `llvmpipe` is software. Use `HEADLESS=1 PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4` in `~/PX4-Autopilot` for heavy runs |
 | Smoke test says image is stale | `Dev Containers: Rebuild Container` |
 
 Still stuck: open an Issue with `./smoke-test.sh` output.

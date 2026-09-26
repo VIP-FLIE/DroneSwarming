@@ -124,7 +124,7 @@ if [ "$OS" = "Darwin" ]; then
     warn "MacOS cannot pass a GPU to Docker, so you get software rendering"
     info "That is a platform limit, not something to fix. Flight behavior is"
     info "unaffected. Only camera-heavy work really notices. See"
-    info "docs/SIMULATION-FIDELITY.md."
+    info "docs/simulation/SIMULATION-FIDELITY.md."
 elif [ "$DOCKER_OK" = "1" ] && printf '%s' "$DOCKER_INFO" | grep -q '"nvidia"'; then
     good "Docker can see an NVIDIA GPU"
     HAS_NVIDIA=1

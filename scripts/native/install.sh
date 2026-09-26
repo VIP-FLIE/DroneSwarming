@@ -49,7 +49,7 @@ Installs the drone stack natively on Ubuntu 24.04 (noble) and derivatives.
 
 Safe to re-run. Every step checks whether it is already done and skips.
 Versions come from the ARG defaults in .devcontainer/Dockerfile.
-Full guide: docs/NATIVE-SETUP.md
+Full guide: docs/setup/NATIVE-SETUP.md
 USAGE
             exit 0 ;;
         *) echo "unknown option: $arg" >&2; exit 2 ;;
@@ -132,7 +132,7 @@ CODENAME="${VERSION_CODENAME:-$(lsb_release -cs 2>/dev/null)}"
 if [ "$CODENAME" != "noble" ]; then
     die "this installs Ubuntu 24.04 (noble) packages, and this machine is '$CODENAME'.
         ROS 2 Jazzy and Gazebo Harmonic only publish debs for noble.
-        On any other distro use the dev container: docs/SETUP.md"
+        On any other distro use the dev container: docs/setup/SETUP.md"
 fi
 
 ARCH=$(uname -m)

@@ -90,9 +90,8 @@ Three terminals. In the dev container every terminal is ready to use. On a
 native install, each terminal needs `source scripts/native/env.sh` first,
 unless it is in your `~/.bashrc`.
 
-Do not run `drone-sim`. The launch file starts its own PX4 instances and
-Gazebo. If `drone-sim` is already running, stop it first, or the swarm spawns
-into its world.
+The launch file starts its own PX4 instances and Gazebo. Stop any other PX4 or
+Gazebo on this machine first, or the swarm spawns into its world.
 
 ```bash
 MicroXRCEAgent udp4 -p 8888              # 1. PX4 to ROS 2 bridge. Start it first
@@ -107,7 +106,7 @@ ros2 launch swarm_comms swarm.launch.py  # 3. PX4 instances, Gazebo, and the nod
 ```
 
 On a shared machine, use `MicroXRCEAgent udp4 -p $PX4_UXRCE_DDS_PORT` in
-terminal 1. See [docs/LAB-SERVER.md](../../docs/LAB-SERVER.md).
+terminal 1. See [docs/setup/LAB-SERVER.md](../../docs/setup/LAB-SERVER.md).
 
 Startup timing is the same as `swarm_naive`: with the defaults, the nodes start
 51 s after launch.
@@ -320,9 +319,9 @@ the first and last waypoints. A follower has no route to put them in.
 `slots_not_ready()` is empty. A slot counts as ready only if its latest report
 says `ready` and arrived less than `LINK_STALE_S` (1 s) ago.
 
-This replaces a shared clock. Two drones cannot cheaply agree on the time over a
-radio. They can agree on an event: "everyone is at station". Every drone
-releases within a tick or two of the last drone's `ready` arriving.
+This replaces a shared clock. Two drones cannot agree on the time over a radio.
+They can agree on an event: "everyone is at station". Every drone releases
+within a tick or two of the last drone's `ready` arriving.
 
 | Cost | Answer in the code |
 |---|---|
@@ -405,9 +404,9 @@ drones each moving out of the other's way into the other's new path.
 
 On the default three-drone ring the chain compresses at each corner, because a
 follower cuts the corner its leader turns. In the run above the smallest gap
-reported was 2.9 m. [docs/SWARM.md](../../docs/SWARM.md) records a run where the
-2.5 m warning fired once on a corner. `follow_distance_m:=2.0` makes it fire
-reliably.
+reported was 2.9 m. [docs/swarm/SWARM.md](../../docs/swarm/SWARM.md) records a run
+where the 2.5 m warning fired once on a corner. `follow_distance_m:=2.0` makes
+it fire reliably.
 
 The chase rule only constrains the drone directly ahead. Nothing stops slot 3
 flying through where slot 1 is. The altitude layers are what keep non-adjacent
@@ -461,8 +460,7 @@ spawn poses, staggering and Gazebo shutdown. It runs `formation_drone` and adds
 one argument, `follow_distance_m`. Everything that makes this a swarm happens at
 run time over `/swarm/state`, so none of it is configured in the launch file.
 
-The start delay on the nodes matters slightly more here: a node that starts
-late holds the whole swarm at the barrier.
+A node that starts late holds the whole swarm at the barrier.
 
 ### What this package still does not do
 
@@ -492,6 +490,6 @@ late holds the whole swarm at the barrier.
 
 | To | Read |
 |---|---|
-| Both swarm packages side by side | [docs/SWARM.md](../../docs/SWARM.md) |
-| Custom messages in general | "Your own message type" in [docs/NEW-PACKAGE.md](../../docs/NEW-PACKAGE.md) |
-| What changes on real aircraft | "What changes on real aircraft" in [docs/SWARM.md](../../docs/SWARM.md) |
+| Both swarm packages side by side | [docs/swarm/SWARM.md](../../docs/swarm/SWARM.md) |
+| Custom messages in general | "Your own message type" in [docs/development/NEW-PACKAGE.md](../../docs/development/NEW-PACKAGE.md) |
+| What changes on real aircraft | "What changes on real aircraft" in [docs/swarm/SWARM.md](../../docs/swarm/SWARM.md) |

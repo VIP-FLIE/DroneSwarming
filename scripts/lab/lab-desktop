@@ -30,7 +30,7 @@
 #   TurboVNC    rather than Xvfb plus x11vnc, because it is markedly faster
 #               on 3D content and this is the one machine with a GPU to feed
 #
-# Full guide: docs/LAB-SERVER.md
+# Full guide: docs/setup/LAB-SERVER.md
 # =============================================================================
 set -o pipefail
 
@@ -38,7 +38,7 @@ TURBOVNC=/opt/TurboVNC/bin
 GEOMETRY="${DRONE_LAB_GEOMETRY:-1600x900}"
 
 # Slot 0 is the default so this still does something sensible on a machine with
-# one user. docs/LAB-SERVER.md has the table these come from.
+# one user. docs/setup/LAB-SERVER.md has the table these come from.
 SLOT="${DRONE_SLOT:-0}"
 case "$SLOT" in
     [0-9]) ;;

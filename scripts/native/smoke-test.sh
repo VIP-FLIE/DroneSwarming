@@ -10,7 +10,7 @@
 # versions against the pins in .devcontainer/Dockerfile.
 #
 # Section 5 is the shared-machine one. On your own laptop it reports slot 0 and
-# passes without you having done anything. See docs/LAB-SERVER.md.
+# passes without you having done anything. See docs/setup/LAB-SERVER.md.
 #
 # NOTE: no `set -u`. ROS 2's setup.bash chain expands variables that may be
 # unset, and under `set -u` that terminates the shell on the spot.
@@ -123,7 +123,7 @@ else
     skip "no install stamp at $STAMP, cannot tell which agent version is installed"
 fi
 
-# The fidelity claim in docs/SIMULATION-FIDELITY.md is that nothing in the
+# The fidelity claim in docs/simulation/SIMULATION-FIDELITY.md is that nothing in the
 # simulation was changed. This is that claim, checked.
 if [ -d "$PX4_DIR/.git" ]; then
     # PX4's worlds and models sit in a submodule, Tools/simulation/gz, and git
@@ -228,13 +228,7 @@ grep -q '^px4_msgs$' <<< "$ROS_PKGS" && ok "px4_msgs importable" \
   || no "px4_msgs not built. Run: ./scripts/native/install.sh --rebuild-msgs"
 ros2 interface show px4_msgs/msg/VehicleLocalPosition >/dev/null 2>&1 \
   && ok "VehicleLocalPosition message" || no "VehicleLocalPosition message"
-grep -q '^py_single_square$' <<< "$ROS_PKGS" && ok "py_single_square built" \
-  || no "py_single_square not built. Run: colcon build --symlink-install"
-grep -q '^cpp_single_hop$' <<< "$ROS_PKGS" && ok "cpp_single_hop built" \
-  || no "cpp_single_hop not built. Run: colcon build --symlink-install"
-# The two multi-drone examples. swarm_comms also generates a message type, so a
-# failure here can mean rosidl did not run, not just that colcon was not.
-for pkg in swarm_naive swarm_comms; do
+for pkg in py_single_square cpp_single_hop swarm_naive swarm_comms; do
     grep -q "^$pkg\$" <<< "$ROS_PKGS" && ok "$pkg built" \
       || no "$pkg not built. Run: colcon build --symlink-install"
 done
@@ -254,9 +248,9 @@ esac
 
 
 # The drone-gcs bookkeeping that flying a vehicle cannot exercise: whether
-# MAVLink this pymavlink cannot decode gets miscounted as a vehicle, whether a
-# lost link is noticed, and how long to wait for a swarm to assemble. Needs no
-# simulator and takes under a second, so it runs before the flight test below.
+# undecodable MAVLink traffic gets miscounted as a vehicle, whether a lost link
+# is noticed, and how long to wait for a swarm to assemble. Needs no simulator
+# and takes under a second, so it runs before the flight test below.
 GCS_TEST="$REPO_ROOT/scripts/test-drone-gcs.py"
 if [ -x "$GCS_TEST" ]; then
     if GCS_TEST_OUT=$("$GCS_TEST" 2>&1); then
@@ -275,16 +269,17 @@ echo "=== 5. Your slot on this machine ==="
 # On your own laptop this is slot 0 and everything here passes without you
 # having set anything: slot 0 IS the single-user setup. It earns its place on a
 # shared machine, where the things it checks are the ones that fail silently
-# and look like your code is broken. docs/LAB-SERVER.md.
+# and look like your code is broken. docs/setup/LAB-SERVER.md.
 
 SLOT="${DRONE_SLOT:-0}"
 BASE="${PX4_INSTANCE_BASE:-0}"
 note "DRONE_SLOT        : ${DRONE_SLOT:-unset (so slot 0)}"
 note "GZ_PARTITION      : ${GZ_PARTITION:-unset}"
-# Slot 0 also owns instance 0, which is what a bare `drone-sim` runs. No other
+# Slot 0 also owns instance 0, which is what a single-vehicle PX4 run uses. No
+# other
 # slot can produce it, so it overlaps nobody. See drone-gcs, sitl_instances().
 if [ "$BASE" -eq 0 ]; then
-    note "SITL instances    : 0-10 (0 is a single drone-sim vehicle)"
+    note "SITL instances    : 0-10 (0 is a single-vehicle run without -i)"
 else
     note "SITL instances    : $((BASE + 1))-$((BASE + 10))"
 fi
@@ -338,7 +333,7 @@ OTHERS=$(who 2>/dev/null | awk -v me="$(id -un)" '$1 != me {print $1}' | sort -u
 if [ -n "$OTHERS" ] && [ -z "${DRONE_SLOT:-}" ]; then
     no "other people are logged in ($OTHERS) and you have no DRONE_SLOT"
     note "You are on slot 0, and so is anyone else who has not set one."
-    note "Fix: export DRONE_SLOT=N in ~/.bashrc. See docs/LAB-SERVER.md."
+    note "Fix: export DRONE_SLOT=N in ~/.bashrc. See docs/setup/LAB-SERVER.md."
 elif [ -n "$OTHERS" ]; then
     note "also logged in: $OTHERS"
 fi
@@ -381,7 +376,8 @@ else
     # on the machine, and therefore MAVLink GCS port 18570 for everybody. On a
     # shared machine the second person to run this test would fail it through
     # no fault of their own, so above slot 0 it flies the first vehicle of your
-    # own block instead. Same thing drone-sim does, for the same reason.
+    # own block instead. A single-vehicle run without -i would collide for the
+    # same reason.
     if [ "$BASE" -eq 0 ]; then
         setsid timeout "$SITL_BUDGET" env HEADLESS=1 \
             make px4_sitl gz_x500 < "$PXH_FIFO" > "$SITL_LOG" 2>&1 &
@@ -463,7 +459,7 @@ if [ -n "${WAYLAND_DISPLAY:-}" ]; then
 elif [ -n "${DISPLAY:-}" ]; then
     ok "X11 session on DISPLAY=$DISPLAY"
 else
-    skip "no DISPLAY and no WAYLAND_DISPLAY. Headless is fine, use HEADLESS=1 drone-sim"
+    skip "no DISPLAY and no WAYLAND_DISPLAY. Headless is fine, use HEADLESS=1 with the raw PX4 command"
 fi
 
 if command -v glxinfo >/dev/null 2>&1 && { [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; }; then
@@ -473,7 +469,7 @@ if command -v glxinfo >/dev/null 2>&1 && { [ -n "${DISPLAY:-}" ] || [ -n "${WAYL
         *llvmpipe*|*softpipe*|*swrast*)
             ok "renderer: $RENDERER"
             note "Software rendering. Flight behavior is unaffected, physics is CPU work and"
-            note "PX4 runs lockstep. Cameras are the exception, see docs/SIMULATION-FIDELITY.md." ;;
+            note "PX4 runs lockstep. Cameras are the exception, see docs/simulation/SIMULATION-FIDELITY.md." ;;
         *) ok "renderer: $RENDERER (hardware accelerated)" ;;
     esac
 else

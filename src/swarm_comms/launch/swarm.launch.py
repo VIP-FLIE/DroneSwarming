@@ -12,7 +12,7 @@
 #
 # That variable is 8888 unless you are sharing a machine, where every person
 # needs their own. scripts/native/env.sh sets it, along with the instance_base
-# argument below. See docs/LAB-SERVER.md.
+# argument below. See docs/setup/LAB-SERVER.md.
 #
 # Neither is started here on purpose. The agent has to be up BEFORE any PX4
 # starts, or that PX4's client gives up looking for it and none of its /fmu/
@@ -48,7 +48,7 @@
 # detached background process and does not die with it, so this file asks it to
 # stop on shutdown. If one survives, `pkill -f 'gz sim'`.
 #
-# Full guide: docs/SWARM.md
+# Full guide: docs/swarm/SWARM.md
 # ===========================================================================
 
 import os
@@ -82,7 +82,8 @@ def _arguments():
             'count', default_value='3',
             description='How many drones. Slot 0 leads; every other slot '
                         'follows the one below it. Maximum 10, because '
-                        'drone-gcs only heartbeats SITL instances 0-9.'),
+                        'drone-gcs only heartbeats one block of ten instances, '
+                        'instance_base + 1 to instance_base + 10.'),
         DeclareLaunchArgument(
             'pad_spacing_m', default_value='5.0',
             description='Gap between pads along east.'),
@@ -123,7 +124,7 @@ def _arguments():
                         'about four drones, and on any machine without a GPU.'),
         DeclareLaunchArgument(
             'world', default_value='default',
-            description='Gazebo world, by file name. See docs/WORLDS.md.'),
+            description='Gazebo world, by file name. See docs/simulation/WORLDS.md.'),
         DeclareLaunchArgument(
             'px4_dir', default_value=os.environ.get(
                 'PX4_DIR', os.path.expanduser('~/PX4-Autopilot')),
@@ -134,7 +135,7 @@ def _arguments():
                         'people can fly on one machine without colliding on '
                         "PX4's fixed per-instance UDP ports. 0 on your own "
                         'machine. On a shared one it comes from DRONE_SLOT, '
-                        'see docs/LAB-SERVER.md.'),
+                        'see docs/setup/LAB-SERVER.md.'),
         DeclareLaunchArgument(
             'gazebo_boot_s', default_value='30.0',
             description='Head start for the first vehicle, which has to load '
@@ -189,7 +190,7 @@ def _launch_swarm(context, *args, **kwargs):
         raise RuntimeError(
             f'instance_base must be 0, 10, 20 ... 90, got {instance_base}. '
             'It comes from PX4_INSTANCE_BASE, which scripts/native/env.sh '
-            'derives from DRONE_SLOT. See docs/LAB-SERVER.md.')
+            'derives from DRONE_SLOT. See docs/setup/LAB-SERVER.md.')
 
     px4_binary = os.path.join(px4_dir, 'build', 'px4_sitl_default', 'bin', 'px4')
     if not os.path.isfile(px4_binary):

@@ -31,7 +31,7 @@
 # already on GZ_SIM_RESOURCE_PATH in the dev container and in a native install,
 # so linking into them needs no environment change and no image rebuild.
 #
-# Full guide: docs/WORLDS.md
+# Full guide: docs/simulation/WORLDS.md
 # =============================================================================
 set -o pipefail
 
@@ -80,7 +80,7 @@ if [ "$MODE" = list ]; then
         found=1
     done
     [ $found -eq 0 ] && printf '  none\n'
-    printf '\nFly one with:  PX4_GZ_WORLD=<name> drone-sim\n\n'
+    printf '\nFly one with:  cd ~/PX4-Autopilot && PX4_GZ_WORLD=<name> PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4\n\n'
     exit 0
 fi
 
@@ -164,7 +164,7 @@ for src in "$MODEL_SRC_DIR"/*/; do
 done
 
 if [ $status -eq 0 ]; then
-    printf '\nFly one with:  PX4_GZ_WORLD=<name> drone-sim\n'
+    printf '\nFly one with:  cd ~/PX4-Autopilot && PX4_GZ_WORLD=<name> PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4\n'
     printf 'See them all:  ./scripts/install-worlds.sh --list\n\n'
 fi
 exit $status

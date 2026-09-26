@@ -71,14 +71,11 @@ scripts/native/env.sh fills in from DRONE_SLOT:
     slot 0    base 0     instances 0-10     ports 18570-18580   listen 14550
     slot 1    base 10    instances 11-20    ports 18581-18590   listen 14551
 
-Slot 0 is the single-user setup, and it also keeps instance 0, which is what a
-bare `drone-sim` runs. No other slot can produce instance 0, so that costs
-nobody anything.
+Slot 0 is the single-user setup, and it also keeps instance 0, which a
+single-vehicle PX4 run without -i produces. No other slot can produce
+instance 0, so that costs nobody anything.
 
-Ten instances starting at base+1 also fixed a bug that predates the blocks. The
-launch files number vehicles `slot + 1`, so `count:=10` produces instance 10,
-and a station covering 18570-18579 stopped one short of it. The tenth drone of
-a ten-drone swarm never got a heartbeat and never armed.
+Ten instances starting at base+1 also fixed a bug that predates the blocks. The launch files number vehicles `slot + 1`, so `count:=10` produces instance 10, and a station covering 18570-18579 stopped one short of it. The tenth drone of a ten-drone swarm never got a heartbeat and never armed.
 
 ONE THING THE BLOCKS DO NOT SEPARATE
 ------------------------------------
@@ -156,7 +153,8 @@ def sitl_instances(instance_base):
     The swarm launch files number vehicles `instance_base + slot + 1`, so a
     block of ten starting at base+1 is exactly what they can produce.
 
-    Slot 0 also owns instance 0, which is what a bare `drone-sim` runs: one
+    Slot 0 also owns instance 0, which is what a single-vehicle PX4 run
+    without -i produces: one
     vehicle, publishing on bare /fmu/ with no namespace, the way a real
     aircraft does. No other slot can reach instance 0, so including it here
     cannot overlap anyone.

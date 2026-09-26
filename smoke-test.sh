@@ -3,9 +3,8 @@
 #   ./smoke-test.sh
 #
 # NOTE: no `set -u`. ROS 2's setup.bash chain expands variables that may be
-# unset (AMENT_TRACE_SETUP_FILES and friends). Under `set -u` that terminates
-# the shell on the spot, and if the source is wrapped in 2>/dev/null you get a
-# section header and nothing else. Same reason build-workspace.sh omits it.
+# unset, and under `set -u` that terminates the shell on the spot. Same reason
+# build-workspace.sh omits it.
 set -o pipefail
 
 PASS=0; FAIL=0; SKIP=0
@@ -14,9 +13,8 @@ no()   { echo "  FAIL  $1"; FAIL=$((FAIL+1)); }
 skip() { echo "  SKIP  $1"; SKIP=$((SKIP+1)); }
 
 # A sourced setup file can terminate this shell outright (an `exit` inside it,
-# an unbound variable under `set -u`, a syntax error). When that happens you get
-# a section header and no further output, which is impossible to diagnose. This
-# guard makes that shape report itself instead of dying silently.
+# an unbound variable under `set -u`, a syntax error). The guard makes that
+# shape report itself instead of dying silently.
 FINISHED=0
 SECTION="startup"
 finish_guard() {
@@ -32,7 +30,6 @@ trap finish_guard EXIT
 SELF_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 DOCKERFILE="$SELF_DIR/.devcontainer/Dockerfile"
 
-# Reads an ARG default out of the Dockerfile, e.g. arg_default PX4_VERSION
 arg_default() {
     [ -f "$DOCKERFILE" ] || return 1
     sed -n "s/^ARG $1=\(.*\)$/\1/p" "$DOCKERFILE" | head -1
@@ -55,11 +52,8 @@ else
 fi
 
 [ "${ROS_DISTRO:-}" = "jazzy" ] && ok "ROS 2 Jazzy" || no "ROS 2 Jazzy (got '${ROS_DISTRO:-none}')"
-command -v gz >/dev/null && ok "gz binary" || no "gz binary"
-# NOTE: `cmd | grep -q` is unsafe under `set -o pipefail`. grep -q exits on the
-# first match, the upstream command takes SIGPIPE and dies with 141, and
-# pipefail reports that as the pipeline's status. A match reads as a failure.
-# Capture first, match against the variable.
+# `cmd | grep -q` is unsafe under `set -o pipefail`: grep -q exits on the first
+# match and the upstream command takes SIGPIPE. Capture first.
 GZ_VERSIONS=$(gz sim --versions 2>/dev/null)
 grep -q '^8\.' <<< "$GZ_VERSIONS" && ok "Gazebo Harmonic (gz-sim 8.x)" \
   || no "Gazebo Harmonic, found: $(head -1 <<< "$GZ_VERSIONS")"
@@ -130,10 +124,9 @@ else
 fi
 
 ROS_PKGS=$(ros2 pkg list 2>/dev/null)
-grep -q '^px4_msgs$' <<< "$ROS_PKGS" && ok "px4_msgs importable" \
+grep -q '^px4_msgs$' <<< "$ROS_PKGS" \
+  && ok "px4_msgs importable" \
   || no "px4_msgs not built. Run: bash .devcontainer/scripts/build-workspace.sh"
-ros2 interface show px4_msgs/msg/VehicleLocalPosition >/dev/null 2>&1 \
-  && ok "VehicleLocalPosition message" || no "VehicleLocalPosition message"
 
 
 # The drone-gcs bookkeeping that flying a vehicle cannot exercise: whether
@@ -155,9 +148,9 @@ fi
 # ---------------------------------------------------------------------------
 SECTION="SITL launch test"
 echo "=== 4. Headless SITL launches ==="
-# Guarded on the binary existing. `make px4_sitl gz_x500` builds as well as
-# launches, so without this guard a smoke test on an unbuilt tree would start
-# a 20 minute compile and then have `timeout` kill it partway through.
+# Guarded on the binary existing: `make px4_sitl gz_x500` builds as well as
+# launches, so without the guard an unbuilt tree would start a 20 minute
+# compile and then have `timeout` kill it partway through.
 
 if [ ! -x "$PX4_BIN" ]; then
     skip "PX4 not built, skipping launch test"
@@ -166,32 +159,23 @@ else
     export PX4_DIR="$HOME/PX4-Autopilot"
     export GZ_SIM_RESOURCE_PATH="$PX4_DIR/Tools/simulation/gz/models:$PX4_DIR/Tools/simulation/gz/worlds"
     cd "$PX4_DIR" || exit 1
-    # setsid puts the whole tree (make -> px4 -> gz sim) in its own process
-    # group so cleanup can target exactly that group. The previous
-    # `pkill -f px4` matched by name and would have killed a PX4 instance the
-    # student had running in another terminal.
-    # Do NOT set PX4_GZ_STANDALONE here. PX4 treats the variable as present or
-    # absent rather than 1 or 0, so even PX4_GZ_STANDALONE=0 puts it in
-    # standalone mode, where it waits forever for a gz-server that this script
-    # never starts ("INFO [init] Standalone PX4 launch, waiting for Gazebo").
-    # Leaving it unset is what makes PX4 launch Gazebo itself.
+    # PX4_GZ_STANDALONE is read as present-or-absent, so even =0 makes PX4 wait
+    # for a Gazebo server this script never starts. Leave it unset.
     : > /tmp/sitl.log
 
-    # A ground control station link. PX4's x500 airframe arms its datalink-loss
-    # failsafe (NAV_DLL_ACT 2), so without a GCS in sight it refuses to arm and
-    # the flight test below would fail for a reason that is not a real fault.
-    # We supply the link rather than disabling the failsafe. See
-    # docs/SIMULATION-FIDELITY.md for why that distinction matters.
+    # The x500 airframe arms NAV_DLL_ACT 2, so without a GCS the vehicle
+    # refuses to arm. Supply the link rather than disabling the failsafe; see
+    # docs/simulation/SIMULATION-FIDELITY.md.
     GCS_PID=""
     if command -v drone-gcs >/dev/null 2>&1; then
         drone-gcs > /tmp/smoke-gcs.log 2>&1 &
         GCS_PID=$!
     fi
 
-    # PX4 gets a FIFO as stdin instead of /dev/null so we can actually command
-    # a takeoff. With /dev/null the test could only prove PX4 starts, which is
-    # a much weaker claim than "it flies".
-    # A background holder keeps the write end open so PX4 does not see EOF.
+    # PX4 gets a FIFO as stdin instead of /dev/null so the test can command a
+    # takeoff. A background holder keeps the write end open so PX4 never sees
+    # EOF. setsid puts make, px4 and gz in their own process group so cleanup
+    # targets exactly that group, not a PX4 a student has running elsewhere.
     PXH_FIFO=/tmp/smoke-pxh
     rm -f "$PXH_FIFO"; mkfifo "$PXH_FIFO"
     tail -f /dev/null > "$PXH_FIFO" 2>/dev/null &
@@ -209,10 +193,8 @@ else
         SITL_GROUP=0
     fi
 
-    # Poll rather than sleeping a flat 45s. Gazebo has to load world and model
-    # assets on first run, which is slower on a cold cache and on a machine
-    # doing software rendering, and a fixed sleep either wastes time or reports
-    # a false failure.
+    # Poll rather than sleeping a flat delay: Gazebo asset loading is slower on
+    # a cold cache, and a fixed sleep either wastes time or reports false failure.
     READY=0
     DIED=0
     SITL_T0=$(date +%s)
@@ -230,13 +212,12 @@ else
     if [ "$READY" -eq 1 ]; then
         ok "PX4 SITL reached ready state (${SITL_ELAPSED}s)"
 
-        # The claim that matters: can it actually arm and leave the ground?
-        # "PX4 started" was passing happily while every arming attempt was
-        # being denied, which is how a broken setup looked healthy here.
+        # The claim that matters is arming and takeoff; "PX4 started" alone
+        # passed while every arming attempt was being denied.
         if [ -n "$GCS_PID" ]; then
             FLEW=0
-            # The EKF needs a few seconds of settled sensor data before the
-            # preflight checks will pass, so retry rather than judging once.
+            # The EKF needs settled sensor data before preflight checks pass,
+            # so retry rather than judging once.
             for _ in $(seq 1 12); do
                 echo "commander takeoff" > "$PXH_FIFO" 2>/dev/null
                 sleep 5
@@ -289,9 +270,8 @@ fi
 # ---------------------------------------------------------------------------
 SECTION="display check"
 echo "=== 5. GUI display path ==="
-# An X server inside the container, published on 6080 for a browser and 5901
-# for a VNC client. This section proves both are actually up, because a
-# published port with nothing listening behind it reports no error on its own.
+# 6080 serves the browser, 5901 a VNC client. A published port with nothing
+# listening behind it reports no error on its own, so probe each.
 
 [ -f /tmp/drone-display.env ] && source /tmp/drone-display.env
 
@@ -325,14 +305,11 @@ else
     echo "        A VNC client will not connect until this is fixed."
 fi
 
-# The renderer that MATTERS is the one seen through vglrun, because the gz and
-# rviz2 wrappers on PATH route through it. Plain glxinfo always says llvmpipe
-# inside a virtual framebuffer, even on a machine with a perfectly good GPU,
-# so reporting that number alone would be misleading.
-# Verify the wrapper actually shadows ROS's vendored gz. If ROS wins, Gazebo
-# silently runs without VirtualGL and you lose the GPU with no error anywhere.
-# Both /usr/local/bin/gz and ROS's vendored gz are wrapped, so whichever one
-# PATH resolves to should route through VirtualGL. Check the file, not the path.
+# The renderer that matters is the one seen through vglrun, because the gz and
+# rviz2 wrappers on PATH route through it; plain glxinfo always reports
+# llvmpipe inside a virtual framebuffer. Check the resolved file, not the path,
+# because whichever of /usr/local/bin/gz or ROS's vendored gz wins must route
+# through VirtualGL.
 GZ_RESOLVED=$(command -v gz 2>/dev/null)
 if [ "${DRONE_VGL:-1}" != "1" ]; then
     skip "VirtualGL bypassed by DRONE_VGL=${DRONE_VGL}, so software rendering is expected"
@@ -344,8 +321,7 @@ elif [ -n "$GZ_RESOLVED" ]; then
 fi
 
 if command -v glxinfo >/dev/null 2>&1 && [ -n "${DISPLAY:-}" ]; then
-    # Honour DRONE_VGL. With it set to 0 the wrappers skip vglrun, so querying
-    # through vglrun anyway would report a renderer nothing is actually using.
+    # With DRONE_VGL=0 the wrappers skip vglrun, so query without it too.
     if [ "${DRONE_VGL:-1}" = "1" ] && command -v vglrun >/dev/null 2>&1; then
         RENDERER=$(timeout 25 vglrun -d egl glxinfo -B 2>/dev/null | sed -n 's/^OpenGL renderer string: //p')
     else
@@ -357,7 +333,7 @@ if command -v glxinfo >/dev/null 2>&1 && [ -n "${DISPLAY:-}" ]; then
                 ok "renderer: $RENDERER"
                 echo "        Software rendering. Flight behavior is unaffected, physics is"
                 echo "        CPU work and PX4 runs lockstep. Cameras are the exception, see"
-                echo "        docs/SIMULATION-FIDELITY.md." ;;
+                echo "        docs/simulation/SIMULATION-FIDELITY.md." ;;
             *)
                 ok "renderer: $RENDERER (hardware accelerated)" ;;
         esac

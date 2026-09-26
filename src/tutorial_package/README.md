@@ -79,7 +79,7 @@ reads the drone's position.
 | Old behaviour after an edit | C++ was not rebuilt | Rebuild |
 | `build/`, `install/` and `log/` appear inside `src/` | colcon was run from inside `src/` | Delete them and run colcon from the repo root |
 
-[docs/NEW-PACKAGE.md](../../docs/NEW-PACKAGE.md) has the full table.
+[docs/development/NEW-PACKAGE.md](../../docs/development/NEW-PACKAGE.md) has the full table.
 
 ## 4. How it works
 
@@ -170,8 +170,8 @@ ros2 run my_package your_node
 ```
 
 `ros2 pkg create` generates the same structure from scratch.
-[docs/NEW-PACKAGE.md](../../docs/NEW-PACKAGE.md) covers that route, for both C++
-and Python.
+[docs/development/NEW-PACKAGE.md](../../docs/development/NEW-PACKAGE.md) covers that route,
+for both C++ and Python.
 
 ### Making it talk to the drone
 
@@ -193,13 +193,20 @@ target_link_libraries(your_node PRIVATE rclcpp::rclcpp ${px4_msgs_TARGETS})
 
 `src/your_node.cpp`: subscribe to `/fmu/out/vehicle_local_position` with PX4's
 QoS. The complete node is step 3 of the C++ section in
-[docs/NEW-PACKAGE.md](../../docs/NEW-PACKAGE.md). The QoS is the part that
-matters: PX4 publishes best effort with transient local durability, and a
-default subscription never receives anything from it.
+[docs/development/NEW-PACKAGE.md](../../docs/development/NEW-PACKAGE.md). PX4 publishes best
+effort with transient local durability. A default subscription never receives
+anything from it.
 
-Then run it against the simulator with the usual stack from
-[QUICKSTART.md](../../QUICKSTART.md): `MicroXRCEAgent`, `drone-gcs`,
-`drone-sim`, and your node in a fourth terminal.
+Then run it against the simulator with the stack from
+[QUICKSTART.md](../../docs/simulation/QUICKSTART.md): `MicroXRCEAgent`,
+`drone-gcs`, SITL:
+
+```bash
+cd ~/PX4-Autopilot
+PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4
+```
+
+and your node in a fourth terminal.
 
 ### Design decisions
 
@@ -207,13 +214,13 @@ Then run it against the simulator with the usual stack from
 |---|---|
 | No PX4 dependency | The package builds and runs with nothing else running. Build problems and PX4 problems stay separate |
 | `target_link_libraries` with imported targets | The current ROS 2 style, and what every other C++ package in this repo uses. `ros2 pkg create` generates `ament_target_dependencies`, which also works. Do not mix the two on one target |
-| A class derived from `rclcpp::Node` | The shape every other node here uses, so the template grows into them without restructuring |
+| A class derived from `rclcpp::Node` | The shape every other node in this repo uses |
 | Every line commented | It is meant to be read before it is copied |
 
 ### Where to go next
 
 | To | Read |
 |---|---|
-| Create a package properly, C++ or Python | [docs/NEW-PACKAGE.md](../../docs/NEW-PACKAGE.md) |
+| Create a package properly, C++ or Python | [docs/development/NEW-PACKAGE.md](../../docs/development/NEW-PACKAGE.md) |
 | A complete C++ flight node | [`../cpp_single_hop`](../cpp_single_hop/README.md) |
-| How your node plugs into PX4 | [docs/HOW-IT-WORKS.md](../../docs/HOW-IT-WORKS.md) |
+| How your node plugs into PX4 | [docs/simulation/HOW-IT-WORKS.md](../../docs/simulation/HOW-IT-WORKS.md) |

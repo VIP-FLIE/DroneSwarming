@@ -306,9 +306,8 @@ ENV BUILT_XRCE_AGENT_VERSION=${XRCE_AGENT_VERSION}
 # 9. Display + shell setup
 # ---------------------------------------------------------------------------
 COPY --chown=${USERNAME}:${USERNAME} scripts/ /opt/drone-vip/scripts/
-RUN sudo chmod +x /opt/drone-vip/scripts/*.sh /opt/drone-vip/scripts/drone-gui /opt/drone-vip/scripts/drone-sim /opt/drone-vip/scripts/drone-gcs \
+RUN sudo chmod +x /opt/drone-vip/scripts/*.sh /opt/drone-vip/scripts/drone-gui /opt/drone-vip/scripts/drone-gcs \
  && sudo ln -sf /opt/drone-vip/scripts/drone-gui /usr/local/bin/drone-gui \
- && sudo ln -sf /opt/drone-vip/scripts/drone-sim /usr/local/bin/drone-sim \
  && sudo ln -sf /opt/drone-vip/scripts/drone-gcs /usr/local/bin/drone-gcs
 
 # Qt/X scratch dir. XDG_RUNTIME_DIR points here.

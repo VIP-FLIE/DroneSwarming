@@ -46,7 +46,7 @@ export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}"
 #
 #     export DRONE_SLOT=1
 #
-# docs/LAB-SERVER.md has the slot table, and the list of exactly which fixed
+# docs/setup/LAB-SERVER.md has the slot table, and the list of exactly which fixed
 # resources in the stack collide without this.
 export DRONE_SLOT="${DRONE_SLOT:-0}"
 case "$DRONE_SLOT" in
@@ -112,7 +112,7 @@ unset PX4_GZ_STANDALONE
 export QT_QPA_PLATFORM=xcb
 
 # --- PATH -------------------------------------------------------------------
-# drone-sim and drone-gcs.
+# drone-gcs.
 case ":$PATH:" in
     *":$_drone_env_root/scripts/native/bin:"*) ;;
     *) export PATH="$_drone_env_root/scripts/native/bin:$PATH" ;;

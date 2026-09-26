@@ -82,9 +82,8 @@ Three terminals. In the dev container every terminal is ready to use. On a
 native install, each terminal needs `source scripts/native/env.sh` first,
 unless it is in your `~/.bashrc`.
 
-Do not run `drone-sim`. The launch file starts its own PX4 instances and
-Gazebo. If `drone-sim` is already running, stop it first, or the swarm spawns
-into its world.
+The launch file starts its own PX4 instances and Gazebo. Stop any other PX4 or
+Gazebo on this machine first, or the swarm spawns into its world.
 
 ```bash
 MicroXRCEAgent udp4 -p 8888              # 1. PX4 to ROS 2 bridge. Start it first
@@ -100,7 +99,7 @@ ros2 launch swarm_naive swarm.launch.py  # 3. PX4 instances, Gazebo, and the nod
 
 On a shared machine, use `MicroXRCEAgent udp4 -p $PX4_UXRCE_DDS_PORT` in
 terminal 1. The launch file and `drone-gcs` read the rest from the environment.
-See [docs/LAB-SERVER.md](../../docs/LAB-SERVER.md).
+See [docs/setup/LAB-SERVER.md](../../docs/setup/LAB-SERVER.md).
 
 `drone-gcs --expect 3` prints one line per drone as each links up, then
 `Every vehicle accounted for.` A drone it never names cannot arm.
@@ -167,7 +166,7 @@ ros2 launch swarm_naive swarm.launch.py --show-args
 | `centre_north_m` | `radius_m + pad_spacing_m` | Ring centre, north, shared frame |
 | `centre_east_m` | Middle of the pad row | Ring centre, east, shared frame |
 | `headless` | false | Skip Gazebo rendering. Use it above about four drones, or with no GPU |
-| `world` | default | Gazebo world by file name. See [docs/WORLDS.md](../../docs/WORLDS.md) |
+| `world` | default | Gazebo world by file name. See [docs/simulation/WORLDS.md](../../docs/simulation/WORLDS.md) |
 | `px4_dir` | `$PX4_DIR` or `~/PX4-Autopilot` | PX4 checkout to run |
 | `instance_base` | `$PX4_INSTANCE_BASE` or 0 | Shifts every instance number by a multiple of 10 on a shared machine |
 | `gazebo_boot_s` | 30.0 | Head start for the first vehicle, which loads Gazebo |
@@ -190,7 +189,7 @@ ros2 launch swarm_naive swarm.launch.py --show-args
 |---|---|---|
 | Drone 0 flies, the others never arm | `drone-gcs` is not serving every vehicle | `drone-gcs --expect 3` names the ones it has not linked |
 | `Timed out waiting for Gazebo world` | A later vehicle started before the first finished loading Gazebo | Raise `gazebo_boot_s` |
-| New drones appear in a field that already has drones in it | A Gazebo server survived the last run, or `drone-sim` is running | `pkill -f 'gz sim'` |
+| New drones appear in a field that already has drones in it | A Gazebo server survived the last run, or another PX4 and Gazebo are running | `pkill -f 'gz sim'` |
 | `No telemetry from the flight controller yet` repeating | Agent started after PX4 | Start the agent, then relaunch |
 | A drone flies to the wrong part of the ring | Its pad parameters disagree with where it spawned | Both come from the launch file. The spawn pose is `east,north` |
 | The formation is mirrored | North and east swapped in the spawn pose | Gazebo is ENU, PX4 is NED |
@@ -198,7 +197,7 @@ ros2 launch swarm_naive swarm.launch.py --show-args
 | Launch file not found | Package not built, or overlay not sourced | Build, then `source install/setup.bash` |
 | Everything runs slowly | Too many vehicles for the machine | `headless:=true` or fewer drones. PX4 and Gazebo run in lockstep, so the flight is unchanged |
 
-The full table is in [docs/SWARM.md](../../docs/SWARM.md).
+The full table is in [docs/swarm/SWARM.md](../../docs/swarm/SWARM.md).
 
 ## 4. How it works
 
@@ -241,7 +240,7 @@ different place for every drone.
 
 The route is written in a **shared swarm frame**, whose origin is drone 0's pad.
 No autopilot knows about this frame. Each node converts every point into its own
-PX4 frame just before publishing it:
+PX4 frame immediately before publishing it:
 
 ```cpp
 LocalPoint to_local(const SwarmPoint & point) const
@@ -364,9 +363,6 @@ ground station link and could never arm. The launch file and the node both
 refuse `count` above 10. `instance_base` must be a multiple of 10 from 0 to 90,
 checked for the same reason.
 
-The comments in `waypoint_drone.cpp` and the launch file still say instances
-"0-9". The range `drone-gcs` actually serves is the one above.
-
 ### The launch file
 
 | Piece | What it does |
@@ -420,6 +416,6 @@ measures the first.
 | To | Read |
 |---|---|
 | The same flight with the drones talking | [`../swarm_comms`](../swarm_comms/README.md) |
-| Both swarm packages side by side | [docs/SWARM.md](../../docs/SWARM.md) |
-| What the launch file replaces, by hand | "More than one drone" in [QUICKSTART.md](../../QUICKSTART.md) |
-| The PX4 binary without any scripts | [docs/UNDER-THE-SCRIPTS.md](../../docs/UNDER-THE-SCRIPTS.md) |
+| Both swarm packages side by side | [docs/swarm/SWARM.md](../../docs/swarm/SWARM.md) |
+| What the launch file replaces, by hand | "More than one drone" in [QUICKSTART.md](../../docs/simulation/QUICKSTART.md) |
+| The PX4 binary without any scripts | [docs/simulation/UNDER-THE-SCRIPTS.md](../../docs/simulation/UNDER-THE-SCRIPTS.md) |

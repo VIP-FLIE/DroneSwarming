@@ -7,7 +7,7 @@
     Worked example: the same PX4 swarm as swarm_naive, except the drones tell
     each other where they are. A readiness barrier replaces a shared clock, and
     each drone's target is a function of the position of the drone ahead of it.
-    Read it alongside docs/SWARM.md, and diff it against swarm_naive.
+    Read it alongside docs/swarm/SWARM.md, and diff it against swarm_naive.
   </description>
   <maintainer email="dmihovch@udel.edu">UD Drone VIP</maintainer>
   <license>MIT</license>

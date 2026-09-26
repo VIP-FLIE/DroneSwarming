@@ -1,39 +1,15 @@
 #!/usr/bin/env python3
-"""Checks the parts of drone-gcs that flying a drone cannot check.
+"""Unit checks for the drone-gcs bookkeeping.
 
     ./scripts/test-drone-gcs.py
 
-Runs in under a second, needs no simulator, no PX4 and no network. Both smoke
-tests run it before they start a vehicle.
+No simulator, no PX4, no network needed. Runs in under a second. Both smoke
+tests run it before starting a vehicle.
 
-WHY THIS FILE EXISTS
---------------------
-The smoke tests prove drone-gcs does its one job: a vehicle arms, which it
-cannot do unless a ground station is satisfying PX4's datalink-loss failsafe.
-That is the integration test, and it is the one that matters most.
-
-It cannot see any of the following, because all of it happens in bookkeeping
-that a single happy vehicle never exercises:
-
-  * whether a message pymavlink could not decode is counted as a vehicle
-  * whether the vehicle count is right
-  * whether a lost link is noticed, and a recovered one
-  * how long to wait before declaring a swarm short
-
-THE REGRESSION THIS PINS
-------------------------
-drone-gcs used to count every distinct source system it heard. pymavlink
-reports srcSystem 0 for any message whose id is missing from its bundled
-dialect, because MAVLink_unknown never populates the frame header. PX4 v1.16.1
-streams several such messages, so they all collapsed into a phantom "system 0"
-and a three-drone swarm reported four vehicles linked.
-
-That mattered because the docs tell you to check that count against the number
-of drones you launched, and it was always one too high. Verified at the time by
-reading the frames off the socket without pymavlink's decoder: they carry the
-vehicle's real system id. See the header of .devcontainer/scripts/drone-gcs.
-
-`test_phantom_vehicle` below is that bug, turned into a test.
+Flying a vehicle can only prove that SOME ground station link works. This file
+checks the parts one happy vehicle never exercises: undecodable MAVLink
+traffic, vehicle counting, lost and recovered links, shortfall deadlines, and
+the per-slot instance blocks.
 """
 import contextlib
 import importlib.machinery
@@ -43,11 +19,8 @@ import os
 import sys
 import time
 
-# Captured before anything else can redirect it. drone-gcs prints as it runs,
-# and that output is swallowed below so a run of this file reads as a list of
-# results rather than a transcript of a ground station. It is kept, not thrown
-# away: a failing test prints what the station said, which is usually the whole
-# explanation.
+# Captured before anything else can redirect stdout, so drone-gcs's own
+# output can be swallowed below while test results still print.
 _REAL_STDOUT = sys.stdout
 
 try:
@@ -59,8 +32,8 @@ except ImportError:
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DRONE_GCS = os.path.join(REPO_ROOT, ".devcontainer", "scripts", "drone-gcs")
 
-# Loaded by path because drone-gcs has no .py extension: it is a command, and
-# both environments put it on PATH under that name.
+# Loaded by path; drone-gcs has no .py extension because it is a command on
+# PATH in both environments.
 _loader = importlib.machinery.SourceFileLoader("drone_gcs", DRONE_GCS)
 _spec = importlib.util.spec_from_loader("drone_gcs", _loader)
 gcs = importlib.util.module_from_spec(_spec)
@@ -78,7 +51,6 @@ def check(label, got, want):
 
 
 def run(test):
-    """Run one test with drone-gcs's own chatter captured."""
     print(test.__doc__.splitlines()[0], file=_REAL_STDOUT)
     before = len(FAILURES)
     captured = io.StringIO()
@@ -91,12 +63,10 @@ def run(test):
 
 
 def vehicle_message(system_id):
-    """A decodable message with a populated header, as a real vehicle sends.
+    """A decodable heartbeat with a populated header, as a real vehicle sends.
 
     MAVLink_header's positional order is (msgId, incompat_flags, compat_flags,
-    mlen, seq, srcSystem, srcComponent). Passing the system id positionally sets
-    seq instead and every assertion below quietly tests the wrong thing, so
-    these are keyword arguments on purpose.
+    mlen, seq, srcSystem, srcComponent), so the system id is a keyword here.
     """
     message = mavutil.mavlink.MAVLink_heartbeat_message(
         mavutil.mavlink.MAV_TYPE_QUADROTOR, mavutil.mavlink.MAV_AUTOPILOT_PX4,
@@ -107,8 +77,8 @@ def vehicle_message(system_id):
     return message
 
 
-def test_undecodable_messages_are_not_vehicles():
-    """A message pymavlink cannot read tells you nothing about who sent it."""
+def test_undecodable_traffic_is_not_a_vehicle():
+    """Undecodable MAVLink traffic must not be counted as a vehicle."""
     # 410 is EVENT, which PX4 streams and pymavlink 2.4.49 does not define.
     unknown = mavutil.mavlink.MAVLink_unknown(410, b"\x01\x02")
     check("its srcSystem really is a lie", unknown.get_srcSystem(), 0)
@@ -116,14 +86,14 @@ def test_undecodable_messages_are_not_vehicles():
     check("BAD_DATA rejected",
           gcs.is_from_a_vehicle(mavutil.mavlink.MAVLink_bad_data(b"\x01", "x")), False)
     check("a real heartbeat is accepted", gcs.is_from_a_vehicle(vehicle_message(2)), True)
-    # Belt and braces: MAVLink reserves 0 for broadcast, so it is never a vehicle
-    # even on a message that decoded cleanly.
+    # MAVLink reserves system 0 for broadcast, so it is never a vehicle even on
+    # a message that decoded.
     check("system 0 rejected even when decodable",
           gcs.is_from_a_vehicle(vehicle_message(0)), False)
 
-
-def test_phantom_vehicle():
-    """The actual bug: undecodable traffic must not inflate the count."""
+    # The regression: counting each distinct srcSystem let PX4's undecodable
+    # messages collapse into a phantom "system 0", so three drones reported
+    # four vehicles linked.
     station = gcs.Station(expected=3)
     for message_id in (8, 290, 291, 380, 410, 411, 436):
         message = mavutil.mavlink.MAVLink_unknown(message_id, b"\x01")
@@ -141,7 +111,7 @@ def test_phantom_vehicle():
 
 
 def test_link_loss_and_recovery():
-    """A vehicle that goes quiet is noticed, and so is one that comes back."""
+    """A vehicle that goes quiet is dropped from the count, and relinks."""
     original = gcs.LINK_LOSS_S
     gcs.LINK_LOSS_S = 0.3
     try:
@@ -163,11 +133,11 @@ def test_link_loss_and_recovery():
 
 
 def test_shortfall_deadline_scales():
-    """A big swarm is legitimately slower to assemble than a small one.
+    """The shortfall deadline grows with the --expect count.
 
-    The launch files stagger PX4 instances on purpose, because the first vehicle
-    has to load Gazebo before any other can join its world. A flat deadline told
-    a ten-drone swarm it was short while it was still doing the right thing.
+    The launch files stagger PX4 instances because the first vehicle must load
+    Gazebo before the others can join its world. A flat deadline reported a
+    ten-drone swarm as short while it was still assembling.
     """
     check("no --expect", gcs.Station(None).deadline_s(), gcs.SILENCE_WARNING_S)
     check("--expect 1", gcs.Station(1).deadline_s(), gcs.SILENCE_WARNING_S)
@@ -179,8 +149,8 @@ def test_shortfall_deadline_scales():
           gcs.Station(10).deadline_s() > gcs.Station(3).deadline_s(), True)
 
 
-def test_expect_argument():
-    """--expect has to stay inside the range of instances we heartbeat."""
+def test_argument_parsing():
+    """The CLI arguments parse and reject out-of-range values."""
     check("no argument means no expectation", gcs.parse_args([]).expect, None)
     check("--expect 3 parses", gcs.parse_args(["--expect", "3"]).expect, 3)
     for bad in ("0", "-1", str(gcs.SITL_INSTANCE_LIMIT + 1)):
@@ -190,38 +160,44 @@ def test_expect_argument():
         except SystemExit:
             check(f"--expect {bad} rejected", "rejected", "rejected")
 
+    check("default listen port", gcs.parse_args([]).listen_port,
+          gcs.GCS_LISTEN_PORT)
+    check("default instance base", gcs.parse_args([]).instance_base, 0)
+    check("--listen-port parses",
+          gcs.parse_args(["--listen-port", "14551"]).listen_port, 14551)
+    check("--instance-base parses",
+          gcs.parse_args(["--instance-base", "10"]).instance_base, 10)
+
+    # A base that is not a multiple of the block width produces overlapping
+    # blocks, which is the bug the whole block scheme exists to prevent.
+    for bad in ("-10", "5", "95", "100"):
+        try:
+            gcs.parse_args(["--instance-base", bad])
+            check(f"--instance-base {bad} rejected", "accepted", "rejected")
+        except SystemExit:
+            check(f"--instance-base {bad} rejected", "rejected", "rejected")
+
 
 def ports_for(instance_base):
     return sorted(port for _host, port in gcs.sitl_addresses(instance_base))
 
 
-def test_instance_block_covers_every_vehicle_it_can_launch():
-    """The block has to reach the tenth drone of a ten-drone swarm.
-
-    The launch files number vehicles `instance_base + slot + 1` for slot
-    0..count-1, so count:=10 produces instance base+10. A station covering ten
-    ports starting at base+0 stopped one short: the last drone of a full swarm
-    never got a heartbeat, so its datalink failsafe was never satisfied and it
-    sat on the pad reporting "Arming denied" while the other nine flew.
-    """
+def test_instance_blocks():
+    """One station's instance block must cover its swarm and overlap no other."""
     ports = ports_for(0)
     check("slot 0 reaches instance 10", ports[-1], gcs.SITL_GCS_PORT_BASE + 10)
     check("ten swarm instances covered, plus instance 0", len(ports), 11)
 
-    # Instance 0 is what a bare `drone-sim` runs, and it has to be heartbeated
-    # like any other. PX4 will not send to a UDP peer it has not heard from
-    # (_src_addr_initialized, mavlink_main.cpp:782), so a station that skips
-    # 18570 leaves the single-vehicle case depending on MAV_BROADCAST, which is
-    # a parameter rather than a promise. Dropping it once was a real
-    # regression; this is that regression turned into a test.
+    # Instance 0 is what a single-vehicle PX4 run without -i uses, and it has
+    # to be heartbeated like any other. PX4 will not send to a UDP peer it has
+    # not heard from (_src_addr_initialized, mavlink_main.cpp:782), so dropping
+    # 18570 makes the single-vehicle case depend on MAV_BROADCAST, which is a
+    # parameter rather than a promise. That was a real regression.
     check("instance 0 is in slot 0's block",
           gcs.SITL_GCS_PORT_BASE in ports, True)
     check("instance 0 belongs to nobody else",
           gcs.SITL_GCS_PORT_BASE in set(ports_for(gcs.SITL_INSTANCE_BLOCK)), False)
 
-
-def test_blocks_do_not_overlap():
-    """Two people on one machine must never heartbeat the same vehicle."""
     slot0 = set(ports_for(0))
     slot1 = set(ports_for(gcs.SITL_INSTANCE_BLOCK))
     slot2 = set(ports_for(gcs.SITL_INSTANCE_BLOCK * 2))
@@ -234,28 +210,8 @@ def test_blocks_do_not_overlap():
           (gcs.SITL_GCS_PORT_BASE + 11, gcs.SITL_GCS_PORT_BASE + 20))
 
 
-def test_port_arguments():
-    """--listen-port and --instance-base, and the environment behind them."""
-    check("default listen port", gcs.parse_args([]).listen_port,
-          gcs.GCS_LISTEN_PORT)
-    check("default instance base", gcs.parse_args([]).instance_base, 0)
-    check("--listen-port parses",
-          gcs.parse_args(["--listen-port", "14551"]).listen_port, 14551)
-    check("--instance-base parses",
-          gcs.parse_args(["--instance-base", "10"]).instance_base, 10)
-
-    # A base that is not a multiple of the block width produces overlapping
-    # blocks, which is the exact bug the whole scheme exists to prevent.
-    for bad in ("-10", "5", "95", "100"):
-        try:
-            gcs.parse_args(["--instance-base", bad])
-            check(f"--instance-base {bad} rejected", "accepted", "rejected")
-        except SystemExit:
-            check(f"--instance-base {bad} rejected", "rejected", "rejected")
-
-
 def test_environment_defaults():
-    """env.sh sets these, so reading them has to work and has to be safe."""
+    """env.sh variables feed the defaults; a flag still wins; garbage falls back."""
     saved = {name: os.environ.get(name)
              for name in ("DRONE_GCS_PORT", "PX4_INSTANCE_BASE")}
     try:
@@ -268,14 +224,10 @@ def test_environment_defaults():
         check("and the block follows it",
               ports_for(args.instance_base)[0], gcs.SITL_GCS_PORT_BASE + 31)
 
-        # An explicit flag still wins, which is what makes the station
-        # debuggable from a shell that has the wrong slot exported.
         check("a flag overrides the environment",
               gcs.parse_args(["--listen-port", "14550"]).listen_port, 14550)
 
-        # A typo in ~/.bashrc must not stop the station starting. Falling back
-        # to the single-user default is visible, because the startup banner
-        # prints the ports it actually chose.
+        # A typo in ~/.bashrc must not stop the station starting.
         os.environ["PX4_INSTANCE_BASE"] = "not-a-number"
         check("garbage in the environment falls back",
               gcs.parse_args([]).instance_base, 0)
@@ -292,20 +244,16 @@ def test_environment_defaults():
 
 def main():
     print(f"Testing {os.path.relpath(DRONE_GCS, REPO_ROOT)}\n", file=_REAL_STDOUT)
-    for test in (test_undecodable_messages_are_not_vehicles,
-                 test_phantom_vehicle,
+    for test in (test_undecodable_traffic_is_not_a_vehicle,
                  test_link_loss_and_recovery,
                  test_shortfall_deadline_scales,
-                 test_expect_argument,
-                 test_instance_block_covers_every_vehicle_it_can_launch,
-                 test_blocks_do_not_overlap,
-                 test_port_arguments,
+                 test_argument_parsing,
+                 test_instance_blocks,
                  test_environment_defaults):
         run(test)
 
     # Not an assertion. Which ids pymavlink lacks changes when pymavlink is
-    # upgraded, and that is fine: the behaviour above is what must hold. This
-    # only says how much undecodable traffic PX4 is currently producing.
+    # upgraded; the behaviour above is what must hold.
     missing = [i for i in (8, 290, 291, 380, 410, 411, 436)
                if i not in mavutil.mavlink.mavlink_map]
     print(f"\n  note  this pymavlink cannot decode PX4 message ids "

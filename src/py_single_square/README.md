@@ -77,7 +77,8 @@ drone-gcs                        # 2. ground station link. PX4 will not arm with
 ```
 
 ```bash
-drone-sim                        # 3. PX4 and Gazebo, one x500
+cd ~/PX4-Autopilot               # 3. PX4 and Gazebo, one x500
+PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4
 ```
 
 ```bash
@@ -91,7 +92,8 @@ ros2 run py_single_square listener   # 5. optional, watch it
 Start `fly` after terminal 3 prints `Ready for takeoff!`. `fly` only retries
 arming for 3 s, so starting it on a vehicle that is still booting can fail.
 
-`HEADLESS=1 drone-sim` skips rendering. The flight is identical.
+`HEADLESS=1 PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4` skips
+rendering. The flight is identical.
 
 `fly` output from a real run on a freshly started vehicle:
 
@@ -173,14 +175,20 @@ ros2 run py_single_square fly --ros-args -p px4_ns:=px4_1 -p sys_id:=2
 ros2 run py_single_square listener --ros-args -p px4_ns:=px4_1
 ```
 
-On a shared machine where `DRONE_SLOT` is set, `drone-sim` prints
-`Slot N, so this is SITL instance I.` Pass `px4_ns:=px4_I` and `sys_id:=` I + 1.
+On a shared machine, start PX4 with:
+
+```bash
+cd ~/PX4-Autopilot && PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4 -i $((PX4_INSTANCE_BASE + 1))
+```
+
+PX4 reports instance `$((PX4_INSTANCE_BASE + 1))`. Pass
+`px4_ns:=px4_<that instance>` and `sys_id:=<instance + 1>`.
 
 ### Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `listener` prints `no messages yet` every second | Agent not running, agent started after PX4, or `px4_ns` wrong | Start the agent, then restart `drone-sim` |
+| `listener` prints `no messages yet` every second | Agent not running, agent started after PX4, or `px4_ns` wrong | Start the agent, then restart PX4 with `cd ~/PX4-Autopilot && PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4` |
 | `arming failed after 30 retries` within a few seconds of starting | PX4 was not ready to arm within 3 s, usually no `drone-gcs` or a vehicle still booting | Check `drone-gcs` is running, wait for `Ready for takeoff!`, run again |
 | `armed, switching to offboard mode`, then `arming failed` repeating | The offboard request was not acted on and PX4 disarmed | See the known problem above |
 | `No executable found` | Built before an entry point was added | Rebuild, then `source install/setup.bash` |
@@ -219,8 +227,8 @@ command line while the node receives nothing.
 a best effort publisher's commands are dropped without a warning.
 
 The module is separate so other packages can import it instead of copying it.
-[docs/NEW-PACKAGE.md](../../docs/NEW-PACKAGE.md) shows a new package doing
-exactly that, with `<depend>py_single_square</depend>` in its `package.xml`.
+[docs/development/NEW-PACKAGE.md](../../docs/development/NEW-PACKAGE.md) shows a new package
+doing that, with `<depend>py_single_square</depend>` in its `package.xml`.
 
 ### `listener.py`
 
@@ -316,6 +324,6 @@ they go to `bin/`, where `ros2 run` does not look.
 | To | Read |
 |---|---|
 | The fully commented C++ version | [`../cpp_single_hop`](../cpp_single_hop/README.md) |
-| The pipeline behind both | [docs/HOW-IT-WORKS.md](../../docs/HOW-IT-WORKS.md) |
-| Start your own Python package | [docs/NEW-PACKAGE.md](../../docs/NEW-PACKAGE.md) |
+| The pipeline behind both | [docs/simulation/HOW-IT-WORKS.md](../../docs/simulation/HOW-IT-WORKS.md) |
+| Start your own Python package | [docs/development/NEW-PACKAGE.md](../../docs/development/NEW-PACKAGE.md) |
 | Several drones | [`../swarm_naive`](../swarm_naive/README.md) |

@@ -4,9 +4,9 @@ ROS 2 Jazzy, Gazebo Harmonic and PX4 installed directly on your machine, with
 no container. Use this if you already run the ROS 2 stack natively or you want
 the GUI on your own desktop and your own GPU.
 
-The dev container in [SETUP.md](SETUP.md) stays supported and is the right
-choice on Windows, macOS, and any Linux that is not Ubuntu 24.04. Both paths
-install the same pinned versions and produce the same flight behavior. See
+The dev container in [SETUP.md](SETUP.md) stays supported, and it is the path
+on Windows, macOS, and any Linux that is not Ubuntu 24.04. Both paths install
+the same pinned versions and produce the same flight behavior. See
 [Keeping the two identical](#keeping-the-two-identical).
 
 ## Requirements
@@ -83,8 +83,8 @@ echo "source $PWD/scripts/native/env.sh" >> ~/.bashrc
 
 Open a new terminal after adding it. Every terminal that runs any part of the
 stack needs this. It sources ROS 2, `px4_msgs` and this repo's packages, puts
-`drone-sim` and `drone-gcs` on your `PATH`, and sets the environment listed
-under [Keeping the two identical](#keeping-the-two-identical).
+`drone-gcs` on your `PATH`, and sets the environment listed under
+[Keeping the two identical](#keeping-the-two-identical).
 
 ## Verify
 
@@ -92,11 +92,11 @@ under [Keeping the two identical](#keeping-the-two-identical).
 ./scripts/native/smoke-test.sh
 ```
 
-You want `Stack is good.` The run takes a few minutes because section 5
+You want `Stack is good.` The run takes a few minutes because section 6
 launches PX4 headless and commands a takeoff.
 
 Sections 1 through 4 check the toolchain, the versions against the Dockerfile
-pins, which Gazebo installation is in play, and ROS 2. Section 6 names the GL
+pins, which Gazebo installation is in play, and ROS 2. Section 7 names the GL
 renderer your machine actually got.
 
 ## Fly
@@ -104,10 +104,11 @@ renderer your machine actually got.
 Four terminals:
 
 ```bash
-MicroXRCEAgent udp4 -p 8888     # 1. PX4 to ROS 2 bridge
-drone-gcs                       # 2. ground control station link
-drone-sim                       # 3. simulator, gives you a pxh> prompt
-ros2 topic list | grep fmu      # 4. your side
+MicroXRCEAgent udp4 -p 8888                                 # 1. PX4 to ROS 2 bridge
+drone-gcs                                                   # 2. ground control station link
+cd ~/PX4-Autopilot                                          # 3. simulator
+PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4      #    gives you a pxh> prompt
+ros2 topic list | grep fmu                                  # 4. your side
 ```
 
 Gazebo opens a window on your desktop. Terminal 4 printing nothing means the
@@ -124,14 +125,19 @@ pxh> commander land
 datalink loss, so it will not arm without a ground control station. Without it
 you get `Arming denied: Resolve system health failures first`. Supply the link
 rather than setting `param set NAV_DLL_ACT 0`, which deletes the failsafe. See
-[SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md).
+[SIMULATION-FIDELITY.md](../simulation/SIMULATION-FIDELITY.md).
 
-`drone-sim` wraps `make px4_sitl gz_x500`. Bare `gz sim` opens Gazebo's world
-chooser and does not start the drone. For swarms and long runs use
-`HEADLESS=1 drone-sim`.
+`make px4_sitl gz_x500` is PX4's own build target: it builds SITL if out of
+date and then runs it. Bare `gz sim` opens Gazebo's world chooser and starts no
+drone. For swarms and long runs, add `HEADLESS=1` to the raw SITL command:
+
+```bash
+cd ~/PX4-Autopilot
+HEADLESS=1 PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4
+```
 
 Writing nodes, the QoS rules, offboard mode and multi-vehicle launching are all
-in [QUICKSTART.md](../QUICKSTART.md), which applies here as written. See
+in [QUICKSTART.md](../simulation/QUICKSTART.md), which applies here as written. See
 [Reading the other docs](#reading-the-other-docs) for the handful of
 container-only commands in it.
 
@@ -170,10 +176,10 @@ the environment, so it names the apt copy under `/usr/lib`. The smoke test runs
 with ROS 2 sourced, the way you actually run the simulator, so it names the
 vendored copy under `/opt/ros/jazzy/opt`. Both are Harmonic.
 
-A different Gazebo release on the machine, such as Ionic or Jetty, does change
-the answer. PX4 calls a bare `gz sim` and takes whatever responds, and its own
-check only requires version 8.0.0 or newer, so Ionic passes it. Section 1 of
-the smoke test fails when more than one version is installed.
+A different Gazebo release on the machine, such as Ionic or Jetty, changes the
+answer. PX4 calls a bare `gz sim` and takes whatever responds, and its own check
+only requires version 8.0.0 or newer, so Ionic passes it. Section 1 of the
+smoke test fails when more than one version is installed.
 
 **How PX4 was built.** The installer compiles PX4 with ROS 2 removed from the
 environment and `GZ_DISTRO=harmonic` set:
@@ -193,7 +199,7 @@ smoke test reads the Gazebo transport library the `px4` binary loads.
 **Network scope.** Native ROS 2 discovers nodes across your whole subnet. Two
 people running this in the same room see each other's `/fmu/` topics, and a
 node subscribes to whichever vehicle answers first. Docker's network already
-isolated the container from that. `env.sh` sets
+isolates the container from that. `env.sh` sets
 `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`, which restores the isolation.
 
 ROS 2 Jazzy sets that variable to `SUBNET` itself whenever it is unset, from an
@@ -205,8 +211,7 @@ and give every machine a different `ROS_DOMAIN_ID`.
 
 `LOCALHOST` separates you from other machines. It does not separate you from
 other people on the *same* machine, because there everybody already is
-localhost. That case is `DRONE_SLOT` below and
-[LAB-SERVER.md](LAB-SERVER.md).
+localhost. That case is `DRONE_SLOT` below and [LAB-SERVER.md](LAB-SERVER.md).
 
 **Your slot.** One variable, `DRONE_SLOT`, decides five others. On your own
 machine it is 0 and you never set it: slot 0 is the single-user setup, and
@@ -255,11 +260,13 @@ hides the native output rather than overwriting it.
 
 ## Reading the other docs
 
-[QUICKSTART.md](../QUICKSTART.md), [HOW-IT-WORKS.md](HOW-IT-WORKS.md),
-[NEW-PACKAGE.md](NEW-PACKAGE.md) and
-[SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md) apply to both setups and call
-out the places where the two differ. [SETUP.md](SETUP.md) is the dev container's
-own installation guide, and this document is its native counterpart.
+[QUICKSTART.md](../simulation/QUICKSTART.md),
+[HOW-IT-WORKS.md](../simulation/HOW-IT-WORKS.md),
+[NEW-PACKAGE.md](../development/NEW-PACKAGE.md) and
+[SIMULATION-FIDELITY.md](../simulation/SIMULATION-FIDELITY.md) apply to both
+setups and call out the places where the two differ. [SETUP.md](SETUP.md) is the
+dev container's own installation guide, and this document is its native
+counterpart.
 
 Two commands from the container's guide have native equivalents:
 
@@ -283,17 +290,17 @@ Run `./scripts/native/smoke-test.sh` first. It names the broken piece.
 | Smoke test section 1 lists two Gazebo versions | Ionic or Jetty is also installed | Remove the others, or accept that PX4 takes the first one listed |
 | Smoke test section 3 says PX4 is not bound to `gz-transport13` | PX4 was built with ROS 2 sourced, or against Ionic | `./scripts/native/install.sh --rebuild-px4` |
 | `Arming denied: Resolve system health failures first` | No GCS link | Run `drone-gcs`. Not `NAV_DLL_ACT 0` |
-| Gazebo shows demo worlds, no drone | You ran `gz sim` | `drone-sim` |
+| Gazebo shows demo worlds, no drone | You ran `gz sim` | Run `cd ~/PX4-Autopilot`, then `PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4` |
 | No `/fmu/` topics | Agent not running, or started after PX4 | Start `MicroXRCEAgent`, restart PX4 |
 | `MicroXRCEAgent: command not found` right after install | `/usr/local/bin` not on `PATH`, or the linker cache is stale | `sudo ldconfig /usr/local/lib`, then open a new terminal |
-| Callback never fires but `ros2 topic echo` shows data | QoS mismatch | Use `PX4_QOS`, see QUICKSTART |
+| Callback never fires but `ros2 topic echo` shows data | QoS mismatch | Use `PX4_QOS`, see [QUICKSTART.md](../simulation/QUICKSTART.md) |
 | `ros2 run py_single_square` not found | Overlay not sourced | `source install/setup.bash`, or source `env.sh` |
 | Drones you did not launch appear on your topics | Subnet-wide discovery | `source scripts/native/env.sh` |
 | `colcon build` fails with paths under `/workspaces` | Build output left from a dev container run | `rm -rf build install log`, then rebuild |
 | PX4 build dies and the machine swaps | Too many parallel jobs | `JOBS=2 ./scripts/native/install.sh --rebuild-px4` |
 | Gazebo window is blank or misplaced on Wayland | Qt platform plugin | `export QT_QPA_PLATFORM=xcb`, which `env.sh` does |
 | `Standalone PX4 launch, waiting for Gazebo` | `PX4_GZ_STANDALONE` is set | `unset PX4_GZ_STANDALONE` |
-| Gazebo at a few frames per second | Software rendering | Smoke test section 6 names the renderer. Install your GPU driver |
+| Gazebo at a few frames per second | Software rendering | Smoke test section 7 names the renderer. Install your GPU driver |
 | `Failed to load system plugin [libGstCameraSystem.so]` in Gazebo's output | PX4's gstreamer camera plugin is not built, because neither setup installs the gstreamer development packages | Harmless. The x500 does not use it, and the dev container behaves the same way |
 | Smoke test reports the PX4 tree as modified | Something other than the two removed NuttX submodule directories changed | `cd ~/PX4-Autopilot && git status --short`, then `git checkout` whatever it names |
 | Another ROS package on this machine fails with a numpy ABI error after installing | PX4's requirements put a newer numpy in `~/.local`, which takes precedence over the apt one | `pip uninstall --break-system-packages numpy` once PX4 is built |

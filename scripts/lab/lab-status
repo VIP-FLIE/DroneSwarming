@@ -11,7 +11,7 @@
 #
 # Reads only. It starts nothing, kills nothing, and needs no sudo.
 #
-# Full guide: docs/LAB-SERVER.md
+# Full guide: docs/setup/LAB-SERVER.md
 # =============================================================================
 set -o pipefail
 

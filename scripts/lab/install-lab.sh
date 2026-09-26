@@ -7,7 +7,7 @@
 #   sudo ./scripts/lab/install-lab.sh --harden-ssh
 #        ./scripts/lab/install-lab.sh --check             changes nothing
 #
-# This is Part 1.4, 1.6 and 1.7 of docs/LAB-SERVER.md, which is where the
+# This is Part 1.4, 1.6 and 1.7 of docs/setup/LAB-SERVER.md, which is where the
 # reasons live. Run it once, then --add-user once per person.
 #
 # What it does NOT do, on purpose:
@@ -15,7 +15,7 @@
 #   the stack      ./scripts/native/install.sh already installs ROS 2, Gazebo
 #                  and the XRCE-DDS Agent system-wide. Run that first
 #   GRUB, sleep    one-line changes with consequences if they are wrong on
-#                  your machine. docs/LAB-SERVER.md 1.1 has them to copy
+#                  your machine. docs/setup/LAB-SERVER.md 1.1 has them to copy
 #   Tailscale      two commands, and whether to run them at all is a
 #                  conversation with whoever runs your network. 1.3
 #   SSH keys       each person generates their own and sends you the public
@@ -161,7 +161,7 @@ run_check() {
 run_adduser() {
     need_root
     [ -n "$NEW_USER" ] || die "--add-user needs a name."
-    [ -n "$NEW_SLOT" ] || die "--add-user needs --slot N. See the table in docs/LAB-SERVER.md."
+    [ -n "$NEW_SLOT" ] || die "--add-user needs --slot N. See the table in docs/setup/LAB-SERVER.md."
     case "$NEW_SLOT" in
         [0-9]) ;;
         *) die "--slot must be a single digit 0-9, got '$NEW_SLOT'." ;;
@@ -175,7 +175,7 @@ run_adduser() {
             | xargs -r -n1 dirname | xargs -r -n1 basename \
             | grep -v "^$NEW_USER$")
     [ -n "$clash" ] && die "slot $NEW_SLOT is already used by: $clash
-Pick a free one from the table in docs/LAB-SERVER.md, or change theirs first."
+Pick a free one from the table in docs/setup/LAB-SERVER.md, or change theirs first."
 
     stage "Account for $NEW_USER, slot $NEW_SLOT"
     getent group "$TEAM_GROUP" >/dev/null || groupadd "$TEAM_GROUP"
@@ -212,7 +212,7 @@ Pick a free one from the table in docs/LAB-SERVER.md, or change theirs first."
         cat >> "$home/.bashrc" <<BEOF
 
 # Your slot on this machine. Everything that keeps your simulation separate
-# from everyone else's derives from it. See docs/LAB-SERVER.md.
+# from everyone else's derives from it. See docs/setup/LAB-SERVER.md.
 export DRONE_SLOT=$NEW_SLOT
 BEOF
         good "set DRONE_SLOT=$NEW_SLOT in their ~/.bashrc"
@@ -249,7 +249,7 @@ Now, in this order:
          ./scripts/lab/lab-desktop
 
   5. Write "$NEW_USER" into the slot $NEW_SLOT row of the table in
-     docs/LAB-SERVER.md and commit it. That table is the only place the
+     docs/setup/LAB-SERVER.md and commit it. That table is the only place the
      mapping is recorded.
 
 Their ports, for the ~/.ssh/config on their laptop:
@@ -286,7 +286,7 @@ Turning off password authentication now would lock you out. Install your own
 key first, then run this again."
 
     cat > "$SSHD_DROPIN" <<SEOF
-# Written by scripts/lab/install-lab.sh --harden-ssh. docs/LAB-SERVER.md 1.2.
+# Written by scripts/lab/install-lab.sh --harden-ssh. docs/setup/LAB-SERVER.md 1.2.
 #
 # NOTE: Ubuntu 24.04 socket-activates sshd, so Port and ListenAddress here are
 # ignored. Those live in the ssh.socket unit now. Authentication still reads
@@ -453,7 +453,7 @@ WEOF
     cat <<'DONEEOF'
 
     Still to do by hand, because they are judgement calls rather than steps.
-    docs/LAB-SERVER.md has each one:
+    docs/setup/LAB-SERVER.md has each one:
 
       1.1  default to Ubuntu in GRUB, mask sleep, fix the dual-boot clock
       1.3  Tailscale, after talking to whoever runs your network

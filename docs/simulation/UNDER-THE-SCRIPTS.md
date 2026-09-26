@@ -1,15 +1,15 @@
 # The stack without the scripts
 
-`drone-sim` and `drone-gcs` are two short scripts in this repo. They save
-typing. They also hide which pieces are real flight software and which are
-simulation scaffolding. Know the difference before you put code on an
-aircraft.
+`drone-gcs` is a script in this repo that supplies a MAVLink ground station
+link for SITL. It hides which parts of the stack are real flight software and
+which are simulation scaffolding. Know the difference before you put code on
+an aircraft.
 
-This runs the same stack with nothing of ours in the way, then takes each script
-apart and shows what it was standing in for.
+This document runs the same stack with nothing of this repo's in the way, then
+takes `drone-gcs` apart and shows what it is standing in for.
 
-Nothing here replaces the scripts. Use them for everyday work. Read this once so
-you know what they are doing.
+Nothing here replaces `drone-gcs`. Use it for everyday work. Read this once so
+you know what it is doing.
 
 ## The four processes
 
@@ -28,8 +28,7 @@ agent and PX4 fly on it, and the ground station becomes a laptop in a field.
 ## Run it with nothing of ours
 
 Four terminals. The first three use nothing from this repo: they are PX4's
-binary, eProsima's agent and a MAVLink heartbeat. The fourth is your own node,
-which is the only part you were ever meant to be writing.
+binary, eProsima's agent and a MAVLink heartbeat. The fourth is your own node.
 
 ```bash
 MicroXRCEAgent udp4 -p 8888
@@ -65,39 +64,30 @@ Terminal 2 is the whole of `drone-gcs` for a single vehicle. Eight lines.
 Terminal 4 is unchanged whichever way you started the other three, and it is
 unchanged on the aircraft.
 
-## What `drone-sim` is standing in for
+## The build target and its environment
 
-Most of the script is comments and existence checks. Four lines do work.
-
-| Line | What it does | Needed |
-|---|---|---|
-| `export PX4_DIR=...` | Where PX4 is checked out | Only so the script can find it |
-| `export GZ_SIM_RESOURCE_PATH=...` | Where Gazebo looks for models and worlds | No. PX4 sets this itself, see below |
-| `unset PX4_GZ_STANDALONE` | Clears a variable PX4 reads as present-or-absent, so even `PX4_GZ_STANDALONE=0` makes PX4 wait for a Gazebo server nothing started | Only if something in your shell set it |
-| `exec make px4_sitl gz_x500` | Builds PX4 if it is out of date, then runs it | The build check is the one thing running the binary directly does not do |
-
-`GZ_SIM_RESOURCE_PATH` is redundant because PX4 writes
-`build/px4_sitl_default/rootfs/gz_env.sh` at build time and its own startup
-script sources it. Verified by unsetting the variable before launching: Gazebo
-still found its models and worlds.
-
-That only holds while PX4 is the one starting Gazebo. Start Gazebo yourself and
-you have to source `gz_env.sh` yourself. See
-"Seeing where the simulator ends" below.
-
-`make px4_sitl gz_x500` is a CMake target, not a build step. From
-`src/modules/simulation/gz_bridge/CMakeLists.txt` line 101 in v1.16.1, it is:
+`make px4_sitl gz_x500` is PX4's own CMake target. It builds SITL if it is out
+of date, then runs it. From
+`src/modules/simulation/gz_bridge/CMakeLists.txt` line 101 in v1.16.1, it
+expands to:
 
 ```bash
 cd ~/PX4-Autopilot/build/px4_sitl_default/rootfs
 PX4_SIM_MODEL=gz_x500 GZ_IP=127.0.0.1 ../bin/px4
 ```
 
-The `cd` is not needed either. PX4 changes into its own rootfs on startup
+The `cd` is not needed. PX4 changes into its own rootfs on startup
 (`platforms/posix/src/px4/common/main.cpp` line 269), and with `-i N` it uses
 `rootfs/N`, which is why several instances do not fight over one log directory.
 
-### How one environment variable becomes a drone
+`GZ_SIM_RESOURCE_PATH` needs no export from you. PX4 writes
+`build/px4_sitl_default/rootfs/gz_env.sh` at build time and its own startup
+script sources it. Verified by unsetting the variable before launching: Gazebo
+still found its models and worlds. That holds only while PX4 is the one
+starting Gazebo. When you start Gazebo yourself, source `gz_env.sh` yourself.
+See "Seeing where the simulator ends" below.
+
+## How one environment variable becomes a drone
 
 `PX4_SIM_MODEL=gz_x500` is the only input. The chain, all inside PX4:
 
@@ -145,7 +135,7 @@ a ground station before it will leave the ground. Any of these satisfy it:
   `Arming denied`.
 
 `scripts/test-drone-gcs.py` checks the bookkeeping behind all of that: the
-vehicle count, lost and recovered links, and that MAVLink pymavlink cannot
+vehicle count, lost and recovered links, and that a packet pymavlink cannot
 decode is not mistaken for a vehicle. It needs no simulator, takes under a
 second, and both smoke tests run it.
 
@@ -162,10 +152,9 @@ latches:
 | While true, and `NAV_DLL_ACT > 0` | Arming is refused for every mode | `rcAndDataLinkCheck.cpp` |
 
 Two consequences. Killing the ground station mid-flight takes about ten seconds
-to trigger the failsafe, not an instant. And a vehicle that has never seen a
-station reports `gcs_connection_lost: true` with
-`gcs_connection_lost_counter: 0`, because it never lost anything, it started
-that way.
+to trigger the failsafe. A vehicle that has never seen a station reports
+`gcs_connection_lost: true` with `gcs_connection_lost_counter: 0`, because it
+never lost anything, it started that way.
 
 Measured with no ground station running at all:
 
@@ -181,12 +170,13 @@ WARN  [commander] Arming denied: Resolve system health failures first
 
 Do not fix that with `param set NAV_DLL_ACT 0`. It deletes the failsafe instead
 of supplying the link, and the simulated vehicle stops behaving like the real
-one when telemetry drops. See [SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md).
+one when telemetry drops. See
+[SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md).
 
 ## Seeing where the simulator ends
 
-Start Gazebo and PX4 in separate terminals. It is the clearest demonstration in
-this repo that they are two programs and that only one of them is pretending.
+Start Gazebo and PX4 in separate terminals to separate the simulator from the
+flight stack.
 
 ```bash
 source ~/PX4-Autopilot/build/px4_sitl_default/rootfs/gz_env.sh
@@ -210,15 +200,15 @@ existed before the autopilot did, and the autopilot put itself in it.
 a GUI to it. PX4's own startup script runs exactly that pair, which is why
 `HEADLESS=1` suppresses a window without affecting the flight.
 
-**Source `gz_env.sh` first.** It is not optional here, and skipping it fails in
-a way that looks like something else entirely. PX4 generates that file at build
-time and sources it itself on the normal path, which is why nothing else in this
-repo mentions it. Start Gazebo yourself and you are the one who has to do it.
+**Source `gz_env.sh` first.** Skipping it fails in a way that looks like a
+different problem. PX4 generates that file at build time and sources it itself
+on the normal path, which is why nothing else in this repo mentions it. When
+you start Gazebo yourself, you are the one who has to source it.
 
 Without it, `GZ_SIM_SYSTEM_PLUGIN_PATH` does not include
 `build/px4_sitl_default/src/modules/simulation/gz_plugins`, so Gazebo loads a
 world with none of PX4's sensor or motor plugins in it. The drone still spawns.
-It still appears in `gz model --list`. It just has no sensors:
+It still appears in `gz model --list`. It has no sensors:
 
 ```
 WARN  [health_and_arming_checks] Preflight Fail: Accel Sensor 0 missing
@@ -230,8 +220,8 @@ WARN  [health_and_arming_checks] Preflight Fail: ekf2 missing data
 
 A vehicle that boots, connects, publishes `/fmu/` topics and then refuses to arm
 with a list of missing hardware is PX4 behaving exactly as it would on a real
-aircraft with an unplugged sensor. The simulated sensors are Gazebo plugins, and
-if Gazebo cannot find them the aircraft does not have them.
+aircraft with an unplugged sensor. The simulated sensors are Gazebo plugins,
+and if Gazebo cannot find them the aircraft does not have them.
 
 ## What is the simulator and what is the aircraft
 
@@ -277,11 +267,11 @@ is no terminal to attach it to under `ros2 launch`.
 
 ## Reference
 
-- [QUICKSTART.md](../QUICKSTART.md), the everyday commands with the scripts
+- [QUICKSTART.md](QUICKSTART.md), the everyday commands
 - [HOW-IT-WORKS.md](HOW-IT-WORKS.md), the pipeline and the three rules PX4 imposes
-- [SWARM.md](SWARM.md), several vehicles, where the launch files already run the raw binary
+- [../swarm/SWARM.md](../swarm/SWARM.md), several vehicles, where the launch files already run the raw binary
 - [SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md), what the simulator gets right
-- [NATIVE-SETUP.md](NATIVE-SETUP.md), installing the four processes above
+- [../setup/NATIVE-SETUP.md](../setup/NATIVE-SETUP.md), installing the four processes above
 - [PX4 Gazebo simulation](https://docs.px4.io/v1.16/en/sim_gazebo_gz/), every `PX4_GZ_*` variable
 - [uXRCE-DDS bridge](https://docs.px4.io/v1.16/en/middleware/uxrce_dds), including the serial setup used on hardware
 - [Micro XRCE-DDS Agent](https://github.com/eProsima/Micro-XRCE-DDS-Agent), the agent itself

@@ -56,7 +56,7 @@
 //
 // Run the launch file with `layer_m:=0.0` to put every drone on one level and
 // watch what "naive" actually costs you. swarm_comms is the same flight with
-// the drones talking to each other, and docs/SWARM.md explains the difference.
+// the drones talking to each other, and docs/swarm/SWARM.md explains the difference.
 // ===========================================================================
 
 #include <cmath>
@@ -145,8 +145,9 @@ constexpr float CUSTOM_MAIN_MODE_OFFBOARD = 6.0F;
 /// A PX4 flight controller is always component 1 of its MAVLink system.
 constexpr uint8_t PX4_COMPONENT_ID = 1;
 
-/// Sanity ceiling on swarm size. Nothing here breaks above it, but drone-gcs
-/// only heartbeats SITL instances 0-9, so drone 11 would never be able to arm.
+/// Sanity ceiling on swarm size. drone-gcs heartbeats one block of ten
+/// instances, instance_base + 1 through instance_base + 10, so an eleventh
+/// drone would never be able to arm.
 constexpr int MAX_SWARM_SIZE = 10;
 
 // ---------------------------------------------------------------------------
@@ -312,7 +313,7 @@ public:
     // -- The clock --------------------------------------------------------
     // rclcpp::create_timer with the node's clock rather than a wall timer, so
     // the loop follows ROS time. That matters the moment simulated time and
-    // wall-clock time stop agreeing. See docs/SIMULATION-FIDELITY.md.
+    // wall-clock time stop agreeing. See docs/simulation/SIMULATION-FIDELITY.md.
     arming_started_ = now();
     leg_started_ = now();
     control_timer_ = rclcpp::create_timer(
@@ -351,7 +352,8 @@ private:
     if (count_ < 1 || count_ > MAX_SWARM_SIZE) {
       throw std::invalid_argument(
               "count must be between 1 and " + std::to_string(MAX_SWARM_SIZE) +
-              ". drone-gcs only heartbeats SITL instances 0-9, so a larger swarm "
+              ". drone-gcs only heartbeats instances "
+              "instance_base + 1 to instance_base + 10, so a larger swarm "
               "would have vehicles that can never arm.");
     }
     if (slot_ < 0 || slot_ >= count_) {
