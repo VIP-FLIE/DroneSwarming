@@ -16,8 +16,7 @@ There are two ways to run ROS 2 Jazzy, Gazebo Harmonic and PX4. Both install the
 
 ```bash
 git clone git@github.com:VIP-FLIE/DroneSwarming.git && cd DroneSwarming
-./scripts/doctor.sh --write      # Linux and MacOS
-.\scripts\doctor.ps1 -Write      # Windows PowerShell
+./scripts/doctor.sh --write      # Linux and macOS
 ```
 
 Then in VS Code: `F1`, `Dev Containers: Reopen in Container`. Gazebo runs on a desktop inside the container. You view it either in your browser at <http://localhost:6080> or in a VNC client on port 5901, whichever you prefer. Both are set up in [docs/SETUP.md](docs/SETUP.md). VirtualGL renders on your GPU if you have one.
@@ -43,13 +42,6 @@ Three drones taking off, flying a ring and landing, once the simulator is up:
 ros2 launch swarm_naive swarm.launch.py    # no drone knows the others exist
 ros2 launch swarm_comms swarm.launch.py    # the same flight, with them talking
 ```
-
-**The lab machine.** The box in Evans 153 runs the stack natively on its NVIDIA
-card and takes SSH from anywhere, on any OS. You get a shell, a GPU, and a
-Gazebo window you view in a browser or a VNC client. This is the answer if you
-are on a Mac, or you want a long run off your own laptop.
-[docs/LAB-SERVER.md](docs/LAB-SERVER.md) is how it is set up and how you get an
-account. You do not need it to develop.
 
 ### Git(Hub) Etiquette:
 This may seem pedantic, but trust that things can go real bad real quick without proper version control, and it isn't too hard to pick up some good habits. A few rules of thumb:

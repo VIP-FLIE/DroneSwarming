@@ -7,12 +7,8 @@
 #
 # TWO TERMINALS HAVE TO BE RUNNING FIRST, in this order:
 #
-#     MicroXRCEAgent udp4 -p $PX4_UXRCE_DDS_PORT   the PX4 to ROS 2 bridge
+#     MicroXRCEAgent udp4 -p 8888                  the PX4 to ROS 2 bridge
 #     drone-gcs                                    the ground station link
-#
-# That variable is 8888 unless you are sharing a machine, where every person
-# needs their own. scripts/native/env.sh sets it, along with the instance_base
-# argument below. See docs/LAB-SERVER.md.
 #
 # Neither is started here on purpose. The agent has to be up BEFORE any PX4
 # starts, or that PX4's client gives up looking for it and none of its /fmu/
@@ -97,8 +93,8 @@ def _arguments():
             'count', default_value='3',
             description='How many drones. Each one is a separate PX4 process, '
                         'so this is also how many CPU cores you would like to '
-                        'have. Maximum 10, because drone-gcs only heartbeats '
-                        'SITL instances 0-9.'),
+                        'have. Maximum 10, because drone-gcs heartbeats '
+                        'SITL instances 0-10.'),
         DeclareLaunchArgument(
             'pad_spacing_m', default_value='5.0',
             description='Gap between pads along east. Wide enough that the '
@@ -141,13 +137,6 @@ def _arguments():
                 'PX4_DIR', os.path.expanduser('~/PX4-Autopilot')),
             description='PX4-Autopilot checkout to run.'),
         DeclareLaunchArgument(
-            'instance_base', default_value=os.environ.get('PX4_INSTANCE_BASE', '0'),
-            description='Added to every SITL instance number, so several '
-                        'people can fly on one machine without colliding on '
-                        "PX4's fixed per-instance UDP ports. 0 on your own "
-                        'machine. On a shared one it comes from DRONE_SLOT, '
-                        'see docs/LAB-SERVER.md.'),
-        DeclareLaunchArgument(
             'gazebo_boot_s', default_value='30.0',
             description='Head start for the first vehicle, which has to load '
                         'Gazebo before any other vehicle can join its world. '
@@ -186,25 +175,14 @@ def _launch_swarm(context, *args, **kwargs):
     headless = value('headless').lower() in ('true', '1', 'yes')
     world = value('world')
     px4_dir = os.path.expanduser(value('px4_dir'))
-    instance_base = int(value('instance_base'))
     gazebo_boot_s = float(value('gazebo_boot_s'))
     stagger_s = float(value('stagger_s'))
     px4_output = value('px4_output')
 
     if not 1 <= count <= 10:
         raise RuntimeError(
-            'count must be between 1 and 10. drone-gcs heartbeats a block of '
-            'ten SITL instances, so an eleventh drone could never arm.')
-
-    # Blocks are ten wide and start at a multiple of ten, so one person's
-    # vehicles can never land on another person's ports. drone-gcs enforces the
-    # same rule, and a mismatch between the two is a swarm that launches and
-    # then sits on the pad, so it is checked in both places.
-    if instance_base < 0 or instance_base > 90 or instance_base % 10:
-        raise RuntimeError(
-            f'instance_base must be 0, 10, 20 ... 90, got {instance_base}. '
-            'It comes from PX4_INSTANCE_BASE, which scripts/native/env.sh '
-            'derives from DRONE_SLOT. See docs/LAB-SERVER.md.')
+            'count must be between 1 and 10. drone-gcs heartbeats SITL '
+            'instances 0-10, so an eleventh drone could never arm.')
 
     px4_binary = os.path.join(px4_dir, 'build', 'px4_sitl_default', 'bin', 'px4')
     if not os.path.isfile(px4_binary):
@@ -229,8 +207,7 @@ def _launch_swarm(context, *args, **kwargs):
             f'north {centre_north_m:.1f} east {centre_east_m:.1f}, '
             f'altitudes {altitude_m:.1f} m to '
             f'{altitude_m + (count - 1) * layer_m:.1f} m. '
-            f'SITL instances {instance_base + 1}-{instance_base + count}, so '
-            f'topics are under /px4_{instance_base + 1}/fmu/ upward. '
+            f'SITL instances 1-{count}, so topics are under /px4_1/fmu/ upward. '
             'MicroXRCEAgent and drone-gcs must already be running.')),
     ]
 
@@ -239,11 +216,7 @@ def _launch_swarm(context, *args, **kwargs):
         # bare /fmu/... with no namespace, which is right for a single vehicle
         # and a special case for every other line in this file. Starting at 1
         # makes all `count` drones identical in shape.
-        #
-        # instance_base is 0 unless you are sharing the machine, in which case
-        # it moves this whole swarm into your own block of instance numbers,
-        # and with it every UDP port PX4 derives from the instance.
-        instance = instance_base + slot + 1
+        instance = slot + 1
 
         # The pad, in the shared swarm frame. These same two numbers go to
         # Gazebo as a spawn point and to the node as "where I am", and they must

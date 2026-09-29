@@ -144,11 +144,6 @@ a ground station before it will leave the ground. Any of these satisfy it:
   single-vehicle station has drone 0 fly away while the rest report
   `Arming denied`.
 
-`scripts/test-drone-gcs.py` checks the bookkeeping behind all of that: the
-vehicle count, lost and recovered links, and that MAVLink pymavlink cannot
-decode is not mistaken for a vehicle. It needs no simulator, takes under a
-second, and both smoke tests run it.
-
 ### What PX4 is actually checking
 
 `gcs_connection_lost` is one bool on `/fmu/out/vehicle_status_v1`, and it

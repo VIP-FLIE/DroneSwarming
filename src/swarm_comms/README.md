@@ -106,9 +106,6 @@ drone-gcs --expect 3                     # 2. ground station link for every dron
 ros2 launch swarm_comms swarm.launch.py  # 3. PX4 instances, Gazebo, and the nodes
 ```
 
-On a shared machine, use `MicroXRCEAgent udp4 -p $PX4_UXRCE_DDS_PORT` in
-terminal 1. See [docs/LAB-SERVER.md](../../docs/LAB-SERVER.md).
-
 Startup timing is the same as `swarm_naive`: with the defaults, the nodes start
 51 s after launch.
 
@@ -203,7 +200,7 @@ This package adds one:
 |---|---|---|
 | Every drone holds at station forever | The barrier is waiting on a slot | The `waiting for ...` line names the slot and says `never heard from` or `link stale` |
 | `Gave up after 180 s waiting for ...` | A drone never reached its station | Usually it never armed. Check `drone-gcs --expect` |
-| `Heard slot N, but this swarm only has M drones` | Another swarm on the same `ROS_DOMAIN_ID`, or a node left over from the last run | Kill stale nodes. Each person on a shared machine needs a different `ROS_DOMAIN_ID` |
+| `Heard slot N, but this swarm only has M drones` | Another swarm on the same `ROS_DOMAIN_ID`, or a node left over from the last run | Kill stale nodes. Machines on one network need different `ROS_DOMAIN_ID`s |
 | `slot N has gone quiet` | The drone ahead stopped broadcasting | Check that drone's node. After 15 s the follower goes home |
 | Formation collapses onto one point | A position published without `to_swarm()` | Every broadcast position must be in the shared frame |
 | Link errors: undefined reference to `SwarmState` type support | `rosidl_get_typesupport_target` missing from `CMakeLists.txt` | See the build section in section 4 |
@@ -419,7 +416,7 @@ drones apart.
 cause is a second swarm on the same `ROS_DOMAIN_ID`, or a node left running
 from the previous launch. A second swarm whose slot numbers overlap this one's
 cannot be detected this way and would be mixed into the formation, which is why
-each person on a shared machine needs their own `ROS_DOMAIN_ID`.
+each machine on a shared network needs its own `ROS_DOMAIN_ID`.
 
 ### Build: a message in the same package
 

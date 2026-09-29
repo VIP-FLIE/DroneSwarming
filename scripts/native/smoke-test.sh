@@ -6,11 +6,8 @@
 #   SITL_BUDGET=300 ./scripts/native/smoke-test.sh    on a slow machine
 #
 # The container equivalent is ./smoke-test.sh, which checks the container's own
-# display stack instead of sections 3 and 7 here. Both compare the installed
+# display stack instead of sections 3 and 6 here. Both compare the installed
 # versions against the pins in .devcontainer/Dockerfile.
-#
-# Section 5 is the shared-machine one. On your own laptop it reports slot 0 and
-# passes without you having done anything. See docs/LAB-SERVER.md.
 #
 # NOTE: no `set -u`. ROS 2's setup.bash chain expands variables that may be
 # unset, and under `set -u` that terminates the shell on the spot.
@@ -43,8 +40,8 @@ PX4_BIN="$PX4_DIR/build/px4_sitl_default/bin/px4"
 STAMP="$HOME/.cache/drone-vip/native-versions"
 
 # Scratch files go somewhere that belongs to you. /tmp is shared and sticky, so
-# on the lab machine a fixed path like /tmp/sitl.log is one person's file that
-# nobody else can write, and this test would read their run as yours.
+# a fixed path like /tmp/sitl.log is one person's file that nobody else can
+# write, and this test would read their run as yours.
 TMP="${TMPDIR:-/tmp}/drone-smoke-$(id -u)"
 mkdir -p "$TMP"
 SITL_LOG="$TMP/sitl.log"
@@ -252,100 +249,9 @@ case "${ROS_AUTOMATIC_DISCOVERY_RANGE:-}" in
     *)  skip "discovery range is ${ROS_AUTOMATIC_DISCOVERY_RANGE}, which reaches other machines" ;;
 esac
 
-
-# The drone-gcs bookkeeping that flying a vehicle cannot exercise: whether
-# MAVLink this pymavlink cannot decode gets miscounted as a vehicle, whether a
-# lost link is noticed, and how long to wait for a swarm to assemble. Needs no
-# simulator and takes under a second, so it runs before the flight test below.
-GCS_TEST="$REPO_ROOT/scripts/test-drone-gcs.py"
-if [ -x "$GCS_TEST" ]; then
-    if GCS_TEST_OUT=$("$GCS_TEST" 2>&1); then
-        ok "drone-gcs logic ($(grep -c '  PASS  ' <<< "$GCS_TEST_OUT") checks)"
-    else
-        no "drone-gcs logic checks failed. Run $GCS_TEST to see them all:"
-        grep -E '  FAIL  ' <<< "$GCS_TEST_OUT" | sed 's/^/        /'
-    fi
-else
-    skip "scripts/test-drone-gcs.py not found, cannot check drone-gcs logic"
-fi
-
-# ---------------------------------------------------------------------------
-SECTION="slot check"
-echo "=== 5. Your slot on this machine ==="
-# On your own laptop this is slot 0 and everything here passes without you
-# having set anything: slot 0 IS the single-user setup. It earns its place on a
-# shared machine, where the things it checks are the ones that fail silently
-# and look like your code is broken. docs/LAB-SERVER.md.
-
-SLOT="${DRONE_SLOT:-0}"
-BASE="${PX4_INSTANCE_BASE:-0}"
-note "DRONE_SLOT        : ${DRONE_SLOT:-unset (so slot 0)}"
-note "GZ_PARTITION      : ${GZ_PARTITION:-unset}"
-# Slot 0 also owns instance 0, which is what a bare `drone-sim` runs. No other
-# slot can produce it, so it overlaps nobody. See drone-gcs, sitl_instances().
-if [ "$BASE" -eq 0 ]; then
-    note "SITL instances    : 0-10 (0 is a single drone-sim vehicle)"
-else
-    note "SITL instances    : $((BASE + 1))-$((BASE + 10))"
-fi
-note "XRCE agent port   : ${PX4_UXRCE_DDS_PORT:-unset (8888)}"
-note "drone-gcs port    : ${DRONE_GCS_PORT:-unset (14550)}"
-
-# The derived values have to agree with the slot, or half your traffic goes to
-# one block and half to another and the swarm half-arms.
-if [ "$BASE" -eq $((SLOT * 10)) ]; then
-    ok "instance base $BASE matches slot $SLOT"
-else
-    no "PX4_INSTANCE_BASE is $BASE, but slot $SLOT means it should be $((SLOT * 10))"
-    note "Something set it by hand. Fix it, or unset it and re-source env.sh."
-fi
-
-# The one that hurts most. Without a partition, PX4's px4-rc.gzsim finds the
-# first running world on the machine and spawns into it, which on a shared
-# machine is somebody else's flight.
-if [ -n "${GZ_PARTITION:-}" ]; then
-    ok "Gazebo transport is partitioned as '$GZ_PARTITION'"
-else
-    # Alone on the machine this costs nothing, so it is not a failure.
-    skip "GZ_PARTITION is unset. Alone on a machine that is fine. Sharing one,"
-    note "your PX4 joins the first Gazebo world it finds, which may not be yours."
-    note "Fix: source scripts/native/env.sh"
-fi
-
-# Ports held by somebody else are the difference between "my code is wrong" and
-# "I am the second person to start". Worth naming before the launch test below
-# runs into them.
-if command -v ss >/dev/null 2>&1; then
-    HELD=$(ss -ulnH 2>/dev/null)
-    CLASH=""
-    for port in "${PX4_UXRCE_DDS_PORT:-8888}" "${DRONE_GCS_PORT:-14550}" $((18570 + BASE + 1)); do
-        grep -qE "[:.]${port}[[:space:]]" <<< "$HELD" && CLASH="$CLASH $port"
-    done
-    if [ -z "$CLASH" ]; then
-        ok "your ports are free"
-    else
-        # Your own agent and station being up is the normal state mid-session,
-        # so this reports rather than fails.
-        skip "already in use:$CLASH"
-        note "Yours, if your agent and drone-gcs are running. Someone else's if not."
-        note "Check with: ./scripts/lab/lab-status"
-    fi
-else
-    skip "ss not found, cannot check whether your ports are free"
-fi
-
-OTHERS=$(who 2>/dev/null | awk -v me="$(id -un)" '$1 != me {print $1}' | sort -u | tr '\n' ' ')
-if [ -n "$OTHERS" ] && [ -z "${DRONE_SLOT:-}" ]; then
-    no "other people are logged in ($OTHERS) and you have no DRONE_SLOT"
-    note "You are on slot 0, and so is anyone else who has not set one."
-    note "Fix: export DRONE_SLOT=N in ~/.bashrc. See docs/LAB-SERVER.md."
-elif [ -n "$OTHERS" ]; then
-    note "also logged in: $OTHERS"
-fi
-
 # ---------------------------------------------------------------------------
 SECTION="SITL launch test"
-echo "=== 6. Headless SITL launches and flies ==="
+echo "=== 5. Headless SITL launches and flies ==="
 if [ ! -x "$PX4_BIN" ]; then
     skip "PX4 not built, skipping the launch test"
 else
@@ -375,21 +281,8 @@ else
     # setsid puts make, px4 and gz in their own process group, so cleanup can
     # target exactly that group and not a PX4 you have running in another
     # terminal.
-    #
-    # Which vehicle to fly depends on whether this machine is shared. `make
-    # px4_sitl` runs the binary with no -i, which is instance 0 for everybody
-    # on the machine, and therefore MAVLink GCS port 18570 for everybody. On a
-    # shared machine the second person to run this test would fail it through
-    # no fault of their own, so above slot 0 it flies the first vehicle of your
-    # own block instead. Same thing drone-sim does, for the same reason.
-    if [ "$BASE" -eq 0 ]; then
-        setsid timeout "$SITL_BUDGET" env HEADLESS=1 \
-            make px4_sitl gz_x500 < "$PXH_FIFO" > "$SITL_LOG" 2>&1 &
-    else
-        note "slot $SLOT, so flying instance $((BASE + 1)) rather than 0"
-        setsid timeout "$SITL_BUDGET" env HEADLESS=1 PX4_SIM_MODEL=gz_x500 \
-            "$PX4_BIN" -i "$((BASE + 1))" < "$PXH_FIFO" > "$SITL_LOG" 2>&1 &
-    fi
+    setsid timeout "$SITL_BUDGET" env HEADLESS=1 \
+        make px4_sitl gz_x500 < "$PXH_FIFO" > "$SITL_LOG" 2>&1 &
     SITL_PID=$!
 
     READY=0; DIED=0
@@ -452,7 +345,7 @@ fi
 
 # ---------------------------------------------------------------------------
 SECTION="display check"
-echo "=== 7. Graphics ==="
+echo "=== 6. Graphics ==="
 # Native runs on your own session and your own GPU driver. There is no VNC
 # desktop and no VirtualGL in the path, which is the one place native beats the
 # container outright.

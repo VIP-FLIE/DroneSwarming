@@ -383,7 +383,7 @@ private:
     if (count_ < 1 || count_ > MAX_SWARM_SIZE) {
       throw std::invalid_argument(
               "count must be between 1 and " + std::to_string(MAX_SWARM_SIZE) +
-              ". drone-gcs only heartbeats SITL instances 0-9, so a larger swarm "
+              ". drone-gcs heartbeats SITL instances 0-10, so a larger swarm "
               "would have vehicles that can never arm.");
     }
     if (slot_ < 0 || slot_ >= count_) {

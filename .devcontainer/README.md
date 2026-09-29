@@ -158,5 +158,5 @@ lowercase, so the published image does not match the repo's display casing.
     post-create.sh      first-run setup
     build-workspace.sh  compiles anything not baked in
 scripts/
-  doctor.sh, doctor.ps1   host-side check
+  doctor.sh   host-side check
 ```

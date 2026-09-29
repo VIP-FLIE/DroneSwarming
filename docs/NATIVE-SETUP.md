@@ -203,30 +203,11 @@ after `/opt/ros/jazzy/setup.bash`, which is what `env.sh` does.
 For deliberate multi-machine work, set `ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET`
 and give every machine a different `ROS_DOMAIN_ID`.
 
-`LOCALHOST` separates you from other machines. It does not separate you from
-other people on the *same* machine, because there everybody already is
-localhost. That case is `DRONE_SLOT` below and
-[LAB-SERVER.md](LAB-SERVER.md).
-
-**Your slot.** One variable, `DRONE_SLOT`, decides five others. On your own
-machine it is 0 and you never set it: slot 0 is the single-user setup, and
-every default below is what this repo has always used. On a machine several
-people log into, each person gets their own slot, and these are what keep two
-simultaneous simulations from landing on each other's fixed UDP ports and each
-other's Gazebo world. [LAB-SERVER.md](LAB-SERVER.md) is the whole story.
-
-| Variable | Slot 0 | Slot N | What collides without it |
-|---|---|---|---|
-| `ROS_DOMAIN_ID` | `0` | `N` | Both people's `/fmu/` topics on one domain |
-| `GZ_PARTITION` | your username | your username | Their PX4 spawns its drone into your world |
-| `PX4_INSTANCE_BASE` | `0` | `N * 10` | PX4's GCS port, `18570 + instance`. No link, so `Arming denied` |
-| `PX4_UXRCE_DDS_PORT` | `8888` | `8888 + N` | The agent cannot bind, so no `/fmu/` topics at all |
-| `DRONE_GCS_PORT` | `14550` | `14550 + N` | `drone-gcs` cannot bind |
-
 The rest of the environment `env.sh` sets:
 
 | Variable | Value | Reason |
 |---|---|---|
+| `ROS_DOMAIN_ID` | `0` | The container sets it to 0. Fast DDS derives its ports from it, so different domains are separate DDS networks |
 | `RMW_IMPLEMENTATION` | `rmw_fastrtps_cpp` | The container sets it explicitly. Cyclone DDS is installed but not selected |
 | `PX4_DIR` | `~/PX4-Autopilot` | Where the installer put PX4 |
 | `GZ_SIM_RESOURCE_PATH` | PX4's models and worlds | Gazebo finds the x500 |

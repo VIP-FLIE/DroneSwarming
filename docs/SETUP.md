@@ -41,12 +41,10 @@ You do not need XQuartz, VcXsrv, Xming, WSLg, or any X server.
 git clone https://github.com/VIP-FLIE/DroneSwarming.git
 cd DroneSwarming
 ./scripts/doctor.sh --write      # Linux and macOS
-.\scripts\doctor.ps1 -Write      # Windows PowerShell
 ```
 
 The doctor checks Docker is healthy and enables your GPU if you have one. It is
-optional. If PowerShell blocks it, use
-`powershell -ExecutionPolicy Bypass -File .\scripts\doctor.ps1 -Write`.
+optional.
 
 ## 3. Open the container
 

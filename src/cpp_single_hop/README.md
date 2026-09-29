@@ -115,10 +115,6 @@ ros2 run cpp_single_hop hop --ros-args -p altitude_m:=6.0 -p forward_m:=10.0
 ros2 run cpp_single_hop hop --ros-args -p px4_ns:=px4_1 -p system_id:=2
 ```
 
-On a shared machine where `DRONE_SLOT` is set, `drone-sim` does not use instance
-0. It prints `Slot N, so this is SITL instance I.` Pass `px4_ns:=px4_I` and
-`system_id:=` I + 1. [docs/LAB-SERVER.md](../../docs/LAB-SERVER.md) explains why.
-
 ### Troubleshooting
 
 | Symptom | Cause | Fix |

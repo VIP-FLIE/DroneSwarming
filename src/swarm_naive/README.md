@@ -98,10 +98,6 @@ drone-gcs --expect 3                     # 2. ground station link for every dron
 ros2 launch swarm_naive swarm.launch.py  # 3. PX4 instances, Gazebo, and the nodes
 ```
 
-On a shared machine, use `MicroXRCEAgent udp4 -p $PX4_UXRCE_DDS_PORT` in
-terminal 1. The launch file and `drone-gcs` read the rest from the environment.
-See [docs/LAB-SERVER.md](../../docs/LAB-SERVER.md).
-
 `drone-gcs --expect 3` prints one line per drone as each links up, then
 `Every vehicle accounted for.` A drone it never names cannot arm.
 
@@ -169,7 +165,6 @@ ros2 launch swarm_naive swarm.launch.py --show-args
 | `headless` | false | Skip Gazebo rendering. Use it above about four drones, or with no GPU |
 | `world` | default | Gazebo world by file name. See [docs/WORLDS.md](../../docs/WORLDS.md) |
 | `px4_dir` | `$PX4_DIR` or `~/PX4-Autopilot` | PX4 checkout to run |
-| `instance_base` | `$PX4_INSTANCE_BASE` or 0 | Shifts every instance number by a multiple of 10 on a shared machine |
 | `gazebo_boot_s` | 30.0 | Head start for the first vehicle, which loads Gazebo |
 | `stagger_s` | 8.0 | Gap between the other vehicles |
 | `px4_output` | log | `log` sends PX4's console to `~/.ros/log/<run>/launch.log`. `screen` prints it in the terminal |
@@ -357,15 +352,10 @@ readable on screen and so a forward-facing camera would point the right way.
 
 ### Why ten
 
-`drone-gcs` heartbeats instance 0 and a block of ten instances,
-`instance_base + 1` to `instance_base + 10`. The launch file numbers from
-`instance_base + 1`, so ten drones fill the block. An eleventh would have no
-ground station link and could never arm. The launch file and the node both
-refuse `count` above 10. `instance_base` must be a multiple of 10 from 0 to 90,
-checked for the same reason.
-
-The comments in `waypoint_drone.cpp` and the launch file still say instances
-"0-9". The range `drone-gcs` actually serves is the one above.
+`drone-gcs` heartbeats instance 0 and instances 1 through 10. The launch file
+numbers vehicles `slot + 1` for slot 0..count-1, so ten drones fill the range.
+An eleventh would have no ground station link and could never arm. The launch
+file and the node both refuse `count` above 10.
 
 ### The launch file
 
@@ -373,7 +363,7 @@ The comments in `waypoint_drone.cpp` and the launch file still say instances
 |---|---|
 | `_arguments()` | Declares every launch argument with a default and a description |
 | `OpaqueFunction(_launch_swarm)` | `count` is a launch argument, which has no value until launch runs. `perform(context)` turns it into a Python int that can drive a loop |
-| Validation | Refuses bad `count`, bad `instance_base`, or a missing PX4 binary before starting anything |
+| Validation | Refuses a bad `count` or a missing PX4 binary before starting anything |
 | `os.environ.pop('PX4_GZ_STANDALONE')` | PX4 treats this variable as present or absent, so even `=0` makes every vehicle wait for a Gazebo nobody started |
 | `ExecuteProcess([px4, '-i', N, '-d'])` | One PX4 per drone. `-d` skips the interactive `pxh>` shell, which has no terminal under launch |
 | `PX4_SYS_AUTOSTART=4001`, `PX4_SIM_MODEL=gz_x500` | The x500 airframe. Its airframe file also sets `NAV_DLL_ACT 2`, which is why `drone-gcs` is required |

@@ -146,7 +146,7 @@ constexpr float CUSTOM_MAIN_MODE_OFFBOARD = 6.0F;
 constexpr uint8_t PX4_COMPONENT_ID = 1;
 
 /// Sanity ceiling on swarm size. Nothing here breaks above it, but drone-gcs
-/// only heartbeats SITL instances 0-9, so drone 11 would never be able to arm.
+/// heartbeats SITL instances 0-10, so drone 11 would never be able to arm.
 constexpr int MAX_SWARM_SIZE = 10;
 
 // ---------------------------------------------------------------------------
@@ -351,7 +351,7 @@ private:
     if (count_ < 1 || count_ > MAX_SWARM_SIZE) {
       throw std::invalid_argument(
               "count must be between 1 and " + std::to_string(MAX_SWARM_SIZE) +
-              ". drone-gcs only heartbeats SITL instances 0-9, so a larger swarm "
+              ". drone-gcs heartbeats SITL instances 0-10, so a larger swarm "
               "would have vehicles that can never arm.");
     }
     if (slot_ < 0 || slot_ >= count_) {

@@ -135,23 +135,6 @@ grep -q '^px4_msgs$' <<< "$ROS_PKGS" && ok "px4_msgs importable" \
 ros2 interface show px4_msgs/msg/VehicleLocalPosition >/dev/null 2>&1 \
   && ok "VehicleLocalPosition message" || no "VehicleLocalPosition message"
 
-
-# The drone-gcs bookkeeping that flying a vehicle cannot exercise: whether
-# MAVLink this pymavlink cannot decode gets miscounted as a vehicle, whether a
-# lost link is noticed, and how long to wait for a swarm to assemble. Needs no
-# simulator and takes under a second, so it runs before the flight test below.
-GCS_TEST="$SELF_DIR/scripts/test-drone-gcs.py"
-if [ -x "$GCS_TEST" ]; then
-    if GCS_TEST_OUT=$("$GCS_TEST" 2>&1); then
-        ok "drone-gcs logic ($(grep -c '  PASS  ' <<< "$GCS_TEST_OUT") checks)"
-    else
-        no "drone-gcs logic checks failed. Run $GCS_TEST to see them all:"
-        grep -E '  FAIL  ' <<< "$GCS_TEST_OUT" | sed 's/^/        /'
-    fi
-else
-    skip "scripts/test-drone-gcs.py not found, cannot check drone-gcs logic"
-fi
-
 # ---------------------------------------------------------------------------
 SECTION="SITL launch test"
 echo "=== 4. Headless SITL launches ==="

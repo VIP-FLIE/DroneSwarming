@@ -173,9 +173,6 @@ ros2 run py_single_square fly --ros-args -p px4_ns:=px4_1 -p sys_id:=2
 ros2 run py_single_square listener --ros-args -p px4_ns:=px4_1
 ```
 
-On a shared machine where `DRONE_SLOT` is set, `drone-sim` prints
-`Slot N, so this is SITL instance I.` Pass `px4_ns:=px4_I` and `sys_id:=` I + 1.
-
 ### Troubleshooting
 
 | Symptom | Cause | Fix |
