@@ -10,8 +10,7 @@
 # worlds/models/<name>/ into PX4's models directory, which is what makes
 # <uri>model://<name></uri> resolve inside your world.
 #
-# Safe to re-run, and you have to re-run it after rebuilding the dev container,
-# because PX4 lives in the container image and is recreated with it.
+# Safe to re-run.
 #
 # WHY THIS EXISTS
 # ---------------
@@ -28,8 +27,8 @@
 # in this repo takes effect on the next launch with no reinstall.
 #
 # Models go the same way for the same reason. Both of PX4's directories are
-# already on GZ_SIM_RESOURCE_PATH in the dev container and in a native install,
-# so linking into them needs no environment change and no image rebuild.
+# already on GZ_SIM_RESOURCE_PATH, so linking into them needs no environment
+# change.
 #
 # Full guide: docs/WORLDS.md
 # =============================================================================
@@ -55,8 +54,7 @@ esac
 
 if [ ! -d "$DEST_DIR" ]; then
     echo "No PX4 worlds directory at $DEST_DIR" >&2
-    echo "PX4 is not installed yet. Dev container: rebuild it. Native: run" >&2
-    echo "./scripts/native/install.sh" >&2
+    echo "PX4 is not installed yet. Run ./scripts/native/install.sh" >&2
     exit 1
 fi
 

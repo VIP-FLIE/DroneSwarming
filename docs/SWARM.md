@@ -255,7 +255,7 @@ Files: [`src/swarm_naive/`](../src/swarm_naive/)
 
 | Read this | To understand |
 |---|---|
-| The header comment in `waypoint_drone.cpp` | What the package is, and the three things it deliberately does not do |
+| The header comment in `waypoint_drone.hpp` | What the package is, and the three things it deliberately does not do |
 | `SwarmPoint` and `LocalPoint` | The two frames, and why they are two types |
 | `build_route()` | The whole flight, as a list of points in the shared frame |
 | `to_local()` | The conversion, which is the entire swarm problem |

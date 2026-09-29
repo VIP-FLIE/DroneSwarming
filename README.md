@@ -10,25 +10,20 @@ There will be (if not already), more documents explaining everything covered her
 Here we will use GitHub Issues to communicate problems and questions. For anything that must not be forgotten or buried in messages, please use GitHub Issues. It will allow us to keep everything tidy in the repo and not lose important threads. Of course, if something needs immediate attention, just use the GroupMe. I am thinking things like package requests, bug reports, long-standing issues, etc. should go in the Issues.
 
 ### Development Workflow:
-There are two ways to run ROS 2 Jazzy, Gazebo Harmonic and PX4. Both install the same pinned versions and fly the same. Pick one.
+ROS 2 Jazzy, Gazebo Harmonic and PX4 install directly on Ubuntu 24.04 and derivatives.
 
-**Dev container.** Any OS. You install Docker and VS Code, nothing else. Start with [docs/SETUP.md](docs/SETUP.md), and check [COMPATIBILITY.md](COMPATIBILITY.md) for your machine.
-
-```bash
-git clone git@github.com:VIP-FLIE/DroneSwarming.git && cd DroneSwarming
-./scripts/doctor.sh --write      # Linux and macOS
-```
-
-Then in VS Code: `F1`, `Dev Containers: Reopen in Container`. Gazebo runs on a desktop inside the container. You view it either in your browser at <http://localhost:6080> or in a VNC client on port 5901, whichever you prefer. Both are set up in [docs/SETUP.md](docs/SETUP.md). VirtualGL renders on your GPU if you have one.
-
-**Native.** Ubuntu 24.04 and derivatives. Use it if you already run the ROS 2 stack natively, or you want Gazebo in a window on your own desktop and GPU. Start with [docs/NATIVE-SETUP.md](docs/NATIVE-SETUP.md).
+**Linux.** Start with [docs/NATIVE-SETUP.md](docs/NATIVE-SETUP.md).
 
 ```bash
 git clone git@github.com:VIP-FLIE/DroneSwarming.git && cd DroneSwarming
 ./scripts/native/install.sh
 ```
 
-Either way, once it runs, [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md) explains the whole
+**macOS.** Run Ubuntu 24.04 in a UTM virtual machine, then run the same install inside it. [docs/SETUP.md](docs/SETUP.md) covers the VM.
+
+**Windows.** Run the install inside WSL2 with Ubuntu 24.04. [docs/SETUP.md](docs/SETUP.md) covers it.
+
+Once it runs, [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md) explains the whole
 pipeline from your code down to the rotors, starting from one drone.
 [docs/SWARM.md](docs/SWARM.md) is the same thing for several drones, and covers the two
 worked swarm examples in `src/swarm_naive` and `src/swarm_comms`.
@@ -52,13 +47,12 @@ This may seem pedantic, but trust that things can go real bad real quick without
 - If someone messes this process up (you will, I will, we all will), best practice is to revert to the last known 'safe' version of the codebase. If you don't know how to get back to that point (also totally okay!), please ask for help ASAP. Git issues are an infinite rabbit hole of horror and despair, the closer to ground level we address them, the easier it is to get back on track.
 
 ## Testing:
-See [COMPATIBILITY.md](COMPATIBILITY.md) for the full matrix of operating systems, architectures and GPUs, and what has actually been tested, for both the dev container and a native install.
+See [COMPATIBILITY.md](COMPATIBILITY.md) for the operating systems, architectures and GPUs, and what has been tested.
 
-Verified so far: the dev container on Linux x86_64 with and without an NVIDIA GPU, and headless over SSH; the native install on Pop!_OS 24.04 with an NVIDIA GPU. Windows and macOS are implemented but untested on hardware. If your setup is listed as untested, run the smoke test and open an Issue with the output:
+Verified so far: Pop!_OS 24.04 with an NVIDIA GPU. If your setup is listed as untested, run the smoke test and open an Issue with the output:
 
 ```bash
-./smoke-test.sh                     # dev container
-./scripts/native/smoke-test.sh      # native
+./scripts/native/smoke-test.sh
 ```
 
 Machines without a GPU get software rendering. That costs GUI framerate and camera sensor rate, not flight behavior. PX4 runs in lockstep, and 8 vehicles held a real-time factor of 0.999 on 4 CPU cores. Details in [docs/SIMULATION-FIDELITY.md](docs/SIMULATION-FIDELITY.md).

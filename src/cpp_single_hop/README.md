@@ -1,7 +1,6 @@
 # cpp_single_hop
 
-One drone, one C++ node, one file. The drone takes off, flies 3 m north, and
-lands.
+One drone, one C++ node. The drone takes off, flies 3 m north, and lands.
 
 This is the first package to read for flight code. `swarm_naive` and
 `swarm_comms` repeat its PX4 code almost line for line.
@@ -23,7 +22,7 @@ second, and PX4's position controller flies the drone there.
 
 ## 2. What you learn from it
 
-| Concept | Where in `src/hop.cpp` |
+| Concept | Where |
 |---|---|
 | The three rules PX4 imposes on any offboard program | Marked `RULE 1`, `RULE 2`, `RULE 3` in the code |
 | Rule 1: QoS has to match PX4's or subscriptions never fire | `px4_stream_qos()`, `px4_command_qos()` |
@@ -50,12 +49,11 @@ colcon build --symlink-install --packages-select cpp_single_hop
 source install/setup.bash
 ```
 
-This is C++, so every edit to `hop.cpp` needs a rebuild.
+This is C++, so every edit to the source needs a rebuild.
 
 ### Run in the simulator
 
-Four terminals. In the dev container every terminal is ready to use. On a
-native install, each terminal needs `source scripts/native/env.sh` first, unless
+Four terminals. Each terminal needs `source scripts/native/env.sh` first, unless
 it is in your `~/.bashrc`.
 
 ```bash
@@ -78,8 +76,7 @@ Start terminal 4 once terminal 3 prints `Ready for takeoff!`.
 
 | Where to watch | |
 |---|---|
-| Dev container | Gazebo is in the browser desktop at <http://localhost:6080> |
-| Native | Gazebo opens a window on your desktop |
+| Gazebo | A window on your desktop |
 | No rendering | `HEADLESS=1 drone-sim` in terminal 3. The flight is identical |
 
 Output from a real run:
@@ -135,7 +132,9 @@ The full table for the stack is in [QUICKSTART.md](../../QUICKSTART.md).
 
 | File | What it is |
 |---|---|
-| `src/hop.cpp` | The node. Everything is in this one file |
+| `include/cpp_single_hop/hop.hpp` | The declarations: the tunables, the QoS helpers, the `Position` and `Phase` types, and the `Hop` class |
+| `src/hop.cpp` | The method bodies |
+| `src/main.cpp` | `main()`, and nothing else |
 | `CMakeLists.txt` | Build rules. Builds `hop`, links `rclcpp` and `px4_msgs`, installs it where `ros2 run` looks |
 | `package.xml` | Package name and dependencies: `ament_cmake`, `rclcpp`, `px4_msgs` |
 
@@ -270,7 +269,7 @@ coming from outside the flight controller, as a companion computer's would.
 
 | Decision | Reason |
 |---|---|
-| One file, no helper library | The file reads top to bottom with nothing to chase |
+| One package, no helper library | The header declares, the `.cpp` defines, and `main()` starts it. Nothing to chase outside the package |
 | Every number is a named constant at the top | No bare numbers in the logic |
 | Telemetry held in `std::optional` | Empty means PX4 has not spoken yet, and the type forces the check |
 | `ARRIVAL_RADIUS_M = 0.5` | A hovering multicopter drifts by tens of centimetres. A tighter radius means the drone hunts and never arrives. It is also why the drone lands about 0.4 m short of 3 m |

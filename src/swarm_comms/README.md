@@ -86,8 +86,7 @@ ros2 interface show swarm_comms/msg/SwarmState
 
 ### Run in the simulator
 
-Three terminals. In the dev container every terminal is ready to use. On a
-native install, each terminal needs `source scripts/native/env.sh` first,
+Three terminals. Each terminal needs `source scripts/native/env.sh` first,
 unless it is in your `~/.bashrc`.
 
 Do not run `drone-sim`. The launch file starts its own PX4 instances and
@@ -215,7 +214,9 @@ which are the same here.
 
 | File | What it is |
 |---|---|
-| `src/formation_drone.cpp` | The node. One copy runs per drone |
+| `include/swarm_comms/formation_drone.hpp` | The declarations: the tunables, the QoS helpers, the `SwarmPoint`/`LocalPoint`/`Phase` types, and the `FormationDrone` class |
+| `src/formation_drone.cpp` | The method bodies |
+| `src/main.cpp` | `main()`, and nothing else |
 | `msg/SwarmState.msg` | The message every drone broadcasts |
 | `launch/swarm.launch.py` | Same as `swarm_naive`'s, running `formation_drone` and passing `follow_distance_m` |
 | `CMakeLists.txt` | Generates the message, builds the node, links the generated type support |

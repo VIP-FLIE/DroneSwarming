@@ -60,7 +60,7 @@ finished arming, and lands when its own route runs out.
 | Altitude layering as static deconfliction, and its limits | `station_altitude_m()` |
 | Steering the nose along the direction of travel | `update_yaw_setpoint()` |
 | ROS 2 launch files: arguments, `OpaqueFunction`, `ExecuteProcess`, `TimerAction`, shutdown handlers | `launch/swarm.launch.py` |
-| What a swarm without communication cannot do | Header comment of `waypoint_drone.cpp` |
+| What a swarm without communication cannot do | Header comment of `waypoint_drone.hpp` |
 
 ## 3. How to run it
 
@@ -78,8 +78,7 @@ launch. An edit to `waypoint_drone.cpp` needs a rebuild.
 
 ### Run in the simulator
 
-Three terminals. In the dev container every terminal is ready to use. On a
-native install, each terminal needs `source scripts/native/env.sh` first,
+Three terminals. Each terminal needs `source scripts/native/env.sh` first,
 unless it is in your `~/.bashrc`.
 
 Do not run `drone-sim`. The launch file starts its own PX4 instances and
@@ -201,7 +200,9 @@ The full table is in [docs/SWARM.md](../../docs/SWARM.md).
 
 | File | What it is |
 |---|---|
-| `src/waypoint_drone.cpp` | The node. One copy runs per drone |
+| `include/swarm_naive/waypoint_drone.hpp` | The declarations: the tunables, the QoS helpers, the `SwarmPoint`/`LocalPoint`/`Phase` types, and the `WaypointDrone` class |
+| `src/waypoint_drone.cpp` | The method bodies |
+| `src/main.cpp` | `main()`, and nothing else |
 | `launch/swarm.launch.py` | Starts every PX4 instance and every node, and decides each drone's identity and pad |
 | `CMakeLists.txt` | Builds `waypoint_drone`, and installs `launch/` into `share/swarm_naive` so `ros2 launch` can find it |
 | `package.xml` | Dependencies. `launch` and `launch_ros` are runtime-only, for the launch file |

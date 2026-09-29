@@ -17,7 +17,11 @@ find_package(ament_cmake REQUIRED)
 find_package(px4_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 
-add_executable(hop src/hop.cpp)
+add_executable(hop
+  src/main.cpp
+  src/hop.cpp
+)
+target_include_directories(hop PRIVATE include)
 target_compile_features(hop PRIVATE cxx_std_17)
 target_link_libraries(hop PRIVATE rclcpp::rclcpp ${px4_msgs_TARGETS})
 

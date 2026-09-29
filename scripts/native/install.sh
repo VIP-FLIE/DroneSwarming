@@ -9,9 +9,7 @@
 #
 # Safe to re-run. Every step checks whether it is already done and skips.
 #
-# The versions installed here are read out of .devcontainer/Dockerfile, which
-# is the only place this repo pins them. Native and container stay on the same
-# PX4, px4_msgs and XRCE-DDS Agent because they read the same numbers.
+# The versions installed here are read out of scripts/native/versions.env.
 #
 # NOTE: no `set -u`. ROS 2 setup files reference unset variables internally and
 # would terminate the shell.
@@ -19,7 +17,7 @@
 set -o pipefail
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-DOCKERFILE="$REPO_ROOT/.devcontainer/Dockerfile"
+VERSIONS_FILE="$REPO_ROOT/scripts/native/versions.env"
 PX4_DIR="${PX4_DIR:-$HOME/PX4-Autopilot}"
 WS_DIR="${WS_DIR:-$HOME/ros2_ws}"
 STAMP_DIR="$HOME/.cache/drone-vip"
@@ -48,7 +46,7 @@ Installs the drone stack natively on Ubuntu 24.04 (noble) and derivatives.
   JOBS=4 ./scripts/native/install.sh          cap build parallelism
 
 Safe to re-run. Every step checks whether it is already done and skips.
-Versions come from the ARG defaults in .devcontainer/Dockerfile.
+Versions come from scripts/native/versions.env.
 Full guide: docs/NATIVE-SETUP.md
 USAGE
             exit 0 ;;
@@ -61,15 +59,18 @@ info()  { printf '    %s\n' "$*"; }
 warn()  { printf '    \033[33mWARNING\033[0m %s\n' "$*"; }
 die()   { printf '\n\033[31mSTOPPED\033[0m %s\n\n' "$*" >&2; exit 1; }
 
+[ -f "$VERSIONS_FILE" ] || die "cannot find $VERSIONS_FILE. Run this from inside the repo."
+# shellcheck source=scripts/native/versions.env
+. "$VERSIONS_FILE"
+
 # -----------------------------------------------------------------------------
 # Build PX4 with ROS 2 out of the environment.
 #
 # ROS 2 Jazzy ships its own complete copy of Gazebo Harmonic under
 # /opt/ros/jazzy/opt/gz_*_vendor, and sourcing ROS puts those on CMAKE_PREFIX_PATH
 # and LD_LIBRARY_PATH. PX4's cmake would then link against the vendored copy.
-# The container image builds PX4 in a Docker RUN step, which never sources ROS,
-# so it links against the system Gazebo from packages.osrfoundation.org. This
-# reproduces that.
+# Building with ROS out of the environment links PX4 against the system Gazebo
+# from packages.osrfoundation.org instead.
 # -----------------------------------------------------------------------------
 strip_ros_paths() {
     local out=""
@@ -102,9 +103,6 @@ ros_free() {
     "${args[@]}" "$@"
 }
 
-# Reads an ARG default out of the Dockerfile, e.g. pin PX4_VERSION
-pin() { sed -n "s/^ARG $1=\(.*\)$/\1/p" "$DOCKERFILE" | head -1; }
-
 # Records what is installed, one KEY=VALUE per line, read back by
 # scripts/native/smoke-test.sh. Written as each step finishes rather than only
 # at the end, so a run that stops partway does not lose what it already did.
@@ -119,20 +117,15 @@ stamp_set() {
 # =============================================================================
 stage "Checking this machine"
 
-[ -f "$DOCKERFILE" ] || die "cannot find $DOCKERFILE. Run this from inside the repo."
-
-PX4_VERSION=$(pin PX4_VERSION)
-PX4_MSGS_BRANCH=$(pin PX4_MSGS_BRANCH)
-XRCE_AGENT_VERSION=$(pin XRCE_AGENT_VERSION)
 [ -n "$PX4_VERSION" ] && [ -n "$PX4_MSGS_BRANCH" ] && [ -n "$XRCE_AGENT_VERSION" ] \
-    || die "could not read the version pins out of $DOCKERFILE"
+    || die "could not read the version pins out of $VERSIONS_FILE"
 
 . /etc/os-release
 CODENAME="${VERSION_CODENAME:-$(lsb_release -cs 2>/dev/null)}"
 if [ "$CODENAME" != "noble" ]; then
     die "this installs Ubuntu 24.04 (noble) packages, and this machine is '$CODENAME'.
         ROS 2 Jazzy and Gazebo Harmonic only publish debs for noble.
-        On any other distro use the dev container: docs/SETUP.md"
+        On any other distro use a VM or WSL2: docs/SETUP.md"
 fi
 
 ARCH=$(uname -m)
@@ -170,7 +163,6 @@ stage "System packages"
 if [ "$SKIP_APT" -eq 1 ]; then
     info "skipped (--skip-apt)"
 else
-    # The same set the container image installs, minus its display stack.
     sudo apt-get update -qq
     sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         git curl wget lsb-release gnupg ca-certificates \
@@ -212,8 +204,7 @@ else
 fi
 
 if [ "$SKIP_APT" -eq 0 ]; then
-    # colcon is not part of ros-jazzy-desktop. The container inherits it from
-    # the ros:jazzy-ros-base image, so it has to be asked for explicitly here.
+    # colcon is not part of ros-jazzy-desktop, so it is installed explicitly.
     sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         ros-jazzy-desktop ros-jazzy-rmw-cyclonedds-cpp \
         python3-colcon-common-extensions \
@@ -235,7 +226,7 @@ if [ "$SKIP_APT" -eq 0 ]; then
     fi
     # gz-harmonic is the simulator PX4 links against. ros-gz is the ROS 2 side
     # bridge, and installing it also brings ROS's vendored copy of Harmonic,
-    # which is what actually runs once ROS is sourced. The container has both.
+    # which is what actually runs once ROS is sourced.
     sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         gz-harmonic ros-jazzy-ros-gz \
         || die "apt failed on gz-harmonic"
@@ -256,8 +247,8 @@ stage "Python packages for the PX4 build"
 if [ "$SKIP_APT" -eq 1 ]; then
     info "skipped (--skip-apt)"
 else
-    # Same list and same pin as the container image. empy must stay below 4:
-    # both PX4's and ROS 2's code generators break on the 4.x API.
+    # empy must stay below 4: both PX4's and ROS 2's code generators break on
+    # the 4.x API.
     python3 -m pip install --break-system-packages --user -q -U \
         empy==3.3.4 pyros-genmsg setuptools packaging jinja2 jsonschema \
         pyserial numpy toml pyyaml kconfiglib future lxml \
@@ -392,12 +383,6 @@ fi
 
 # =============================================================================
 stage "This repo's packages"
-# Build output from a previous dev container run names container paths and
-# cannot be reused here. It is all regenerated, so clearing it costs nothing.
-if grep -rqs "/workspaces/" "$REPO_ROOT/build" "$REPO_ROOT/install" 2>/dev/null; then
-    info "clearing build output left over from the dev container"
-    rm -rf "$REPO_ROOT/build" "$REPO_ROOT/install" "$REPO_ROOT/log"
-fi
 
 source "$WS_DIR/install/setup.bash"
 ( cd "$REPO_ROOT" && colcon build --symlink-install --parallel-workers "$JOBS" ) \

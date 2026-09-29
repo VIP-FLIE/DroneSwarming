@@ -154,9 +154,8 @@ Then, in order:
 the file in this repo is enough. Next launch picks it up. There is no colcon
 build and no PX4 rebuild in this loop.
 
-Re-run it after rebuilding the dev container. PX4 lives in the container image,
-so the links go when the image is recreated. `./scripts/install-worlds.sh --list`
-shows what PX4 can currently load and which of those are ours.
+`./scripts/install-worlds.sh --list` shows what PX4 can currently load and which
+of those are ours.
 
 ### The four things in a world the flight code can feel
 
@@ -224,9 +223,7 @@ minimal one. Put yours next to it in `worlds/models/`, run
 the same name is an error, and the second one silently does not appear.
 
 The script links `worlds/models/*/` into PX4's models directory, which is
-already on `GZ_SIM_RESOURCE_PATH` in both the dev container and a native
-install. That is why no environment setup is needed, and why it works the same
-in both.
+already on `GZ_SIM_RESOURCE_PATH`. No environment setup is needed.
 
 Your own mesh goes in the model directory too, usually `meshes/*.dae` or
 `.stl`, referenced as `<uri>model://your_model/meshes/thing.dae</uri>`. Keep
@@ -312,7 +309,6 @@ while leaving the physics identical.
 | Drone launches sideways at spawn | Spawned inside geometry | Move `PX4_GZ_MODEL_POSE` or move the obstacle |
 | Yaw drifts, `mag` warnings in a world you moved | `<magnetic_field>` no longer matches the coordinates | Recompute both, see the formula above |
 | Real time factor drops below 1 with a swarm | Rendering and collision cost | `HEADLESS=1`, simpler world, box collisions |
-| Your world vanished after a dev container rebuild | PX4 is in the image, the links went with it | `./scripts/install-worlds.sh` |
 | `git status` in `~/PX4-Autopilot` shows untracked files | Our symlinks, in a PX4 submodule | Expected. Leave them. `--remove` takes them out |
 
 ## Reference

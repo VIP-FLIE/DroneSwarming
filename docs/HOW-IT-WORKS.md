@@ -1,21 +1,20 @@
 # How it works, and how to grow it into a swarm
 
 Start here if you want to write flight code. Getting the stack running is
-[SETUP.md](SETUP.md) for the dev container and [NATIVE-SETUP.md](NATIVE-SETUP.md)
-for a native install, and [QUICKSTART.md](../QUICKSTART.md) is the command
-reference. This is the one that explains *why* any of it is shaped the way it
-is.
+[NATIVE-SETUP.md](NATIVE-SETUP.md) for Linux and [SETUP.md](SETUP.md) for macOS
+and Windows, and [QUICKSTART.md](../QUICKSTART.md) is the command reference.
+This is the one that explains *why* any of it is shaped the way it is.
 
-The worked example is [`src/cpp_single_hop/src/hop.cpp`](../src/cpp_single_hop/src/hop.cpp):
-one drone, takes off, flies three metres forward, lands. It is one file and it
-is heavily commented, so read it alongside this. Everything a swarm needs is
-already in there except the swarm.
+The worked example is [`src/cpp_single_hop`](../src/cpp_single_hop): one drone,
+takes off, flies three metres forward, lands. The declarations are in
+`include/cpp_single_hop/hop.hpp` and the method bodies in `src/hop.cpp`, both
+heavily commented, so read them alongside this. Everything a swarm needs is
+already there except the swarm.
 
 ## Run it
 
 Four terminals. The first three are the simulator and never change; only the
-fourth is your code. The commands are the same in the dev container and on a
-native install.
+fourth is your code.
 
 ```bash
 MicroXRCEAgent udp4 -p 8888     # 1. the bridge between PX4 and ROS 2
@@ -24,8 +23,7 @@ drone-sim                       # 3. PX4 + Gazebo, gives you a pxh> prompt
 ros2 run cpp_single_hop hop        # 4. your flight program
 ```
 
-Watch it in Gazebo, which is at <http://localhost:6080> in the dev container and
-a window on your desktop natively. Expect this:
+Watch it in Gazebo, which opens a window on your desktop. Expect this:
 
 ```
 [INFO] [hop]: will climb to 3.0 m, fly 3.0 m north, and land. Commanding /fmu/.
@@ -180,7 +178,7 @@ is the reference.
 `px4_timestamp_us()` does the conversion. PX4 ignores setpoints whose timestamps
 look wrong, silently.
 
-## Reading hop.cpp
+## Reading the code
 
 In the order it makes sense to read, not the order it appears:
 
@@ -383,5 +381,5 @@ v1.16.1, not a search result. PX4 changes these conventions between releases.
 - [UNDER-THE-SCRIPTS.md](UNDER-THE-SCRIPTS.md), the stack with no wrapper scripts
 - [QUICKSTART.md](../QUICKSTART.md), commands and a troubleshooting table
 - [SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md), what the simulator gets right, with numbers
-- [SETUP.md](SETUP.md), getting the dev container running
-- [NATIVE-SETUP.md](NATIVE-SETUP.md), the same stack installed directly on Ubuntu
+- [NATIVE-SETUP.md](NATIVE-SETUP.md), the stack installed directly on Ubuntu
+- [SETUP.md](SETUP.md), the same install inside a VM or WSL2

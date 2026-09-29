@@ -17,8 +17,7 @@ def _constants(msg_class, prefix):
     """Build a value -> name table from a message class's own constants.
 
     Read off px4_msgs at runtime rather than hardcoded, so these labels cannot
-    drift out of sync with whatever px4_msgs branch the container was built
-    against.
+    drift out of sync with the installed px4_msgs branch.
     """
     return {
         getattr(msg_class, name): name[len(prefix):]
@@ -63,17 +62,18 @@ class Listener(Node):
                 'no messages yet. Is PX4 running and is MicroXRCEAgent up?')
             return
 
-        p = self.position
-        arm = nav = '?'
+        position = self.position
+        arming_state = nav_state = '?'
         if self.status is not None:
-            arm = ARMING_STATE.get(self.status.arming_state, self.status.arming_state)
-            nav = NAV_STATE.get(self.status.nav_state, self.status.nav_state)
+            arming_state = ARMING_STATE.get(
+                self.status.arming_state, self.status.arming_state)
+            nav_state = NAV_STATE.get(self.status.nav_state, self.status.nav_state)
 
         # PX4 uses NED, so z is negative when the drone is above its origin.
         self.get_logger().info(
-            f'n={p.x:7.2f}  e={p.y:7.2f}  d={p.z:7.2f}  '
-            f'(alt {-p.z:5.2f} m)  heading={p.heading:6.2f} rad  '
-            f'{arm}/{nav}')
+            f'n={position.x:7.2f}  e={position.y:7.2f}  d={position.z:7.2f}  '
+            f'(alt {-position.z:5.2f} m)  heading={position.heading:6.2f} rad  '
+            f'{arming_state}/{nav_state}')
 
 
 def main(args=None):

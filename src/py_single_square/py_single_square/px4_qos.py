@@ -9,9 +9,9 @@ error, never matches the publisher, and the callback simply never fires.
 NOTE: `ros2 topic echo` does NOT have this problem on Jazzy. It negotiates QoS
 to match the publisher and prints data with no extra flags. That is exactly
 what makes this confusing: the topic looks perfectly healthy from the command
-line while your node receives nothing. Verified in-container, default echo gets
-data while a plain rclpy subscription with default QoS on the same topic gets
-zero callbacks.
+line while your node receives nothing. Measured here: default echo gets data
+while a plain rclpy subscription with default QoS on the same topic gets zero
+callbacks.
 """
 
 from rclpy.qos import (

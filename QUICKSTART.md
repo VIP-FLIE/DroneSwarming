@@ -1,12 +1,8 @@
 # Running the simulator and writing your first node
 
-Every command here is the same whether you run the dev container or a native
-install. Where the two differ, both are given.
-
-Not set up yet: [docs/SETUP.md](docs/SETUP.md) for the dev container, where
-`Terminal > New Terminal` in VS Code puts you inside it, or
-[docs/NATIVE-SETUP.md](docs/NATIVE-SETUP.md) for a native install, where
-`scripts/native/env.sh` has to be sourced in the terminal.
+Not set up yet: [docs/NATIVE-SETUP.md](docs/NATIVE-SETUP.md) for Linux, or
+[docs/SETUP.md](docs/SETUP.md) for macOS and Windows. Every terminal needs
+`scripts/native/env.sh` sourced, which the install puts in `~/.bashrc`.
 
 ## Start the stack
 
@@ -20,13 +16,6 @@ ros2 topic list | grep fmu      # 4. your side
 ```
 
 Terminal 4 printing nothing means the agent is not connected.
-
-Where Gazebo appears is the one difference:
-
-| | |
-|---|---|
-| Dev container | A desktop you open in a browser at <http://localhost:6080>, or in a VNC client on `localhost:5901`. Both are covered in [docs/SETUP.md](docs/SETUP.md) |
-| Native | A window on your own desktop |
 
 `drone-gcs` is required. PX4's x500 airframe sets `NAV_DLL_ACT 2`, return on
 datalink loss, so it will not arm without a GCS, same as a real aircraft.
@@ -82,11 +71,6 @@ source install/setup.bash
 
 `--symlink-install` means editing a Python node takes effect on the next
 `ros2 run`; rebuild after adding files or changing `setup.py`.
-
-| | |
-|---|---|
-| Dev container | The repo is bind mounted at `/workspaces/DroneSwarming`. New terminals source the overlay for you. `~/PX4-Autopilot` and `~/ros2_ws` belong to the image and are recreated when the container is rebuilt |
-| Native | The repo is wherever you cloned it. New terminals source the overlay once `scripts/native/env.sh` is in your `~/.bashrc`. `~/PX4-Autopilot` and `~/ros2_ws` are yours and persist |
 
 Starting a package of your own rather than editing these two:
 [docs/NEW-PACKAGE.md](docs/NEW-PACKAGE.md).
@@ -233,17 +217,6 @@ enforces the datalink failsafe separately.
 
 That first line names the file that is actually running.
 
-In the dev container the scripts are baked into the image, so a copy you edited
-in the repo is not the copy on your `PATH` until the image is rebuilt. Run the
-repo copy directly to test a change:
-
-```bash
-.devcontainer/scripts/drone-gcs
-```
-
-Natively, `drone-gcs` runs that same repo file already, so an edit takes effect
-on the next run.
-
 Two drones flying the same path independently is a fleet, not a swarm. Making
 them hold a formation needs a shared frame and a shared clock.
 `src/swarm_naive` shows what you get without either, `src/swarm_comms` solves
@@ -254,8 +227,7 @@ both, and [docs/SWARM.md](docs/SWARM.md) explains how.
 Run the smoke test first. It names the broken piece:
 
 ```bash
-./smoke-test.sh                     # dev container
-./scripts/native/smoke-test.sh      # native
+./scripts/native/smoke-test.sh
 ```
 
 | Symptom | Cause | Fix |
@@ -263,7 +235,6 @@ Run the smoke test first. It names the broken piece:
 | `Arming denied: Resolve system health failures first` | No GCS link | Run `drone-gcs`. Not `NAV_DLL_ACT 0` |
 | Gazebo shows demo worlds, no drone | You ran `gz sim` | `drone-sim` |
 | `Waiting for Gazebo world...` then a timeout | The world's name does not match its file name | [docs/WORLDS.md](docs/WORLDS.md) |
-| Nothing at localhost:6080, or VNC will not connect (dev container) | Desktop not up | `drone-gui` |
 | No `/fmu/` topics | Agent not running, or started after PX4 | Start agent, restart PX4 |
 | Callback never fires but `ros2 topic echo` shows data | QoS mismatch | `PX4_QOS` |
 | `Standalone PX4 launch, waiting for Gazebo` | `PX4_GZ_STANDALONE` set | `unset PX4_GZ_STANDALONE` |

@@ -12,7 +12,6 @@
       "includePath": [
         "${workspaceFolder}/src/**",
         "${env:HOME}/ros2_ws/install/px4_msgs/include/**",
-        "/home/ros/ros2_ws/install/px4_msgs/include/**",
         "/opt/ros/jazzy/include/**",
         "/usr/include/**"
       ],

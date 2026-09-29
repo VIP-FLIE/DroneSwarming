@@ -451,8 +451,7 @@ searches downward from wherever you start it, so running it inside `src/` builds
 a workspace in the wrong place.
 
 Every new terminal needs `source install/setup.bash` before `ros2 run` can see
-your package. In the dev container new terminals do it for you. Natively,
-`scripts/native/env.sh` does it, and
+your package. `scripts/native/env.sh` does it, and
 [NATIVE-SETUP.md](NATIVE-SETUP.md) covers the one line that goes in `~/.bashrc`.
 
 To keep colcon out of a directory, put an empty `COLCON_IGNORE` file in it.

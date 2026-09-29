@@ -30,7 +30,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/SwarmState.msg"
 )
 
-add_executable(formation_drone src/formation_drone.cpp)
+add_executable(formation_drone src/main.cpp src/formation_drone.cpp)
+target_include_directories(formation_drone PRIVATE include)
 target_compile_features(formation_drone PRIVATE cxx_std_17)
 
 # Using a message from the SAME package it is generated in needs this extra
