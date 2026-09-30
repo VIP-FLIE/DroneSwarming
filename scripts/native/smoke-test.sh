@@ -133,9 +133,39 @@ if [ -d "$PX4_DIR/.git" ]; then
     } 2>/dev/null)
     PX4_READ=$?
 
+    # Every submodule path PX4 has, at any depth, so a submodule entry can be
+    # told apart from an edit to a tracked file. Read from git rather than
+    # guessed from the path, because the point of this check is to be strict.
+    #
+    # .gitmodules is not enough on its own: a submodule nested inside another
+    # submodule is declared in the parent submodule's .gitmodules, which is not
+    # in the working tree when the parent was never initialized. .git/modules
+    # holds the git directory of every submodule git has set up, nested ones
+    # included, so it is the complete list. The directory name under
+    # .git/modules is not the working-tree path, though: git records that in
+    # core.worktree, and for a nested submodule the two differ (libmodal-pipe
+    # is stored at .git/modules/libmodal-pipe but checked out under
+    # boards/modalai/voxl2/src/lib/mpa). So read core.worktree, which is the
+    # path git itself would use, and fall back to the directory name for a
+    # submodule that has no worktree recorded.
+    SUBMODULE_PATHS=$(cd "$PX4_DIR" && {
+        git config -f .gitmodules --get-regexp '^submodule\..*\.path$' 2>/dev/null | awk '{print $2}'
+        find .git/modules -name HEAD -printf '%h\n' 2>/dev/null | sed 's|^\.git/modules/||' | while IFS= read -r m; do
+            wt=$(git config -f ".git/modules/$m/config" --get core.worktree 2>/dev/null)
+            if [ -n "$wt" ]; then
+                # core.worktree is relative to the submodule's own git dir.
+                ( cd ".git/modules/$m" && cd "$wt" 2>/dev/null && pwd ) | sed "s|^$PX4_DIR/||"
+            else
+                printf '%s\n' "$m"
+            fi
+        done
+    } | sort -u)
+
     PX4_DIRTY=""
     LINKED=0
     FOREIGN=""
+    DRIFTED=0
+    UNINIT=0
     while IFS= read -r entry; do
         [ -n "$entry" ] || continue
         state=${entry:0:2}
@@ -146,6 +176,51 @@ if [ -d "$PX4_DIR/.git" ]; then
         case "$path" in
             platforms/nuttx/NuttX/nuttx|platforms/nuttx/NuttX/apps) continue ;;
         esac
+
+        # A submodule checked out at a different commit than PX4 records. The
+        # installer clones with --shallow-submodules to keep about 1 GB of
+        # submodule history out of the tree, and a shallow submodule clone does
+        # not always land on the recorded commit. That is an installer artifact,
+        # not an edit, and it cannot change PX4's behaviour: the drifted
+        # submodules are the alternative simulators and flight-controller board
+        # trees, none of which the Gazebo Harmonic SITL build compiles. Only a
+        # gitlink is let through here, so a modified file inside a submodule
+        # still lands in the list below.
+        if [ "$state" = " M" ] || [ "$state" = "M " ]; then
+            mode=$(cd "$PX4_DIR" && git ls-files -s -- "$path" 2>/dev/null | awk '{print $1}')
+            if [ "$mode" = "160000" ]; then
+                DRIFTED=$((DRIFTED+1))
+                continue
+            fi
+        fi
+
+        # An uninitialized submodule mount point. --recursive does not populate
+        # every submodule PX4 has, including the ones nested inside other
+        # submodules, and git reports the resulting empty directory as
+        # untracked. Git names the directory holding the submodule, which is not
+        # always the submodule's own path: src/drivers/ins/microstrain holds the
+        # submodule src/drivers/ins/microstrain/mip_sdk, and
+        # boards/modalai/voxl2/src/lib holds mpa/libmodal-pipe, two levels down.
+        # So the directory has to be an ancestor of a submodule path. Git writes
+        # an untracked directory with a trailing slash, which is dropped first.
+        #
+        # Being an ancestor is not enough on its own: src/ is an ancestor of
+        # src/modules/mavlink/mavlink, and excusing src/ would excuse anything
+        # you put there. A real mount point is also untracked by PX4, because
+        # PX4 does not carry the submodule's contents in its own tree. Both
+        # conditions together are what a mount point is, so a stray untracked
+        # file or directory of your own still lands in the list below.
+        if [ "$state" = "??" ]; then
+            dir=${path%/}
+            if [ -z "$(cd "$PX4_DIR" && git ls-tree HEAD -- "$dir" 2>/dev/null)" ]; then
+                while IFS= read -r sub; do
+                    [ -n "$sub" ] || continue
+                    case "$sub" in
+                        "$dir"/*) UNINIT=$((UNINIT+1)); continue 2 ;;
+                    esac
+                done <<< "$SUBMODULE_PATHS"
+            fi
+        fi
 
         # install-worlds.sh links this repo's worlds and models in beside PX4's
         # own, because PX4 loads a world by name out of its own directory and
@@ -180,6 +255,10 @@ if [ -d "$PX4_DIR/.git" ]; then
         ok "PX4 tree unmodified, apart from the removed NuttX submodules"
         [ "$LINKED" -gt 0 ] && \
           note "plus $LINKED world/model link(s) from this repo, which add files rather than change PX4's"
+        [ "$DRIFTED" -gt 0 ] && \
+          note "plus $DRIFTED submodule(s) at a different commit than PX4 records, expected from the installer's shallow clone"
+        [ "$UNINIT" -gt 0 ] && \
+          note "plus $UNINIT uninitialized submodule(s), which the installer's --recursive clone does not populate"
     fi
     if [ -n "$FOREIGN" ]; then
         note "linked into PX4 from outside $REPO_ROOT, so install-worlds.sh here did not put them there:"

@@ -35,6 +35,26 @@ way PX4 will load them, see [WORLDS.md](WORLDS.md). The links add files and
 change none of PX4's, which is what the third command shows: every line is
 `??`. `scripts/native/smoke-test.sh` reads the tree by that same rule.
 
+### Why the smoke test reports submodule drift
+
+Section 2 of the smoke test prints two `note` lines on a fresh install:
+
+```
+plus 7 submodule(s) at a different commit than PX4 records, expected from the installer's shallow clone
+plus 9 uninitialized submodule(s), which the installer's --recursive clone does not populate
+```
+
+Both are expected, and neither means PX4 was edited. The installer clones with
+`--shallow-submodules` to keep about 1 GB of submodule history out of the tree,
+and a shallow submodule clone does not always land on the exact commit PX4
+records, nor does `--recursive` populate every submodule PX4 has (including the
+ones nested inside other submodules). The drifted and uninitialized submodules
+are the alternative simulators and flight-controller board trees, none of which
+the Gazebo Harmonic SITL build compiles, so they cannot change flight
+behaviour. The check still fails on a genuine edit to a tracked PX4 file; these
+notes only cover submodule entries, which are installer artifacts rather than
+edits.
+
 ## Your hardware does not change the physics
 
 PX4 SITL runs lockstep: PX4 and Gazebo step together and PX4's control loop
