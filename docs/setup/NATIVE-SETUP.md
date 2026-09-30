@@ -116,14 +116,21 @@ pxh> commander land
 datalink loss, so it will not arm without a ground control station. Without it
 you get `Arming denied: Resolve system health failures first`. Supply the link
 rather than setting `param set NAV_DLL_ACT 0`, which deletes the failsafe. See
-[SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md).
+[SIMULATION-FIDELITY.md](../simulation/SIMULATION-FIDELITY.md).
 
-`drone-sim` wraps `make px4_sitl gz_x500`. Bare `gz sim` opens Gazebo's world
-chooser and does not start the drone. For swarms and long runs use
-`HEADLESS=1 drone-sim`.
+`drone-sim` runs `make px4_sitl gz_x500`, which builds SITL if it is out of
+date and then runs it. The same launch without the script is:
+
+```bash
+cd ~/PX4-Autopilot
+PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4
+```
+
+Bare `gz sim` opens Gazebo's world chooser and does not start the drone. For
+swarms and long runs use `HEADLESS=1 drone-sim`.
 
 Writing nodes, the QoS rules, offboard mode and multi-vehicle launching are all
-in [QUICKSTART.md](../QUICKSTART.md).
+in [QUICKSTART.md](../simulation/QUICKSTART.md).
 
 ## Rebuilding your code
 
@@ -137,9 +144,6 @@ source install/setup.bash
 `ros2 run`. Rebuild after adding files or changing `setup.py`.
 
 ## Environment
-
-Four things decide what the simulator does. The installer sets all four, and
-`./scripts/native/smoke-test.sh` checks them.
 
 **Versions.** PX4, `px4_msgs` and the XRCE-DDS Agent are read from
 `scripts/native/versions.env` at install time. Section 2 of the smoke test
@@ -158,10 +162,10 @@ the environment, so it names the apt copy under `/usr/lib`. The smoke test runs
 with ROS 2 sourced, the way you run the simulator, so it names the vendored
 copy under `/opt/ros/jazzy/opt`. Both are Harmonic.
 
-A different Gazebo release on the machine, such as Ionic or Jetty, does change
-the answer. PX4 calls a bare `gz sim` and takes whatever responds, and its own
-check only requires version 8.0.0 or newer, so Ionic passes it. Section 1 of
-the smoke test fails when more than one version is installed.
+A different Gazebo release on the machine, such as Ionic or Jetty, changes
+which library loads. PX4 calls a bare `gz sim` and takes whatever responds, and
+its own check only requires version 8.0.0 or newer, so Ionic passes it. Section
+1 of the smoke test fails when more than one version is installed.
 
 **How PX4 was built.** The installer compiles PX4 with ROS 2 removed from the
 environment and `GZ_DISTRO=harmonic` set:
@@ -219,7 +223,7 @@ Run `./scripts/native/smoke-test.sh` first. It names the broken piece.
 | Gazebo shows demo worlds, no drone | You ran `gz sim` | `drone-sim` |
 | No `/fmu/` topics | Agent not running, or started after PX4 | Start `MicroXRCEAgent`, restart PX4 |
 | `MicroXRCEAgent: command not found` right after install | `/usr/local/bin` not on `PATH`, or the linker cache is stale | `sudo ldconfig /usr/local/lib`, then open a new terminal |
-| Callback never fires but `ros2 topic echo` shows data | QoS mismatch | Use `PX4_QOS`, see QUICKSTART |
+| Callback never fires but `ros2 topic echo` shows data | QoS mismatch | Use `PX4_QOS`, see [QUICKSTART.md](../simulation/QUICKSTART.md) |
 | `ros2 run py_single_square` not found | Overlay not sourced | `source install/setup.bash`, or source `env.sh` |
 | Drones you did not launch appear on your topics | Subnet-wide discovery | `source scripts/native/env.sh` |
 | PX4 build dies and the machine swaps | Too many parallel jobs | `JOBS=2 ./scripts/native/install.sh --rebuild-px4` |

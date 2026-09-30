@@ -7,7 +7,7 @@
     Worked example: several PX4 drones flying a shared waypoint pattern with no
     communication between them at all. Each drone is handed a slot number and a
     flight plan at launch and flies it open loop. Read it alongside
-    docs/SWARM.md, then compare it with swarm_comms.
+    docs/swarm/SWARM.md, then compare it with swarm_comms.
   </description>
   <maintainer email="dmihovch@udel.edu">UD Drone VIP</maintainer>
   <license>MIT</license>

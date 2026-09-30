@@ -1,6 +1,8 @@
 # DroneSwarming
 The central repository for the University of Delaware's VIP Drone team's Swarm subteam.
 
+See [docs/AI-DISCLAIMER.md](docs/AI-DISCLAIMER.md) for which parts of this repo were written with AI assistance.
+
 
 ## Welcome! A few brief 'getting started' points:
 _For all of this, don't hesistate to message me (Dan Mihovch) if you run into any problems or have any questions.
@@ -12,24 +14,24 @@ Here we will use GitHub Issues to communicate problems and questions. For anythi
 ### Development Workflow:
 ROS 2 Jazzy, Gazebo Harmonic and PX4 install directly on Ubuntu 24.04 and derivatives.
 
-**Linux.** Start with [docs/NATIVE-SETUP.md](docs/NATIVE-SETUP.md).
+**Linux.** Start with [docs/setup/NATIVE-SETUP.md](docs/setup/NATIVE-SETUP.md).
 
 ```bash
 git clone git@github.com:VIP-FLIE/DroneSwarming.git && cd DroneSwarming
 ./scripts/native/install.sh
 ```
 
-**macOS.** Run Ubuntu 24.04 in a UTM virtual machine, then run the same install inside it. [docs/SETUP.md](docs/SETUP.md) covers the VM.
+**macOS.** Run Ubuntu 24.04 in a UTM virtual machine, then run the same install inside it. [docs/setup/SETUP.md](docs/setup/SETUP.md) covers the VM.
 
-**Windows.** Run the install inside WSL2 with Ubuntu 24.04. [docs/SETUP.md](docs/SETUP.md) covers it.
+**Windows.** Run the install inside WSL2 with Ubuntu 24.04. [docs/setup/SETUP.md](docs/setup/SETUP.md) covers it.
 
-Once it runs, [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md) explains the whole
+Once it runs, [docs/simulation/HOW-IT-WORKS.md](docs/simulation/HOW-IT-WORKS.md) explains the whole
 pipeline from your code down to the rotors, starting from one drone.
-[docs/SWARM.md](docs/SWARM.md) is the same thing for several drones, and covers the two
+[docs/swarm/SWARM.md](docs/swarm/SWARM.md) is the same thing for several drones, and covers the two
 worked swarm examples in `src/swarm_naive` and `src/swarm_comms`.
-[docs/NEW-PACKAGE.md](docs/NEW-PACKAGE.md) is how you start a package of your own, in Python or C++.
-[docs/UNDER-THE-SCRIPTS.md](docs/UNDER-THE-SCRIPTS.md) runs the same stack without `drone-sim` or `drone-gcs`, and maps each piece onto what is physically on the aircraft.
-[docs/WORLDS.md](docs/WORLDS.md) is how you fly somewhere other than the blank grey plane, including building a map of your own.
+[docs/development/NEW-PACKAGE.md](docs/development/NEW-PACKAGE.md) is how you start a package of your own, in Python or C++.
+[docs/simulation/UNDER-THE-SCRIPTS.md](docs/simulation/UNDER-THE-SCRIPTS.md) runs the same stack without `drone-sim` or `drone-gcs`, and maps each piece onto what is physically on the aircraft.
+[docs/simulation/WORLDS.md](docs/simulation/WORLDS.md) is how you fly somewhere other than the blank grey plane, including building a map of your own.
 
 Three drones taking off, flying a ring and landing, once the simulator is up:
 
@@ -47,7 +49,7 @@ This may seem pedantic, but trust that things can go real bad real quick without
 - If someone messes this process up (you will, I will, we all will), best practice is to revert to the last known 'safe' version of the codebase. If you don't know how to get back to that point (also totally okay!), please ask for help ASAP. Git issues are an infinite rabbit hole of horror and despair, the closer to ground level we address them, the easier it is to get back on track.
 
 ## Testing:
-See [COMPATIBILITY.md](COMPATIBILITY.md) for the operating systems, architectures and GPUs, and what has been tested.
+See [COMPATIBILITY.md](docs/setup/COMPATIBILITY.md) for the operating systems, architectures and GPUs, and what has been tested.
 
 Verified so far: Pop!_OS 24.04 with an NVIDIA GPU. If your setup is listed as untested, run the smoke test and open an Issue with the output:
 
@@ -55,4 +57,4 @@ Verified so far: Pop!_OS 24.04 with an NVIDIA GPU. If your setup is listed as un
 ./scripts/native/smoke-test.sh
 ```
 
-Machines without a GPU get software rendering. That costs GUI framerate and camera sensor rate, not flight behavior. PX4 runs in lockstep, and 8 vehicles held a real-time factor of 0.999 on 4 CPU cores. Details in [docs/SIMULATION-FIDELITY.md](docs/SIMULATION-FIDELITY.md).
+Machines without a GPU get software rendering. That costs GUI framerate and camera sensor rate, not flight behavior. PX4 runs in lockstep, and 8 vehicles held a real-time factor of 0.999 on 4 CPU cores. Details in [docs/simulation/SIMULATION-FIDELITY.md](docs/simulation/SIMULATION-FIDELITY.md).

@@ -7,8 +7,8 @@ Two packages, both C++, both worked examples meant to be read.
 | `swarm_naive` | Each flies a fixed waypoint route round a shared ring | Nothing at all |
 | `swarm_comms` | Slot 0 flies the ring, the rest chase the drone ahead | Position and state, 10 Hz, over `/swarm/state` |
 
-Read [HOW-IT-WORKS.md](HOW-IT-WORKS.md) and
-[`src/cpp_single_hop/src/hop.cpp`](../src/cpp_single_hop/src/hop.cpp) first. One drone
+Read [HOW-IT-WORKS.md](../simulation/HOW-IT-WORKS.md) and
+[`src/cpp_single_hop/src/hop.cpp`](../../src/cpp_single_hop/src/hop.cpp) first. One drone
 taking off, flying forward and landing is the whole of the PX4 conversation, and
 neither package here changes any of it.
 
@@ -19,8 +19,8 @@ sharing a library, so each package reads start to finish on its own. Strip the
 comments and normalise the names and 428 of `waypoint_drone.cpp`'s 450 lines of
 code appear unchanged in `formation_drone.cpp`.
 
-Diffing the two files is not useful. The comments are rewritten throughout, so
-`diff` reports most of both. Everything communication adds is in six places:
+The comments are rewritten throughout, so `diff` reports most of both files.
+Everything communication adds is in six places:
 
 | In `formation_drone.cpp` | What it is |
 |---|---|
@@ -33,8 +33,8 @@ Diffing the two files is not useful. The comments are rewritten throughout, so
 
 ## Run it
 
-Three terminals. The first two are the same simulator infrastructure as always,
-and they have to be up before the third.
+Three terminals. The first two run the same simulator infrastructure as every
+flight, and they have to be up before the third.
 
 ```bash
 MicroXRCEAgent udp4 -p 8888              # 1. PX4 to ROS 2 bridge
@@ -64,8 +64,7 @@ One line per drone. Your drones are systems 2 to `count + 1`, because SITL
 instance N answers to system id N + 1 and the launch files number instances
 from 1.
 
-Tell it how many you launched and it does the counting for you. Do this for
-anything bigger than a pair:
+For three or more vehicles, pass the expected count and `drone-gcs` verifies it:
 
 ```bash
 drone-gcs --expect 3
@@ -103,7 +102,7 @@ ros2 launch swarm_naive swarm.launch.py --show-args      # every argument
 Use `headless:=true` above about four drones, and on any machine without a GPU.
 It skips rendering entirely. PX4 and Gazebo run in lockstep, so this costs
 wall-clock time and GUI framerate, never flight behaviour. See
-[SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md).
+[SIMULATION-FIDELITY.md](../simulation/SIMULATION-FIDELITY.md).
 
 ### Stopping
 
@@ -122,7 +121,8 @@ six drones in it where half of them do not respond.
 ## The flight
 
 Pads are a row along east, 5 m apart, at north 0. Drone 0's pad is the origin of
-the shared swarm frame. The ring is centred just north of the row.
+the shared swarm frame. The ring centre is north of the row, at `centre_north_m`
+(`radius_m + pad_spacing_m` by default).
 
 ```
         north
@@ -152,9 +152,9 @@ aircraft runs.
 
 ### One PX4 process per drone
 
-Not a simulator quirk. Every airframe carries its own autopilot and its own
-companion computer, and each companion computer only ever sees its own autopilot
-on `/fmu/`. The launch file runs `px4 -i <instance>` once per vehicle.
+Every airframe carries its own autopilot and its own companion computer, and
+each companion computer only ever sees its own autopilot on `/fmu/`. The launch
+file runs `px4 -i <instance>` once per vehicle.
 
 `-i` is the whole of PX4's multi-vehicle support. Everything below is derived
 from it, verified in PX4 v1.16.1:
@@ -180,7 +180,7 @@ while nothing ever arms.
 Every PX4 measures position from its own takeoff point. Three vehicles spawned
 6 m apart each report `vehicle_local_position` within 3 cm of zero.
 
-So `north 8` is a different place for every drone, and a flight plan written in
+`north 8` is a different place for every drone, and a flight plan written in
 any one drone's frame is meaningless to the rest. Both packages solve it the
 same way: the plan is written in a **shared swarm frame** whose origin is drone
 0's pad, and each node converts.
@@ -195,12 +195,10 @@ LocalPoint to_local(const SwarmPoint & point) const
 }
 ```
 
-That is the entire shared-frame problem. Two subtractions, and knowing which
-two numbers to subtract.
-
-`SwarmPoint` and `LocalPoint` hold the same three doubles and are separate types
-on purpose. Handing one to something that wants the other is then a compile
-error rather than a drone flying to the wrong field.
+The conversion is two subtractions of the home offset. `SwarmPoint` and
+`LocalPoint` hold the same three doubles and are separate types. Passing one
+where the other is expected is a compile error, so a shared-frame point cannot
+reach a local-frame consumer by mistake.
 
 `down_m` passes through untouched because every pad is on the same flat ground
 and shares an altitude datum. On sloping ground each drone needs a third offset
@@ -216,7 +214,7 @@ Where the offset comes from:
 ### Spawn poses are in Gazebo's frame, which is ENU
 
 `PX4_GZ_MODEL_POSE` is `"x,y,z,roll,pitch,yaw"` in Gazebo's world frame. Gazebo
-is ENU: **x is east, y is north, z is up**. PX4's own frame is NED. So east and
+is ENU: **x is east, y is north, z is up**. PX4's own frame is NED. East and
 north are swapped relative to everything else in the flight code.
 
 Verified in the simulator rather than assumed:
@@ -231,8 +229,7 @@ reported. The conversion is in PX4 v1.16.1,
 `src/modules/simulation/gz_bridge/GZBridge.cpp`, at the comment
 `position ENU -> NED`.
 
-Reverse this and every formation mirrors itself, which is difficult to see and
-easy to write.
+A spawn pose with east and north swapped mirrors the formation.
 
 ### Staggered startup
 
@@ -251,11 +248,11 @@ heavy world.
 
 ## swarm_naive
 
-Files: [`src/swarm_naive/`](../src/swarm_naive/)
+Files: [`src/swarm_naive/`](../../src/swarm_naive/)
 
 | Read this | To understand |
 |---|---|
-| The header comment in `waypoint_drone.hpp` | What the package is, and the three things it deliberately does not do |
+| The header comment in `waypoint_drone.cpp` | What the package is, and the three things it deliberately does not do |
 | `SwarmPoint` and `LocalPoint` | The two frames, and why they are two types |
 | `build_route()` | The whole flight, as a list of points in the shared frame |
 | `to_local()` | The conversion, which is the entire swarm problem |
@@ -266,18 +263,18 @@ Files: [`src/swarm_naive/`](../src/swarm_naive/)
 Every drone is handed a slot number and a flight plan at launch and flies it open
 loop. Three consequences, all of them the reason `swarm_comms` exists:
 
-**No collision avoidance.** Nothing in the program would notice if two aircraft
-converged. Drone k flies at `altitude_m + k * layer_m`, and that static guess,
-made before takeoff, is the only thing keeping them apart.
+**No collision avoidance.** No code path notices two aircraft converging.
+Drone k flies at `altitude_m + k * layer_m`, and that static altitude layering,
+fixed before takeoff, is the only thing keeping them apart.
 
 **No shared clock.** Each drone starts its lap when it personally finished
-arming. A drone that took twenty seconds longer to arm is not twenty seconds
-late, it is permanently in the wrong part of the ring.
+arming. A drone that took twenty seconds longer to arm is permanently twenty
+seconds behind in the ring.
 
 **No formation.** Spacing holds only as long as the drones happen to fly at the
 same speed. Nothing corrects a drift.
 
-Run this to see what the altitude layering is buying:
+To fly all drones on one level:
 
 ```bash
 ros2 launch swarm_naive swarm.launch.py layer_m:=0.0
@@ -285,7 +282,7 @@ ros2 launch swarm_naive swarm.launch.py layer_m:=0.0
 
 ## swarm_comms
 
-Files: [`src/swarm_comms/`](../src/swarm_comms/)
+Files: [`src/swarm_comms/`](../../src/swarm_comms/)
 
 | Read this | To understand |
 |---|---|
@@ -293,30 +290,29 @@ Files: [`src/swarm_comms/`](../src/swarm_comms/)
 | `swarm_qos()` | Why drone-to-drone telemetry is BEST_EFFORT, and why the depth is a function of swarm size |
 | `to_swarm()` and `to_local()` | The two conversions, which are exact inverses |
 | `run_waiting_for_swarm()` | The shared clock, solved without a clock |
-| `chase_target()` | The rule that makes it a swarm, and why it trails velocity rather than line of sight |
+| `chase_target()` | The four lines that make it a swarm |
 | `run_follower()` | What to do when the messages stop |
 | `check_separation()` | The measurement `swarm_naive` cannot make at all |
 | `CMakeLists.txt` | Generating a message and using it from the same package |
 
 ### The message
 
-One topic, `/swarm/state`, every drone publishing to it and subscribing to it.
-No per-drone topics and no point-to-point addressing: a broadcast everybody can
-hear is both simpler and closer to how a radio behaves.
+One topic, `/swarm/state`. Every drone publishes to it and subscribes to it.
+There are no per-drone topics and no point-to-point addressing. A broadcast
+matches how a radio link behaves.
 
-It sits outside any `px4_` namespace deliberately. On real aircraft every
-autopilot occupies bare `/fmu/...`, so there is no namespace left to tell drones
-apart, and the `slot` field has to be what identifies the sender. Doing it that
-way here means the code does not change when it leaves the simulator.
+It sits outside any `px4_` namespace. On real aircraft every autopilot occupies
+bare `/fmu/...`, so there is no namespace left to tell drones apart, and the
+`slot` field has to be what identifies the sender. Doing it that way here means
+the code does not change when it leaves the simulator.
 
-Every field is a **level**, never an **event**. Nothing says "I have just become
-ready"; it says "I am ready", ten times a second, for as long as it stays true.
-A receiver that misses a message learns the same thing 100 ms later.
+Every field is a **level**, never an **event**. Nothing says "I became ready";
+it says "I am ready", ten times a second, for as long as it stays true. A
+receiver that misses a message learns the same thing 100 ms later.
 
-That design is what lets the topic run BEST_EFFORT, which is what you want over
-a radio: a retransmitted position half a second old is worse than the one that
-arrived on time. Had `ready` been an announcement, one dropped packet would
-deadlock the swarm.
+A level lets the topic run BEST_EFFORT. Over a radio link, a retransmitted
+position half a second old is stale next to the one that arrived on time. Were
+`ready` an announcement, one dropped packet would deadlock the swarm.
 
 | QoS | `/fmu/` topics | `/swarm/state` |
 |---|---|---|
@@ -335,8 +331,8 @@ are dropped without warning.
 ### The shared clock, solved without a clock
 
 Nobody moves until everybody reports ready. That converts "start at the same
-time", which needs synchronised clocks and is hard over a radio, into
-"start at the same event", which needs one bit per drone.
+time", which needs synchronised clocks that two drones over a radio do not
+share, into "start at the same event", which needs one bit per drone.
 
 ```
 [INFO] [drone_1]: at station, waiting for the rest of the swarm.
@@ -344,10 +340,9 @@ time", which needs synchronised clocks and is hard over a radio, into
 [INFO] [drone_1]: whole swarm is ready. Following slot 0.
 ```
 
-The cost: the swarm now moves at the speed of its slowest member, and a drone
-that never becomes ready stops everybody. `BARRIER_TIMEOUT_S` answers the second
-half. Naming the missing slots in the warning is the difference between a bug
-you can fix and a swarm that just sits there.
+The swarm moves at the speed of its slowest member, and a drone that never
+becomes ready stops every other drone. `BARRIER_TIMEOUT_S` (180 s) ends the
+wait. The warning names the missing slots, which identifies the drone to fix.
 
 Message age is measured by **arrival time on the receiver's own clock**, never
 by comparing the sender's `stamp_us` against the receiver's. Two drones do not
@@ -356,33 +351,21 @@ are indistinguishable.
 
 ### The rule that makes it a swarm
 
-Sit `follow_distance_m` behind the drone ahead, measured back along the
-direction it is **travelling**.
+Sit `follow_distance_m` behind the drone ahead, on the line from you to it.
 
 ```cpp
 return SwarmPoint{
-  ahead_north - follow_distance_m_ * heading_north / heading_m,
-  ahead_east  - follow_distance_m_ * heading_east  / heading_m,
+  ahead.north_m - follow_distance_m_ * north_gap / range_m,
+  ahead.east_m  - follow_distance_m_ * east_gap  / range_m,
   -station_altitude_m()};
 ```
 
-`heading_north` and `heading_east` are the difference between the drone ahead's
-last two reports, which is why `Neighbour` keeps a `previous` alongside the
-latest `state`. A position alone says where a drone is, not where it is going.
-
-That distinction is the whole rule, and getting it wrong is a bug worth
-recognising. The obvious version aims back along the line from you to the drone
-ahead instead. That version can only ever hold a fixed **radius**: when the
-radius is already right, the target lands exactly on your own position, so you
-stop, the drone ahead moves on, you chase, and the target collapses onto you
-again. The follower slides around a circle instead of following, which looks
-like a drone hovering and jittering in place. Trailing the velocity is a
-direction to travel rather than a distance to hold, so it converges.
-
-When the drone ahead is stationary, or only one report has arrived from it, the
-heading is undefined and the code falls back to the line-of-sight rule. That is
-well defined for a stationary leader: hold `follow_distance_m` away from it on
-your own side.
+One vector subtraction and one normalisation. The chain arranges itself:
+whatever the leader does, each follower converges on a point a fixed distance
+back along its own line of sight, so the formation bends round corners instead
+of breaking. Closer than `follow_distance_m` and the target lands behind the
+follower, so it backs off, which is what stops the chain concertinaing when the
+leader slows.
 
 This target cannot be computed without a message from another aircraft, and it
 is recomputed ten times a second from live data. That is the whole difference
@@ -390,12 +373,6 @@ between the two packages.
 
 It is horizontal only. Each drone stays on its own altitude layer, so the
 distance being held is a ground distance and the vertical separation survives.
-
-**Known rough edge.** The heading is a raw difference between two reports one
-tick apart, so it is noisy at 10 Hz, and the formation is visibly loose because
-of it. Smoothing the heading, or carrying a real velocity in `SwarmState`, is
-the obvious next step. See the status note at the top of
-[`src/swarm_comms/README.md`](../src/swarm_comms/README.md).
 
 ### When the messages stop
 
@@ -405,8 +382,8 @@ the obvious next step. See the status note at the top of
 | 1 s to 15 s | Holds its last target and warns. It keeps streaming setpoints, because pausing the stream makes PX4 drop offboard regardless of why you stopped |
 | Over 15 s (`LINK_LOST_ABORT_S`) | Abandons the formation and returns home |
 
-Flying a formation off stale data is how two aircraft end up in the same place.
-The number looks perfectly reasonable, it is just no longer true.
+Stale position data puts two aircraft in the same place. The last received
+position stays numerically plausible after it stops being true.
 
 Coming home on a lost link is the same thing PX4's own datalink-loss failsafe
 does, for the same reason.
@@ -421,10 +398,9 @@ drone.
 [INFO] [drone_2]: closest neighbour is slot 1 at 5.1 m.
 ```
 
-It is in there because it is the number that tells you whether the formation is
-working, and because it is exactly the measurement `swarm_naive` cannot make at
-all. Real avoidance starts here and then has to answer the hard part, which is
-that two aircraft both politely giving way can give way into each other.
+It is the measurement `swarm_naive` cannot make at all. Real avoidance starts
+with this measurement and then has to resolve two aircraft giving way into each
+other.
 
 On the default three-drone triangle the warning fires, once, as the chain rounds
 a corner:
@@ -434,15 +410,15 @@ a corner:
                   Nothing in this node will do anything about that.
 ```
 
-That is the pursuit rule behaving correctly, not a fault. A follower cuts the
+That warning is the pursuit rule operating as designed. A follower cuts the
 corner its leader turns, so the chain compresses on every turn and a 5 m
 follow distance closes to about half that. Raise `radius_m` or lower
 `follow_distance_m` and it stops. That is the
 gap between "holding a formation" and "guaranteeing separation".
 
-The chase rule also only constrains the drone directly ahead of you. Nothing
-stops slot 3 from flying through where slot 1 is, so the altitude layering
-inherited from `swarm_naive` is still doing real work.
+The chase rule constrains each follower against the drone directly ahead of it.
+Nothing stops slot 3 from flying through where slot 1 is, so the altitude
+layering inherited from `swarm_naive` keeps the vertical separation.
 
 ## Parameters
 
@@ -460,11 +436,11 @@ their descriptions.
 | `centre_north_m` | `radius_m + pad_spacing_m` | Ring centre, shared frame |
 | `centre_east_m` | middle of the pad row | Ring centre, shared frame |
 | `headless` | false | Skip Gazebo rendering |
-| `world` | default | Gazebo world by file name, see [WORLDS.md](WORLDS.md) |
+| `world` | default | Gazebo world by file name, see [WORLDS.md](../simulation/WORLDS.md) |
 | `px4_dir` | `$PX4_DIR` or `~/PX4-Autopilot` | Which PX4 checkout to run |
 | `gazebo_boot_s` | 30.0 | Head start for the first vehicle |
 | `stagger_s` | 8.0 | Gap between the rest |
-| `px4_output` | log | Where PX4's console goes. `log` is `~/.ros/log/<run>/launch.log`; `screen` puts it in the terminal, which is what you want when a vehicle will not boot |
+| `px4_output` | log | Where PX4's console goes. `log` is `~/.ros/log/<run>/launch.log`; `screen` writes it to the terminal. Use `screen` when a vehicle will not boot |
 
 `swarm_comms` adds one:
 
@@ -481,13 +457,13 @@ swarm that cannot assemble.
 
 | Command | What it shows |
 |---|---|
-| `ros2 launch swarm_naive swarm.launch.py layer_m:=0.0` | What the altitude layering was buying. Put every drone on one level and watch the ring |
+| `ros2 launch swarm_naive swarm.launch.py layer_m:=0.0` | Flight with the altitude layering removed; all drones share one level on the ring |
 | `ros2 launch swarm_comms swarm.launch.py follow_distance_m:=2.0` | The separation warning firing, and the chain running tight through corners |
 | Kill `drone-gcs` mid-flight | Every vehicle's datalink-loss failsafe firing at once. PX4 takes the aircraft back and the nodes say so |
 | Kill one node mid-flight in `swarm_comms` | The follower behind it holding station, then giving up and going home |
 | `ros2 topic echo /swarm/state` | The whole swarm conversation, in one stream |
-| `ros2 topic hz /swarm/state` | Should be `10 * count` |
-| `ros2 launch swarm_naive swarm.launch.py world:=lawn` | Somewhere with scenery in it, see [WORLDS.md](WORLDS.md) |
+| `ros2 topic hz /swarm/state` | The rate is `10 * count` |
+| `ros2 launch swarm_naive swarm.launch.py world:=lawn` | Somewhere with scenery in it, see [WORLDS.md](../simulation/WORLDS.md) |
 | `ros2 launch swarm_comms swarm.launch.py count:=6 headless:=true laps:=2` | Six drones, two laps, no rendering |
 
 ## Problems
@@ -503,7 +479,7 @@ swarm that cannot assemble.
 | A drone flies to the wrong part of the ring | Its `home_north_m` and `home_east_m` disagree with where it was spawned | Both come from the launch file. Check `PX4_GZ_MODEL_POSE` is `east,north` |
 | Formation mirrors itself | East and north swapped in the spawn pose | Gazebo is ENU, PX4 is NED |
 | `swarm_comms` drones all hold station forever | The barrier is waiting on a slot | The warning names which slots and why. `ros2 topic echo /swarm/state` shows who is talking |
-| `Heard slot N, but this swarm only has M drones` | Another swarm on the same `ROS_DOMAIN_ID`, or a node left over from the last run | Give each machine a different `ROS_DOMAIN_ID`. `scripts/native/env.sh` already restricts discovery to localhost |
+| `Heard slot N, but this swarm only has M drones` | Another swarm on the same `ROS_DOMAIN_ID`, or a node left over from the last run | Give each person a different `ROS_DOMAIN_ID`. `scripts/native/env.sh` already restricts discovery to localhost |
 | Everything runs at 0.2x real time | Too many vehicles for the machine | `headless:=true`, or fewer drones. Flight behaviour is unaffected, PX4 and Gazebo are in lockstep |
 | `No executable found` | Package built before the executable was added | `colcon build --symlink-install`, then `source install/setup.bash` |
 | Launch file not found | `install(DIRECTORY launch ...)` missing from `CMakeLists.txt` | It is what puts the file in `share/<package>` |
@@ -520,12 +496,12 @@ swarm that cannot assemble.
 
 ## Reference
 
-- [HOW-IT-WORKS.md](HOW-IT-WORKS.md), the pipeline and the three rules PX4 imposes
-- [`src/cpp_single_hop/src/hop.cpp`](../src/cpp_single_hop/src/hop.cpp), one drone, read it first
-- [NEW-PACKAGE.md](NEW-PACKAGE.md), starting a package of your own
-- [UNDER-THE-SCRIPTS.md](UNDER-THE-SCRIPTS.md), what the launch files are doing when they run the PX4 binary directly
-- [SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md), what the simulator gets right
-- [WORLDS.md](WORLDS.md), flying somewhere other than the grey plane
+- [HOW-IT-WORKS.md](../simulation/HOW-IT-WORKS.md), the pipeline and the three rules PX4 imposes
+- [`src/cpp_single_hop/src/hop.cpp`](../../src/cpp_single_hop/src/hop.cpp), one drone, read it first
+- [NEW-PACKAGE.md](../development/NEW-PACKAGE.md), starting a package of your own
+- [UNDER-THE-SCRIPTS.md](../simulation/UNDER-THE-SCRIPTS.md), what the launch files are doing when they run the PX4 binary directly
+- [SIMULATION-FIDELITY.md](../simulation/SIMULATION-FIDELITY.md), what the simulator gets right
+- [WORLDS.md](../simulation/WORLDS.md), flying somewhere other than the grey plane
 - [Multi-vehicle with ROS 2](https://docs.px4.io/v1.16/en/ros2/multi_vehicle)
 - [Multi-vehicle in Gazebo](https://docs.px4.io/v1.16/en/sim_gazebo_gz/multi_vehicle_simulation.html)
 - [px4_msgs release/1.16](https://github.com/PX4/px4_msgs/tree/release/1.16/msg)

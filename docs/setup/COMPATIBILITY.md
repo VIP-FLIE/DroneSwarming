@@ -1,7 +1,7 @@
 # Compatibility
 
-What runs where. Setup is in [docs/NATIVE-SETUP.md](docs/NATIVE-SETUP.md) for
-Linux, and [docs/SETUP.md](docs/SETUP.md) for macOS and Windows.
+What runs where. Setup is in [NATIVE-SETUP.md](NATIVE-SETUP.md) for Linux, and
+[SETUP.md](SETUP.md) for macOS and Windows.
 
 **Status meanings**
 
@@ -50,20 +50,20 @@ it actually got. `llvmpipe` means software.
 | Gazebo GUI framerate | low | normal |
 | Camera at 30 Hz configured | 11.5 Hz | 28.5 Hz |
 
-Headless multi-vehicle does not render, so rendering is irrelevant to it:
-8 vehicles held RTF 0.999, including when limited to 4 CPU cores.
+Headless multi-vehicle does not render. 8 vehicles held RTF 0.999, including
+when limited to 4 CPU cores.
 
-PX4 runs in lockstep, so physics does not change with your hardware. Cameras
-are the exception. Anything vision-based needs a GPU. See
-[docs/SIMULATION-FIDELITY.md](docs/SIMULATION-FIDELITY.md).
+PX4 runs in lockstep, so physics does not change with your hardware. Camera
+sensor rate does. Anything vision-based needs a GPU. See
+[SIMULATION-FIDELITY.md](../simulation/SIMULATION-FIDELITY.md).
 
 ## Requirements
 
 | | |
 |---|---|
-| Disk | 15 GB |
+| Disk | 20 GB free in your home directory |
 | RAM | 8 GB minimum, 16 GB comfortable |
-| First build | 20 to 40 minutes, once |
+| Install time | About 20 minutes, mostly downloads |
 
 ## Adding a row
 

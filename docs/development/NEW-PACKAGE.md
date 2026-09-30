@@ -116,7 +116,7 @@ if __name__ == '__main__':
 Three things in there are specific to this project:
 
 - `PX4_QOS` on anything touching `/fmu/`. A default subscription never fires.
-  [QUICKSTART.md](../QUICKSTART.md) has the detail.
+  [QUICKSTART.md](../simulation/QUICKSTART.md) has the detail.
 - `topic_prefix` with a `px4_ns` parameter, so the same node works on drone 1 and
   drone 5. Instance 0 is bare `/fmu/...` and instance N is `/px4_N/fmu/...`.
 - `main` takes `args=None` and calls `rclpy.init`, because the entry point below
@@ -129,7 +129,8 @@ Importing `py_single_square.px4_qos` means `py_single_square` is a dependency. A
 <depend>py_single_square</depend>
 ```
 
-`src/py_single_square/py_single_square/listener.py` is the same shape with more in it.
+[`src/py_single_square/py_single_square/listener.py`](../../src/py_single_square/py_single_square/listener.py)
+is the same shape with more in it.
 
 ## 4. Register the entry point
 
@@ -277,7 +278,8 @@ int main(int argc, char ** argv)
 The header path is the message name in snake_case: `VehicleLocalPosition` is
 `px4_msgs/msg/vehicle_local_position.hpp`. The QoS is the same profile the
 Python side gets from `PX4_QOS`, and `/fmu/in/vehicle_command` is the exception
-that needs `reliable()` instead of `best_effort()`. `src/cpp_single_hop/src/hop.cpp`
+that needs `reliable()` instead of `best_effort()`.
+[`src/cpp_single_hop/src/hop.cpp`](../../src/cpp_single_hop/src/hop.cpp)
 has both, with the reasoning next to them.
 
 ## 4. Build and run
@@ -289,14 +291,14 @@ ros2 run your_package your_node
 ros2 run your_package your_node --ros-args -p px4_ns:=px4_1
 ```
 
-C++ has no shortcut equivalent to editing a Python file in place. Every change
-needs a rebuild.
+C++ needs a rebuild after every change. `--symlink-install` does not give the
+C++ side an edit-in-place shortcut.
 
 ---
 
 # Launch files
 
-One `ros2 launch` instead of six terminals. A launch file starts several
+One `ros2 launch` instead of several terminals. A launch file starts several
 processes at once, passes each one its parameters, and can stagger them in time.
 It is how anything with more than one node gets run.
 
@@ -314,7 +316,7 @@ data_files=[
 ],
 ```
 
-Missing that line is why a launch file that plainly exists reports `file not
+Missing that line or block is why a launch file that exists reports `file not
 found`.
 
 `launch/your_package.launch.py`:
@@ -351,9 +353,9 @@ ros2 launch your_package your_package.launch.py
 | `ExecuteProcess` | Runs something that is not a ROS node, such as PX4 itself |
 | `--show-args` | Prints every argument and its description without launching anything |
 
-[`src/swarm_naive/launch/swarm.launch.py`](../src/swarm_naive/launch/swarm.launch.py)
+[`src/swarm_naive/launch/swarm.launch.py`](../../src/swarm_naive/launch/swarm.launch.py)
 uses all of those to start N PX4 instances and N nodes, and is commented line by
-line. [SWARM.md](SWARM.md) explains it.
+line. [SWARM.md](../swarm/SWARM.md) explains it.
 
 ---
 
@@ -398,19 +400,19 @@ target_link_libraries(your_node PRIVATE rclcpp::rclcpp ${my_typesupport})
 Then `#include <your_package/msg/your_message.hpp>`, which is the message name in
 snake_case under the package name.
 
-The `rosidl_get_typesupport_target` line is the one that catches people. Using a
-message from the same package that generates it cannot go through
-`find_package`, because that target does not exist yet while the package is
-still being built. Leave it out and the code compiles and then fails to link,
-with undefined references to the message's type support.
+A message used from the package that generates it links through the
+`rosidl_get_typesupport_target` target. That target cannot be found with
+`find_package`, because it does not exist yet while the package is still being
+built. Leave it out and the code compiles and then fails to link, with undefined
+references to the message's type support.
 
 Most tutorials put messages in a package of their own, and for a large project
 that is right: everybody who wants to talk to you then depends on a small
 interface package instead of on all of your code. One message used by one node
 does not earn a second package.
 
-Worked example: [`src/swarm_comms`](../src/swarm_comms/), where
-`msg/SwarmState.msg` is what the drones say to each other.
+Worked example: [`msg/SwarmState.msg`](../../src/swarm_comms/msg/SwarmState.msg)
+in `src/swarm_comms`, which is what the drones say to each other.
 
 ```bash
 ros2 interface show swarm_comms/msg/SwarmState
@@ -452,7 +454,8 @@ a workspace in the wrong place.
 
 Every new terminal needs `source install/setup.bash` before `ros2 run` can see
 your package. `scripts/native/env.sh` does it, and
-[NATIVE-SETUP.md](NATIVE-SETUP.md) covers the one line that goes in `~/.bashrc`.
+[NATIVE-SETUP.md](../setup/NATIVE-SETUP.md) covers the one line that goes in
+`~/.bashrc`.
 
 To keep colcon out of a directory, put an empty `COLCON_IGNORE` file in it.
 
@@ -480,7 +483,7 @@ To keep colcon out of a directory, put an empty `COLCON_IGNORE` file in it.
 | C++ `fatal error: rclcpp/rclcpp.hpp: No such file` | Missing `find_package` or the target is not linked | Both lines in `CMakeLists.txt` |
 | Editor shows red squiggles on `#include <px4_msgs/...>` while the build succeeds | No compile database yet | Build once, then reload the editor window. `set(CMAKE_EXPORT_COMPILE_COMMANDS ON)` has to be in the package's `CMakeLists.txt` |
 | Package builds but `ros2 pkg list` does not show it | `resource/<name>` marker missing or misnamed | It must match the package name exactly |
-| Callback never fires, `ros2 topic echo` shows data | QoS mismatch | `PX4_QOS`, see [QUICKSTART.md](../QUICKSTART.md) |
+| Callback never fires, `ros2 topic echo` shows data | QoS mismatch | `PX4_QOS`, see [QUICKSTART.md](../simulation/QUICKSTART.md) |
 | colcon builds packages you did not expect | A nested workspace under `src/` | Put an empty `COLCON_IGNORE` in it |
 | Import fails with a dash in the name | A Python module name cannot contain a dash | Rename the package, underscores only |
 | `ros2 launch` cannot find a launch file that exists | Not installed | `install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})`, or the `data_files` entry in `setup.py` |
@@ -489,11 +492,11 @@ To keep colcon out of a directory, put an empty `COLCON_IGNORE` file in it.
 
 # Reference
 
-- [HOW-IT-WORKS.md](HOW-IT-WORKS.md), the pipeline your node plugs into
-- [QUICKSTART.md](../QUICKSTART.md), QoS, offboard mode and multi-vehicle
-- `src/py_single_square/py_single_square/listener.py`, the smallest complete Python node here
-- `src/cpp_single_hop/src/hop.cpp`, the same for C++, with the three PX4 rules marked
-- [SWARM.md](SWARM.md), and `src/swarm_naive` and `src/swarm_comms`, for launch files and a message of your own in use
+- [HOW-IT-WORKS.md](../simulation/HOW-IT-WORKS.md), the pipeline your node plugs into
+- [QUICKSTART.md](../simulation/QUICKSTART.md), QoS, offboard mode and multi-vehicle
+- [`src/py_single_square/py_single_square/listener.py`](../../src/py_single_square/py_single_square/listener.py), the smallest complete Python node here
+- [`src/cpp_single_hop/src/hop.cpp`](../../src/cpp_single_hop/src/hop.cpp), the same for C++, with the three PX4 rules marked
+- [SWARM.md](../swarm/SWARM.md), and [`src/swarm_naive`](../../src/swarm_naive/) and [`src/swarm_comms`](../../src/swarm_comms/), for launch files and a message of your own in use
 - [Creating custom msg files](https://docs.ros.org/en/jazzy/Tutorials/Beginner-Client-Libraries/Custom-ROS2-Interfaces.html), the upstream tutorial
 - [Creating launch files](https://docs.ros.org/en/jazzy/Tutorials/Intermediate/Launch/Creating-Launch-Files.html), the upstream tutorial
 - [Creating a package](https://docs.ros.org/en/jazzy/Tutorials/Beginner-Client-Libraries/Creating-Your-First-ROS2-Package.html), the upstream tutorial

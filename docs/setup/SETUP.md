@@ -18,7 +18,7 @@ UTM runs an Ubuntu 24.04 arm64 virtual machine on Apple Silicon.
 
 Gazebo opens a window on the VM's desktop. macOS does not pass a GPU to a VM,
 so rendering is software (`llvmpipe`). Flight behavior is unaffected. Camera
-sensor rate is lower. See [SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md).
+sensor rate is lower. See [SIMULATION-FIDELITY.md](../simulation/SIMULATION-FIDELITY.md).
 
 ## Windows
 
