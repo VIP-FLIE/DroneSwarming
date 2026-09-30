@@ -175,8 +175,18 @@ your node as `x = 3` (north). The two frames are a standing source of confusion;
 is the reference.
 
 **Timestamps are microseconds** since boot, while ROS time is nanoseconds.
-`px4_timestamp_us()` does the conversion. PX4 ignores setpoints whose timestamps
-look wrong, silently.
+`px4_timestamp_us()` is the conversion, and there are two ways to write it.
+
+Most packages here send the ROS clock divided by 1000. That works, but only
+while the uXRCE-DDS client's time-sync handshake stays converged: the client
+subtracts a `time_offset` from every incoming timestamp to bring it onto PX4's
+boot-relative clock, and if that handshake drops the arithmetic yields nonsense.
+PX4 then decides the offboard setpoint stream is stale and falls back to loiter.
+
+`swarm_comms` sends `0` instead. The generated deserialiser treats zero as
+"stamp this on arrival" and needs no agreement about time at all, so it cannot
+be broken by a time-sync glitch. PX4 ignores setpoints whose timestamps look
+wrong, silently, which is what makes the wrong choice here so hard to see.
 
 ## Reading the code
 

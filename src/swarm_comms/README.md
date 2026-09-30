@@ -8,6 +8,31 @@ the one ahead of it.
 Read `swarm_naive` first. This package keeps its PX4 code, launch file and
 shared frame, and adds communication on top.
 
+## Status: work in progress
+
+It flies, and the swarm logic works: every drone arms, takes off, holds station
+until the last one is ready, and the chain peels off home in order at the end.
+The formation itself is still loose. A follower trails the drone ahead rather
+than holding a tight station, and the chain visibly wanders.
+
+The cause is known and is written up under [the follower rule](#the-follower-rule):
+the heading a follower steers by is a raw difference between two reports one
+tick apart, which is noisy at 10 Hz. Smoothing it, or carrying a real velocity
+in `SwarmState`, is the next step. Nothing else about the package is known to be
+wrong.
+
+Two bugs found on the way here are worth knowing about, because both looked like
+something else:
+
+- **A drone that arms and never takes off is disarmed by PX4.** `COM_DISARM_PRFLT`
+  (10 s by default) disarms a vehicle that arms and stays on the ground. The
+  usual cause here was PX4 dropping out of offboard into loiter, which it does
+  when the offboard setpoint stream looks stale. See `px4_timestamp_us()`.
+- **`nav_state 4` is `AUTO_LOITER`, not a failsafe.** PX4 falls back to loiter
+  when it decides the offboard control signal is gone, and it does that with
+  `failsafe` still clear. A warning that blames a failsafe sends you looking for
+  one that is not there.
+
 ## 1. What the drones do
 
 Three drones by default, on pads in a row 5 m apart along east.
@@ -61,7 +86,7 @@ v1, v2, v0.
 | A readiness barrier as a replacement for a shared clock | `run_waiting_for_swarm()` |
 | Measuring message age on the receiver's clock | `Neighbour::received`, `link_age_s()` |
 | Converting both ways between the drone's frame and the shared frame | `to_local()`, `to_swarm()` |
-| A leader-follower pursuit rule | `chase_target()` |
+| A leader-follower pursuit rule, and why it trails velocity rather than line of sight | `chase_target()` |
 | Handling stale and lost links | `fresh_state()`, `run_follower()` |
 | Measuring separation, and why measuring is not avoiding | `check_separation()` |
 | A cascade that ends the flight in order with no coordinator | `done` field, `run_follower()` |
@@ -350,21 +375,31 @@ first, so the very next broadcast carries it.
 
 ```cpp
 return SwarmPoint{
-  ahead.north_m - follow_distance_m_ * north_gap / range_m,
-  ahead.east_m  - follow_distance_m_ * east_gap  / range_m,
+  ahead_north - follow_distance_m_ * heading_north / heading_m,
+  ahead_east  - follow_distance_m_ * heading_east  / heading_m,
   -station_altitude_m()};
 ```
 
-`north_gap` and `east_gap` point from this drone to the drone ahead, and
-`range_m` is their length. The target is the point `follow_distance_m` back
-from the drone ahead, along the line to this drone.
+`heading_north` and `heading_east` are the difference between the drone ahead's
+last two reports, and `heading_m` is their length. The target is the point
+`follow_distance_m` back from the drone ahead, along the direction it is
+travelling. `Neighbour` keeps a `previous` report alongside the latest `state`
+to make that difference available.
+
+Trailing the **velocity** rather than the **line of sight** is the whole rule,
+and the difference is worth understanding because the wrong version looks
+plausible and fails in a specific way. Aiming back along the line from you to
+the drone ahead can only ever hold a fixed radius: when that radius is already
+right, the target lands exactly on your own position, so you stop, the drone
+ahead moves on, you chase, and the target collapses onto you again. The follower
+slides around a circle instead of following, which looks like a drone hovering
+and jittering in place.
 
 | Situation | Result |
 |---|---|
-| Further than `follow_distance_m` behind | Target is ahead. The follower closes up |
-| Closer than `follow_distance_m` | Target is behind. The follower backs off, so the chain does not bunch up when the leader slows |
-| The leader turns | Each follower aims along its own line of sight, so it cuts the corner and the chain bends |
-| Under 0.5 m horizontally (`MIN_CHASE_BASELINE_M`) | The bearing is noise. The follower holds its position |
+| The drone ahead is moving | Target sits `follow_distance_m` behind it along its track. The follower trails it |
+| The drone ahead is stationary, or only one report has arrived | Heading is undefined. Falls back to the line-of-sight rule, which is well defined for a stationary leader |
+| Under 0.5 m horizontally from the drone ahead (`MIN_CHASE_BASELINE_M`) | The bearing is noise. The follower holds its position |
 
 The target is recomputed every tick from a message less than a second old.
 That is the difference between this package and `swarm_naive`: the setpoint
@@ -377,6 +412,11 @@ remains.
 `follow_distance_m` must be more than 0.5 m. At or below that, the drone ahead
 would sit inside the deadband and the formation would never converge. The node
 refuses to start.
+
+**Known rough edge.** The heading is a raw difference between two reports one
+tick apart, so it is noisy at 10 Hz and the formation is visibly loose. It flies
+better than the line-of-sight version but is not tight. Smoothing the heading,
+or carrying a real velocity in `SwarmState`, is the obvious next step.
 
 ### When the messages stop
 

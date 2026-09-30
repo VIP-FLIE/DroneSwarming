@@ -30,8 +30,7 @@ uint64 stamp_us     # sender's clock, microseconds, to match PX4's convention.
 uint8 slot          # which drone this is, 0 to count-1. The only identity that
                     # survives the trip to real hardware.
 
-bool ready          # "I am at my station and willing to start". The readiness
-                    # barrier is built out of this one bit.
+bool ready          # "I am at my station and willing to start".
 
 bool done           # "I have finished the pattern and am going home". Each
                     # drone watches the one ahead of it for this, so the swarm

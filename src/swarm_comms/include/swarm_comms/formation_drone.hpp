@@ -257,10 +257,16 @@ private:
   /// clock, so comparing their stamp against ours would measure clock skew as
   /// well as age, and the difference would be indistinguishable from a delay.
   /// Measuring age by arrival time needs no agreement with anybody.
+  ///
+  /// `previous` is the report before this one, kept so a follower can work out
+  /// which way the drone ahead is travelling. A position alone says where it
+  /// is, not where it is going, and a pursuit rule built on position alone can
+  /// only ever hold a fixed radius -- see chase_target().
   struct Neighbour
   {
     SwarmState state;
     rclcpp::Time received;
+    std::optional<SwarmState> previous;
   };
 
   bool is_leader() const;
@@ -387,15 +393,21 @@ private:
 
   /// THE RULE THAT MAKES THIS A SWARM.
   ///
-  /// Sit `follow_distance_m_` behind the drone ahead, on the line from us to
-  /// it. One vector subtraction, one normalisation, and the chain arranges
-  /// itself: whatever the leader does, each follower converges on a point a
-  /// fixed distance back along its own line of sight, so the formation bends
-  /// round corners instead of breaking.
+  /// Sit `follow_distance_m_` behind the drone ahead, measured back along the
+  /// direction it is TRAVELLING. The direction comes from the difference
+  /// between its last two reports, which is why Neighbour keeps a `previous`.
+  ///
+  /// Trailing the velocity rather than the line of sight is the whole of it.
+  /// A rule that aims back along the line to the leader can only ever hold a
+  /// fixed RADIUS from it: when that radius is already right, the target lands
+  /// on the follower's own position, so it stops, the leader moves on, it
+  /// chases, and the target collapses onto it again. The follower slides round
+  /// a circle instead of following. Aiming behind the leader's track is a
+  /// direction to travel rather than a distance to hold, and it converges.
   ///
   /// This target cannot be computed without a message from another aircraft,
   /// and it is recomputed ten times a second from live data. That is the whole
-  /// difference between this package and swarm_naive, and it is four lines.
+  /// difference between this package and swarm_naive.
   ///
   /// Horizontal only. Each drone stays on its own altitude layer, so the
   /// distance being held here is a ground distance and the vertical separation

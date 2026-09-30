@@ -293,7 +293,7 @@ Files: [`src/swarm_comms/`](../src/swarm_comms/)
 | `swarm_qos()` | Why drone-to-drone telemetry is BEST_EFFORT, and why the depth is a function of swarm size |
 | `to_swarm()` and `to_local()` | The two conversions, which are exact inverses |
 | `run_waiting_for_swarm()` | The shared clock, solved without a clock |
-| `chase_target()` | The four lines that make it a swarm |
+| `chase_target()` | The rule that makes it a swarm, and why it trails velocity rather than line of sight |
 | `run_follower()` | What to do when the messages stop |
 | `check_separation()` | The measurement `swarm_naive` cannot make at all |
 | `CMakeLists.txt` | Generating a message and using it from the same package |
@@ -356,21 +356,33 @@ are indistinguishable.
 
 ### The rule that makes it a swarm
 
-Sit `follow_distance_m` behind the drone ahead, on the line from you to it.
+Sit `follow_distance_m` behind the drone ahead, measured back along the
+direction it is **travelling**.
 
 ```cpp
 return SwarmPoint{
-  ahead.north_m - follow_distance_m_ * north_gap / range_m,
-  ahead.east_m  - follow_distance_m_ * east_gap  / range_m,
+  ahead_north - follow_distance_m_ * heading_north / heading_m,
+  ahead_east  - follow_distance_m_ * heading_east  / heading_m,
   -station_altitude_m()};
 ```
 
-One vector subtraction and one normalisation. The chain arranges itself:
-whatever the leader does, each follower converges on a point a fixed distance
-back along its own line of sight, so the formation bends round corners instead
-of breaking. Closer than `follow_distance_m` and the target lands behind the
-follower, so it backs off, which is what stops the chain concertinaing when the
-leader slows.
+`heading_north` and `heading_east` are the difference between the drone ahead's
+last two reports, which is why `Neighbour` keeps a `previous` alongside the
+latest `state`. A position alone says where a drone is, not where it is going.
+
+That distinction is the whole rule, and getting it wrong is a bug worth
+recognising. The obvious version aims back along the line from you to the drone
+ahead instead. That version can only ever hold a fixed **radius**: when the
+radius is already right, the target lands exactly on your own position, so you
+stop, the drone ahead moves on, you chase, and the target collapses onto you
+again. The follower slides around a circle instead of following, which looks
+like a drone hovering and jittering in place. Trailing the velocity is a
+direction to travel rather than a distance to hold, so it converges.
+
+When the drone ahead is stationary, or only one report has arrived from it, the
+heading is undefined and the code falls back to the line-of-sight rule. That is
+well defined for a stationary leader: hold `follow_distance_m` away from it on
+your own side.
 
 This target cannot be computed without a message from another aircraft, and it
 is recomputed ten times a second from live data. That is the whole difference
@@ -378,6 +390,12 @@ between the two packages.
 
 It is horizontal only. Each drone stays on its own altitude layer, so the
 distance being held is a ground distance and the vertical separation survives.
+
+**Known rough edge.** The heading is a raw difference between two reports one
+tick apart, so it is noisy at 10 Hz, and the formation is visibly loose because
+of it. Smoothing the heading, or carrying a real velocity in `SwarmState`, is
+the obvious next step. See the status note at the top of
+[`src/swarm_comms/README.md`](../src/swarm_comms/README.md).
 
 ### When the messages stop
 

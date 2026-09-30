@@ -266,7 +266,14 @@ void FormationDrone::on_swarm_state(const SwarmState & message)
       static_cast<unsigned>(message.slot), count_);
     return;
   }
-  neighbours_[static_cast<size_t>(message.slot)] = Neighbour{message, now()};
+  std::optional<Neighbour> & entry = neighbours_[static_cast<size_t>(message.slot)];
+  if (entry) {
+    entry->previous = entry->state;
+    entry->state = message;
+    entry->received = now();
+  } else {
+    entry = Neighbour{message, now(), std::nullopt};
+  }
 }
 
 void FormationDrone::publish_swarm_state()
@@ -564,8 +571,46 @@ void FormationDrone::run_follower()
 SwarmPoint FormationDrone::chase_target(const SwarmState & ahead) const
 {
   const SwarmPoint me = my_swarm_position();
-  const double north_gap = static_cast<double>(ahead.north_m) - me.north_m;
-  const double east_gap = static_cast<double>(ahead.east_m) - me.east_m;
+  const double ahead_north = static_cast<double>(ahead.north_m);
+  const double ahead_east = static_cast<double>(ahead.east_m);
+
+  // Which way is the drone ahead travelling? A position alone cannot say, and
+  // a rule built on position alone can only ever hold a fixed RADIUS from it:
+  // aim `follow_distance_m` back along the line to the leader and, whenever
+  // that distance is already right, the target lands exactly on our own
+  // position. We stop, the leader moves on, we chase, and the target collapses
+  // onto us again. The follower slides around a circle instead of following,
+  // which is the drone that hovers and jitters in place.
+  //
+  // So trail the leader's VELOCITY instead: aim at a point `follow_distance_m`
+  // behind where it is heading. That is a direction to travel, not just a
+  // distance to hold, and it converges.
+  const std::optional<Neighbour> & entry =
+    neighbours_.at(static_cast<size_t>(slot_ - 1));
+  const std::optional<SwarmState> previous =
+    entry ? entry->previous : std::nullopt;
+
+  double heading_north = 0.0;
+  double heading_east = 0.0;
+  if (previous) {
+    heading_north = ahead_north - static_cast<double>(previous->north_m);
+    heading_east = ahead_east - static_cast<double>(previous->east_m);
+  }
+  const double heading_m = std::hypot(heading_north, heading_east);
+
+  if (heading_m >= MIN_CHASE_BASELINE_M) {
+    // It is moving. Sit behind it along its track.
+    return SwarmPoint{
+      ahead_north - follow_distance_m_ * heading_north / heading_m,
+      ahead_east - follow_distance_m_ * heading_east / heading_m,
+      -station_altitude_m()};
+  }
+
+  // It is not moving, or we have only ever seen one report from it. Fall back
+  // to the line-of-sight rule, which is at least well defined when the leader
+  // is stationary: hold `follow_distance_m` away from it on our own side.
+  const double north_gap = ahead_north - me.north_m;
+  const double east_gap = ahead_east - me.east_m;
   const double range_m = std::hypot(north_gap, east_gap);
 
   if (range_m < MIN_CHASE_BASELINE_M) {
@@ -574,13 +619,9 @@ SwarmPoint FormationDrone::chase_target(const SwarmState & ahead) const
     return SwarmPoint{me.north_m, me.east_m, -station_altitude_m()};
   }
 
-  // Note the sign: we aim at a point BEHIND the drone ahead, measured back
-  // along the line towards us. If we are closer than follow_distance_m_ the
-  // target lands behind us and we back off, which is what stops the chain
-  // from concertinaing when the leader slows down.
   return SwarmPoint{
-    static_cast<double>(ahead.north_m) - follow_distance_m_ * north_gap / range_m,
-    static_cast<double>(ahead.east_m) - follow_distance_m_ * east_gap / range_m,
+    ahead_north - follow_distance_m_ * north_gap / range_m,
+    ahead_east - follow_distance_m_ * east_gap / range_m,
     -station_altitude_m()};
 }
 
@@ -691,12 +732,20 @@ void FormationDrone::warn_if_px4_took_control() const
     phase_ == Phase::WaitingForSwarm || phase_ == Phase::Flying ||
     phase_ == Phase::Returning;
   if (airborne && !is_offboard()) {
+    const uint8_t nav_state = vehicle_status_.value().nav_state;
+    // Name the mode rather than asserting a failsafe. PX4 leaves offboard for
+    // two quite different reasons: a failsafe it decided on, or the offboard
+    // control signal going stale, which lands it in AUTO_LOITER with
+    // `failsafe` still clear. Saying "it is flying its own failsafe" for the
+    // second case sends the reader looking for a failsafe that is not there.
+    const char * reason = vehicle_status_.value().failsafe ?
+      "a failsafe is active" :
+      "the offboard setpoint stream went stale";
     RCLCPP_WARN_THROTTLE(
       get_logger(), *get_clock(), PROBLEM_REPORT_INTERVAL_MS,
-      "PX4 left offboard mode (nav_state %u, failsafe %s). It is flying its own "
-      "failsafe now and this node is not in control.",
-      vehicle_status_.value().nav_state,
-      vehicle_status_.value().failsafe ? "active" : "clear");
+      "PX4 left offboard mode (nav_state %u, %s). It is flying its own "
+      "control now and this node is not in control.",
+      static_cast<unsigned>(nav_state), reason);
   }
 }
 
@@ -727,7 +776,25 @@ bool FormationDrone::has_arrived() const
 
 uint64_t FormationDrone::px4_timestamp_us() const
 {
-  return static_cast<uint64_t>(get_clock()->now().nanoseconds() / NANOSECONDS_PER_MICROSECOND);
+  // Zero, deliberately, rather than the ROS clock.
+  //
+  // PX4 stamps incoming uORB messages with hrt_absolute_time(), which is
+  // microseconds since PX4 booted, not since the Unix epoch. The uXRCE-DDS
+  // client bridges the two by subtracting a time_offset it derives from its
+  // own time-sync handshake, and the generated deserialiser does:
+  //
+  //     if (topic.timestamp == 0) topic.timestamp = hrt_absolute_time();
+  //     else topic.timestamp = min(topic.timestamp - time_offset, hrt_absolute_time());
+  //
+  // Sending the ROS clock therefore makes every message depend on that
+  // handshake staying converged. When it does not -- PX4 logs "time jump
+  // detected" and "time sync no longer converged" -- the subtraction yields
+  // nonsense, the offboard_control_mode timestamp stops looking recent, and
+  // PX4 declares offboard control signal lost and falls back to loiter. The
+  // vehicle then sits on the ground until COM_DISARM_PRFLT disarms it.
+  //
+  // Zero takes the first branch, which needs no agreement about time at all.
+  return 0;
 }
 
 void FormationDrone::publish_offboard_control_mode()
