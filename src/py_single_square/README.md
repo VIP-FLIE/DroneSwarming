@@ -36,7 +36,7 @@ what PX4 reports.
 
 | Concept | Where |
 |---|---|
-| The PX4 offboard handshake in Python: stream, arm, switch to offboard, fly, land | `takeoff_and_fly.py`, `_tick()` |
+| The PX4 offboard handshake in Python: stream, arm, switch to offboard, fly, land | `takeoff_and_fly.py`, `_tick()` and its `_request_arming()`/`_request_offboard()`/`_advance_waypoint()` helpers |
 | The QoS profiles PX4 requires, in one importable module | `px4_qos.py` |
 | Reading PX4 telemetry and caching the latest value | `listener.py` |
 | Turning PX4's numeric enums into names at runtime | `_constants()` in `listener.py` |
@@ -64,8 +64,7 @@ next `ros2 run`. Rebuild after adding a file or changing `setup.py`.
 
 ### Run in the simulator
 
-Four terminals, plus a fifth for `listener` if you want it. In the dev container
-every terminal is ready to use. On a native install, each terminal needs
+Four terminals, plus a fifth for `listener` if you want it. Each terminal needs
 `source scripts/native/env.sh` first, unless it is in your `~/.bashrc`.
 
 ```bash

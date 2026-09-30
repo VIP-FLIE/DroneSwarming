@@ -30,8 +30,7 @@ TICK_HZ = 10.0
 SETPOINTS_BEFORE_ARM = 10            # 1 second of stream at 10 Hz
 ARM_RETRY_TICKS = 30                 # retry arm for 3 seconds (BEST_EFFORT can drop)
 WAYPOINT_RADIUS_M = 0.5
-# Read off px4_msgs rather than hardcoded, so it tracks whatever branch the
-# container was built against.
+# Read off px4_msgs rather than hardcoded, so it tracks the installed branch.
 NAV_STATE_OFFBOARD = VehicleStatus.NAVIGATION_STATE_OFFBOARD
 ARMING_STATE_ARMED = VehicleStatus.ARMING_STATE_ARMED
 
@@ -46,15 +45,15 @@ class TakeoffAndFly(Node):
         self.declare_parameter('side', 5.0)
 
         prefix = topic_prefix(self.get_parameter('px4_ns').value)
-        self.sys_id = int(self.get_parameter('sys_id').value)
-        alt = float(self.get_parameter('altitude').value)
-        side = float(self.get_parameter('side').value)
+        self.system_id = int(self.get_parameter('sys_id').value)
+        altitude_m = float(self.get_parameter('altitude').value)
+        side_m = float(self.get_parameter('side').value)
 
-        self.mode_pub = self.create_publisher(
+        self.offboard_mode_publisher = self.create_publisher(
             OffboardControlMode, f'{prefix}/fmu/in/offboard_control_mode', PX4_QOS)
-        self.setpoint_pub = self.create_publisher(
+        self.setpoint_publisher = self.create_publisher(
             TrajectorySetpoint, f'{prefix}/fmu/in/trajectory_setpoint', PX4_QOS)
-        self.command_pub = self.create_publisher(
+        self.command_publisher = self.create_publisher(
             VehicleCommand, f'{prefix}/fmu/in/vehicle_command', PX4_CMD_QOS)
 
         self.create_subscription(
@@ -64,24 +63,25 @@ class TakeoffAndFly(Node):
             VehicleStatus, f'{prefix}/fmu/out/vehicle_status_v1',
             self._on_status, PX4_QOS)
 
-        # NED. Down is negative, so -alt is alt metres above the start point.
+        # NED. Down is negative, so -altitude_m is altitude_m metres above the
+        # start point.
         self.waypoints = [
-            (0.0,   0.0,  -alt),
-            (side,  0.0,  -alt),
-            (side,  side, -alt),
-            (0.0,   side, -alt),
-            (0.0,   0.0,  -alt),
+            (0.0,      0.0,     -altitude_m),
+            (side_m,   0.0,     -altitude_m),
+            (side_m,   side_m,  -altitude_m),
+            (0.0,      side_m,  -altitude_m),
+            (0.0,      0.0,     -altitude_m),
         ]
         self.waypoint_index = 0
         self.ticks = 0
         self.position = None
         self.status = None
         self.landing = False
-        self._offboard_requested = False
+        self.offboard_requested = False
 
         self.create_timer(1.0 / TICK_HZ, self._tick)
         self.get_logger().info(
-            f'target altitude {alt} m, {side} m square, '
+            f'target altitude {altitude_m} m, {side_m} m square, '
             f'talking to {prefix or "/"}fmu/...')
 
     # -- subscriptions ------------------------------------------------------
@@ -105,31 +105,39 @@ class TakeoffAndFly(Node):
         msg.thrust_and_torque = False
         msg.direct_actuator = False
         msg.timestamp = self._stamp()
-        self.mode_pub.publish(msg)
+        self.offboard_mode_publisher.publish(msg)
 
     def _publish_setpoint(self, north, east, down, yaw=0.0):
         msg = TrajectorySetpoint()
         msg.position = [float(north), float(east), float(down)]
         msg.yaw = float(yaw)
         msg.timestamp = self._stamp()
-        self.setpoint_pub.publish(msg)
+        self.setpoint_publisher.publish(msg)
 
     def _send_command(self, command, **params):
         msg = VehicleCommand()
         msg.command = command
         for key, value in params.items():
             setattr(msg, key, float(value))
-        msg.target_system = self.sys_id
+        msg.target_system = self.system_id
         msg.target_component = 1
-        msg.source_system = self.sys_id
+        msg.source_system = self.system_id
         msg.source_component = 1
         msg.from_external = True
         msg.timestamp = self._stamp()
-        self.command_pub.publish(msg)
+        self.command_publisher.publish(msg)
 
     # -- helpers ------------------------------------------------------------
     def _is_armed(self):
         return self.status is not None and self.status.arming_state == ARMING_STATE_ARMED
+
+    def _distance_to(self, target):
+        north, east, down = target
+        position = self.position
+        return math.sqrt(
+            (position.x - north) ** 2 +
+            (position.y - east) ** 2 +
+            (position.z - down) ** 2)
 
     # -- state machine ------------------------------------------------------
     def _tick(self):
@@ -143,54 +151,54 @@ class TakeoffAndFly(Node):
         self._publish_setpoint(*target)
         self.ticks += 1
 
-        # --- Phase 0: build up the setpoint stream -------------------------
+        # Build up the setpoint stream before asking PX4 for anything.
         if self.ticks < SETPOINTS_BEFORE_ARM:
             return
-
-        # --- Phase 1: arm with retries -------------------------------------
         if not self._is_armed():
-            if self.ticks <= SETPOINTS_BEFORE_ARM + ARM_RETRY_TICKS:
-                if self.ticks == SETPOINTS_BEFORE_ARM:
-                    self.get_logger().info('sending arm command (will retry)')
-                self._send_command(
-                    VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM,
-                    param1=1.0)
-                return
-            self.get_logger().error(
-                f'arming failed after {ARM_RETRY_TICKS} retries. '
-                'Check pxh> commander status for failsafe flags.')
+            self._request_arming()
             return
-
-        # --- Phase 2: switch to offboard once armed ------------------------
         if self.status is not None and self.status.nav_state != NAV_STATE_OFFBOARD:
-            if not self._offboard_requested:
-                self.get_logger().info('armed, switching to offboard mode')
-                self._send_command(
-                    VehicleCommand.VEHICLE_CMD_DO_SET_MODE,
-                    param1=1.0, param2=6.0)
-                self._offboard_requested = True
+            self._request_offboard()
             return
+        self._advance_waypoint(target)
 
-        # --- Phase 3: fly the square ---------------------------------------
+    def _request_arming(self):
+        """Ask PX4 to arm, retrying for a few seconds."""
+        if self.ticks <= SETPOINTS_BEFORE_ARM + ARM_RETRY_TICKS:
+            if self.ticks == SETPOINTS_BEFORE_ARM:
+                self.get_logger().info('sending arm command (will retry)')
+            self._send_command(
+                VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, param1=1.0)
+            return
+        self.get_logger().error(
+            f'arming failed after {ARM_RETRY_TICKS} retries. '
+            'Check pxh> commander status for failsafe flags.')
+
+    def _request_offboard(self):
+        """Switch to offboard mode once, after arming."""
+        if self.offboard_requested:
+            return
+        self.get_logger().info('armed, switching to offboard mode')
+        self._send_command(
+            VehicleCommand.VEHICLE_CMD_DO_SET_MODE, param1=1.0, param2=6.0)
+        self.offboard_requested = True
+
+    def _advance_waypoint(self, target):
+        """Move to the next waypoint once this one is reached, then land."""
         if self.position is None:
             return
-
-        if self._distance_to(target) < WAYPOINT_RADIUS_M:
-            self.waypoint_index += 1
-            if self.waypoint_index >= len(self.waypoints):
-                self.get_logger().info('square complete, landing')
-                self._send_command(VehicleCommand.VEHICLE_CMD_NAV_LAND)
-                self.landing = True
-                return
-            n, e, d = self.waypoints[self.waypoint_index]
-            self.get_logger().info(
-                f'waypoint {self.waypoint_index}/{len(self.waypoints) - 1}: '
-                f'n={n:.1f} e={e:.1f} alt={-d:.1f}')
-
-    def _distance_to(self, target):
-        n, e, d = target
-        p = self.position
-        return math.sqrt((p.x - n) ** 2 + (p.y - e) ** 2 + (p.z - d) ** 2)
+        if self._distance_to(target) >= WAYPOINT_RADIUS_M:
+            return
+        self.waypoint_index += 1
+        if self.waypoint_index >= len(self.waypoints):
+            self.get_logger().info('square complete, landing')
+            self._send_command(VehicleCommand.VEHICLE_CMD_NAV_LAND)
+            self.landing = True
+            return
+        north, east, down = self.waypoints[self.waypoint_index]
+        self.get_logger().info(
+            f'waypoint {self.waypoint_index}/{len(self.waypoints) - 1}: '
+            f'n={north:.1f} e={east:.1f} alt={-down:.1f}')
 
 
 def main(args=None):

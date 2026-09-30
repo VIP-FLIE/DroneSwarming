@@ -16,7 +16,7 @@ the same in the air. This lists what is faithful, what is not, and the numbers.
 | Airframe and SITL params | untouched | PX4 defaults |
 | Lockstep | enabled | PX4 SITL default |
 
-Check it yourself, in the container or natively:
+Check it yourself:
 
 ```bash
 cd ~/PX4-Autopilot && git status --short   # the two deleted NuttX submodules
@@ -63,10 +63,8 @@ Software rendering delivers a third of the frame rate you asked for. A vision
 or optical-flow algorithm receives fewer frames, further apart in simulated
 time, than it will on the aircraft. Do not tune vision behavior against it.
 
-- Vision work needs a GPU. In the dev container that means an NVIDIA card and
-  the Container Toolkit: set `DOCKER_RUNTIME=nvidia` in `.devcontainer/.env`, or
-  run `./scripts/doctor.sh --write`. Natively any working GL driver renders on
-  the GPU, whatever the vendor.
+- Vision work needs a GPU. Any working GL driver renders on the GPU, whatever
+  the vendor.
 - No GPU available: lower the camera `<update_rate>` in the model SDF to what
   the machine can hold, so your code receives what it was told to expect.
 - Not using cameras: unaffected. State estimation, formation control,
@@ -115,20 +113,19 @@ loop is the bug.
 
 ## This tree cannot build firmware
 
-PX4 is set up with `--no-nuttx` in both the dev container and a native install,
-so it builds SITL only. It cannot compile firmware for a Pixhawk.
+PX4 is set up with `--no-nuttx`, so it builds SITL only. It cannot compile
+firmware for a Pixhawk.
 
 That fits the architecture: the ROS 2 nodes in `src/py_single_square/` are what goes
 on the drone's companion computer, identical between sim and hardware, and PX4
 firmware is flashed from an official release via QGroundControl.
 
 For custom firmware, drop `--no-nuttx` from the `Tools/setup/ubuntu.sh` call and
-stop pruning `platforms/nuttx/NuttX`, in `.devcontainer/Dockerfile` section 7 and
-in `scripts/native/install.sh`. Both also need `--shallow-submodules` removed
-from the PX4 clone, because `src/lib/version/px_update_git_header.py` reads the
-newest NuttX tag and a shallow submodule checkout has none, which crashes every
-build including SITL. Adds the ARM cross toolchain and about 250 MB. Make it its
-own commit.
+stop pruning `platforms/nuttx/NuttX` in `scripts/native/install.sh`. Also remove
+`--shallow-submodules` from the PX4 clone, because
+`src/lib/version/px_update_git_header.py` reads the newest NuttX tag and a
+shallow submodule checkout has none, which crashes every build including SITL.
+Adds the ARM cross toolchain and about 250 MB. Make it its own commit.
 
 ## What SITL never gets right
 

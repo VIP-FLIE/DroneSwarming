@@ -16,23 +16,6 @@
 #
 # docs/UNDER-THE-SCRIPTS.md takes this apart line by line and says which of
 # these processes also runs on a real aircraft.
-#
-# THERE ARE TWO OF THESE, AND THAT IS DELIBERATE
-# ----------------------------------------------
-# This is the native copy. The container's is .devcontainer/scripts/drone-sim.
-# They share three working lines (PX4_DIR, unset PX4_GZ_STANDALONE, and the
-# `cd` + `make`); everything else differs because the environments genuinely
-# do:
-#
-#   container   sources /tmp/drone-display.env and starts the browser desktop,
-#               since Gazebo renders to a virtual display. PX4 is baked into
-#               the image, so there is nothing to check.
-#   native      no virtual display, Gazebo opens on your desktop. You installed
-#               PX4 yourself, so it checks that it is there and built.
-#
-# drone-gcs is the other way round: the native copy is a three-line shim that
-# execs the container's Python, because 150 lines of MAVLink logic is worth
-# having exactly one copy of. Three lines of environment setup is not.
 set -o pipefail
 
 export PX4_DIR="${PX4_DIR:-$HOME/PX4-Autopilot}"

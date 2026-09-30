@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Verifies the native stack, and that it matches what the dev container runs.
+# Verifies the native stack.
 #
 #   ./scripts/native/smoke-test.sh
 #   SITL_BUDGET=300 ./scripts/native/smoke-test.sh    on a slow machine
 #
-# The container equivalent is ./smoke-test.sh, which checks the container's own
-# display stack instead of sections 3 and 6 here. Both compare the installed
-# versions against the pins in .devcontainer/Dockerfile.
+# Section 2 compares the installed versions against scripts/native/versions.env.
 #
 # NOTE: no `set -u`. ROS 2's setup.bash chain expands variables that may be
 # unset, and under `set -u` that terminates the shell on the spot.
@@ -33,7 +31,9 @@ finish_guard() {
 trap finish_guard EXIT
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-DOCKERFILE="$REPO_ROOT/.devcontainer/Dockerfile"
+VERSIONS_FILE="$REPO_ROOT/scripts/native/versions.env"
+# shellcheck source=scripts/native/versions.env
+[ -f "$VERSIONS_FILE" ] && . "$VERSIONS_FILE"
 PX4_DIR="${PX4_DIR:-$HOME/PX4-Autopilot}"
 WS_DIR="${WS_DIR:-$HOME/ros2_ws}"
 PX4_BIN="$PX4_DIR/build/px4_sitl_default/bin/px4"
@@ -48,8 +48,6 @@ SITL_LOG="$TMP/sitl.log"
 GCS_LOG="$TMP/gcs.log"
 ROS_ERR="$TMP/ros-source.err"
 PXH_FIFO="$TMP/pxh"
-
-pin() { [ -f "$DOCKERFILE" ] && sed -n "s/^ARG $1=\(.*\)$/\1/p" "$DOCKERFILE" | head -1; }
 
 # ---------------------------------------------------------------------------
 SECTION="toolchain check"
@@ -91,17 +89,16 @@ command -v MicroXRCEAgent >/dev/null && ok "Micro XRCE-DDS Agent" || no "Micro X
 
 # ---------------------------------------------------------------------------
 SECTION="version pinning check"
-echo "=== 2. Versions match the container ==="
-# Every pin comes from the Dockerfile, the one place this repo sets them, so
-# native and container cannot drift apart without this section saying so.
+echo "=== 2. Versions match the pins ==="
+# The pins live in scripts/native/versions.env, which install.sh reads too.
 
-WANT_PX4=$(pin PX4_VERSION)
-WANT_MSGS=$(pin PX4_MSGS_BRANCH)
-WANT_XRCE=$(pin XRCE_AGENT_VERSION)
+WANT_PX4="$PX4_VERSION"
+WANT_MSGS="$PX4_MSGS_BRANCH"
+WANT_XRCE="$XRCE_AGENT_VERSION"
 if [ -n "$WANT_PX4" ]; then
-    ok "read the pins from .devcontainer/Dockerfile"
+    ok "read the pins from scripts/native/versions.env"
 else
-    skip "cannot read $DOCKERFILE, nothing to compare against"
+    skip "cannot read $VERSIONS_FILE, nothing to compare against"
 fi
 
 PX4_TAG=$(cd "$PX4_DIR" 2>/dev/null && git describe --tags 2>/dev/null)
@@ -144,8 +141,8 @@ if [ -d "$PX4_DIR/.git" ]; then
         state=${entry:0:2}
         path=${entry:3}
 
-        # The two NuttX submodule trees are removed on purpose by the installer
-        # and by the container image, so git reports them deleted in both.
+        # The two NuttX submodule trees are removed on purpose by the installer,
+        # so git reports them deleted.
         case "$path" in
             platforms/nuttx/NuttX/nuttx|platforms/nuttx/NuttX/apps) continue ;;
         esac
@@ -196,8 +193,7 @@ echo "=== 3. Which Gazebo is actually in play ==="
 # Two complete copies of Harmonic end up on a native machine: the one from
 # packages.osrfoundation.org under /usr, and the one ROS 2 vendors under
 # /opt/ros/jazzy/opt/gz_*_vendor, pulled in by ros-gz. Sourcing ROS puts the
-# vendored copy first, which is also what happens inside the container. This
-# reports it rather than leaving it to chance.
+# vendored copy first. This reports it rather than leaving it to chance.
 
 GZ_RESOLVED=$(command -v gz 2>/dev/null)
 [ -n "$GZ_RESOLVED" ] && note "gz on PATH        : $GZ_RESOLVED"
@@ -346,9 +342,7 @@ fi
 # ---------------------------------------------------------------------------
 SECTION="display check"
 echo "=== 6. Graphics ==="
-# Native runs on your own session and your own GPU driver. There is no VNC
-# desktop and no VirtualGL in the path, which is the one place native beats the
-# container outright.
+# Gazebo runs on your own session and your own GPU driver.
 
 if [ -n "${WAYLAND_DISPLAY:-}" ]; then
     ok "Wayland session (${WAYLAND_DISPLAY}), Qt set to ${QT_QPA_PLATFORM:-unset}"

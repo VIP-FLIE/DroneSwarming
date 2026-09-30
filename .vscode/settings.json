@@ -1,18 +1,14 @@
 {
-    // ${workspaceFolder} and ${env:HOME} keep these correct both in the dev
-    // container (/workspaces/DroneSwarming, /home/ros) and in a native clone.
-    // The literal container paths stay listed because not every extension
-    // expands ${env:HOME}; a path that does not exist is ignored.
+    // ${workspaceFolder} and ${env:HOME} keep these correct wherever the repo is
+    // cloned.
     "python.autoComplete.extraPaths": [
         "${workspaceFolder}/install/py_single_square/lib/python3.12/site-packages",
         "${env:HOME}/ros2_ws/install/px4_msgs/lib/python3.12/site-packages",
-        "/home/ros/ros2_ws/install/px4_msgs/lib/python3.12/site-packages",
         "/opt/ros/jazzy/lib/python3.12/site-packages"
     ],
     "python.analysis.extraPaths": [
         "${workspaceFolder}/install/py_single_square/lib/python3.12/site-packages",
         "${env:HOME}/ros2_ws/install/px4_msgs/lib/python3.12/site-packages",
-        "/home/ros/ros2_ws/install/px4_msgs/lib/python3.12/site-packages",
         "/opt/ros/jazzy/lib/python3.12/site-packages"
     ],
     "cmake.sourceDirectory": "${workspaceFolder}/src/cpp_single_hop"

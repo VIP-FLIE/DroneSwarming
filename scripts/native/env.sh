@@ -5,9 +5,8 @@
 #
 # Put that line in ~/.bashrc to get it in every terminal.
 #
-# This sets up the same environment the dev container gives its shells, so a
-# node behaves the same either way. Everything here respects a value you set
-# yourself first, so `ROS_DOMAIN_ID=7 source env.sh` keeps 7.
+# Everything here respects a value you set yourself first, so
+# `ROS_DOMAIN_ID=7 source env.sh` keeps 7.
 # =============================================================================
 
 if [ -n "$BASH_SOURCE" ] && [ "$BASH_SOURCE" = "$0" ]; then
@@ -34,14 +33,12 @@ source /opt/ros/jazzy/setup.bash
 # so they are set rather than left to whatever the machine defaults to.
 export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}"
 
-# ROS 2. Fast DDS derives its ports from the domain id. The dev container sets
-# this to 0, and this matches it.
+# ROS 2. Fast DDS derives its ports from the domain id.
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
 
-# Native ROS 2 discovers nodes across the whole subnet. On a shared network
-# that means your node subscribes to someone else's drone. The dev container
-# never had the problem because Docker's network already isolated it. LOCALHOST
-# restores that. Raise it to SUBNET when you deliberately want to fly across
+# ROS 2 discovers nodes across the whole subnet. On a shared network that means
+# your node subscribes to someone else's drone. LOCALHOST limits discovery to
+# this machine. Raise it to SUBNET when you deliberately want to fly across
 # machines, and give every machine a different ROS_DOMAIN_ID when you do.
 export ROS_AUTOMATIC_DISCOVERY_RANGE="${_drone_discovery:-LOCALHOST}"
 unset _drone_discovery
@@ -54,10 +51,10 @@ export GZ_SIM_RESOURCE_PATH="$PX4_DIR/Tools/simulation/gz/models:$PX4_DIR/Tools/
 # makes it wait for a Gazebo server that nothing started.
 unset PX4_GZ_STANDALONE
 
-# Gazebo's GUI and rviz2 are Qt applications, and the container runs them on
-# xcb. Set unconditionally because a Wayland desktop session exports
-# QT_QPA_PLATFORM=wayland;xcb of its own accord, which is the case this is here
-# to override. Export it again after sourcing this file to use something else.
+# Gazebo's GUI and rviz2 are Qt applications. Set unconditionally because a
+# Wayland desktop session exports QT_QPA_PLATFORM=wayland;xcb of its own accord,
+# which is the case this is here to override. Export it again after sourcing
+# this file to use something else.
 export QT_QPA_PLATFORM=xcb
 
 # --- PATH -------------------------------------------------------------------

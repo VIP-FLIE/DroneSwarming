@@ -1,7 +1,5 @@
 {
-  // The same set .devcontainer/devcontainer.json installs in the container.
-  // This file is what gives a native checkout the same recommendations, as a
-  // prompt the first time the folder is opened.
+  // Recommended extensions, offered the first time the folder is opened.
   "recommendations": [
     "ms-python.python",
     "ms-python.vscode-pylance",
