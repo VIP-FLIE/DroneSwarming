@@ -65,7 +65,7 @@ next `ros2 run`. Rebuild after adding a file or changing `setup.py`.
 ### Run in the simulator
 
 Four terminals, plus a fifth for `listener` if you want it. Each terminal needs
-`source scripts/native/env.sh` first, unless it is in your `~/.bashrc`.
+`source scripts/env.sh` first, unless it is in your `~/.bashrc`.
 
 ```bash
 MicroXRCEAgent udp4 -p 8888      # 1. PX4 to ROS 2 bridge. Start it first
@@ -180,7 +180,7 @@ ros2 run py_single_square listener --ros-args -p px4_ns:=px4_1
 | `arming failed after 30 retries` within a few seconds of starting | PX4 was not ready to arm within 3 s, usually no `drone-gcs` or a vehicle still booting | Check `drone-gcs` is running, wait for `Ready for takeoff!`, run again |
 | `armed, switching to offboard mode`, then `arming failed` repeating | The offboard request was not acted on and PX4 disarmed | See the known problem above |
 | `No executable found` | Built before an entry point was added | Rebuild, then `source install/setup.bash` |
-| `ModuleNotFoundError: No module named 'px4_msgs'` | The `~/ros2_ws` overlay is not sourced | Open a fresh terminal, or source `scripts/native/env.sh` |
+| `ModuleNotFoundError: No module named 'px4_msgs'` | The `~/ros2_ws` overlay is not sourced | Open a fresh terminal, or source `scripts/env.sh` |
 
 ## 4. How it works
 

@@ -2,10 +2,10 @@
 # =============================================================================
 # Verifies the native stack.
 #
-#   ./scripts/native/smoke-test.sh
-#   SITL_BUDGET=300 ./scripts/native/smoke-test.sh    on a slow machine
+#   ./scripts/smoke-test.sh
+#   SITL_BUDGET=300 ./scripts/smoke-test.sh    on a slow machine
 #
-# Section 2 compares the installed versions against scripts/native/versions.env.
+# Section 2 compares the installed versions against scripts/versions.env.
 #
 # NOTE: no `set -u`. ROS 2's setup.bash chain expands variables that may be
 # unset, and under `set -u` that terminates the shell on the spot.
@@ -30,9 +30,9 @@ finish_guard() {
 }
 trap finish_guard EXIT
 
-REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-VERSIONS_FILE="$REPO_ROOT/scripts/native/versions.env"
-# shellcheck source=scripts/native/versions.env
+REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+VERSIONS_FILE="$REPO_ROOT/scripts/versions.env"
+# shellcheck source=scripts/versions.env
 [ -f "$VERSIONS_FILE" ] && . "$VERSIONS_FILE"
 PX4_DIR="${PX4_DIR:-$HOME/PX4-Autopilot}"
 WS_DIR="${WS_DIR:-$HOME/ros2_ws}"
@@ -85,18 +85,18 @@ fi
 command -v MicroXRCEAgent >/dev/null && ok "Micro XRCE-DDS Agent" || no "Micro XRCE-DDS Agent"
 [ -d "$PX4_DIR" ] && ok "PX4 source at $PX4_DIR" || no "PX4 source at $PX4_DIR"
 [ -x "$PX4_BIN" ] && ok "PX4 SITL built" \
-  || no "PX4 SITL not built. Run: ./scripts/native/install.sh"
+  || no "PX4 SITL not built. Run: ./scripts/install.sh"
 
 # ---------------------------------------------------------------------------
 SECTION="version pinning check"
 echo "=== 2. Versions match the pins ==="
-# The pins live in scripts/native/versions.env, which install.sh reads too.
+# The pins live in scripts/versions.env, which install.sh reads too.
 
 WANT_PX4="$PX4_VERSION"
 WANT_MSGS="$PX4_MSGS_BRANCH"
 WANT_XRCE="$XRCE_AGENT_VERSION"
 if [ -n "$WANT_PX4" ]; then
-    ok "read the pins from scripts/native/versions.env"
+    ok "read the pins from scripts/versions.env"
 else
     skip "cannot read $VERSIONS_FILE, nothing to compare against"
 fi
@@ -112,7 +112,7 @@ MSGS_BR=$(cd "$WS_DIR/src/px4_msgs" 2>/dev/null && git rev-parse --abbrev-ref HE
 if [ -f "$STAMP" ]; then
     HAVE_XRCE=$(sed -n 's/^XRCE_AGENT_VERSION=//p' "$STAMP")
     [ "$HAVE_XRCE" = "$WANT_XRCE" ] && ok "XRCE-DDS Agent $WANT_XRCE" \
-      || no "XRCE-DDS Agent is $HAVE_XRCE, expected $WANT_XRCE. Run: ./scripts/native/install.sh --rebuild-agent"
+      || no "XRCE-DDS Agent is $HAVE_XRCE, expected $WANT_XRCE. Run: ./scripts/install.sh --rebuild-agent"
 else
     skip "no install stamp at $STAMP, cannot tell which agent version is installed"
 fi
@@ -285,7 +285,7 @@ if [ -x "$PX4_BIN" ]; then
         case "$GZ_LINKED" in
             *gz-transport13*) ok "PX4 is bound to Harmonic's transport library" ;;
             *) no "PX4 loads $GZ_LINKED, which is not Harmonic (gz-transport13)"
-               note "Rebuild it against Harmonic: ./scripts/native/install.sh --rebuild-px4" ;;
+               note "Rebuild it against Harmonic: ./scripts/install.sh --rebuild-px4" ;;
         esac
     else
         skip "could not read the Gazebo library PX4 links against"
@@ -297,7 +297,7 @@ SECTION="ROS 2 check"
 echo "=== 4. ROS 2 works ==="
 ROS_PKGS=$(ros2 pkg list 2>/dev/null)
 grep -q '^px4_msgs$' <<< "$ROS_PKGS" && ok "px4_msgs importable" \
-  || no "px4_msgs not built. Run: ./scripts/native/install.sh --rebuild-msgs"
+  || no "px4_msgs not built. Run: ./scripts/install.sh --rebuild-msgs"
 ros2 interface show px4_msgs/msg/VehicleLocalPosition >/dev/null 2>&1 \
   && ok "VehicleLocalPosition message" || no "VehicleLocalPosition message"
 grep -q '^py_single_square$' <<< "$ROS_PKGS" && ok "py_single_square built" \
@@ -320,7 +320,7 @@ case "${ROS_AUTOMATIC_DISCOVERY_RANGE:-}" in
     LOCALHOST|OFF) ok "discovery limited to this machine (${ROS_AUTOMATIC_DISCOVERY_RANGE})" ;;
     "") no "ROS_AUTOMATIC_DISCOVERY_RANGE is unset, so discovery reaches your whole subnet"
         note "A teammate running this at the same time appears as extra drones on your topics."
-        note "Fix: source scripts/native/env.sh" ;;
+        note "Fix: source scripts/env.sh" ;;
     *)  skip "discovery range is ${ROS_AUTOMATIC_DISCOVERY_RANGE}, which reaches other machines" ;;
 esac
 
@@ -340,7 +340,7 @@ else
     # PX4 refuses to arm without a ground control station, so supply one. The
     # failsafe stays at NAV_DLL_ACT 2, which is the point.
     GCS_BIN=$(command -v drone-gcs 2>/dev/null)
-    [ -z "$GCS_BIN" ] && GCS_BIN="$REPO_ROOT/scripts/native/bin/drone-gcs"
+    [ -z "$GCS_BIN" ] && GCS_BIN="$REPO_ROOT/scripts/drone-gcs"
     GCS_PID=""
     if [ -x "$GCS_BIN" ]; then
         "$GCS_BIN" > "$GCS_LOG" 2>&1 &

@@ -1,7 +1,7 @@
 # =============================================================================
 # Environment for running the stack natively. Source it, do not execute it.
 #
-#   source /path/to/DroneSwarming/scripts/native/env.sh
+#   source /path/to/DroneSwarming/scripts/env.sh
 #
 # Put that line in ~/.bashrc to get it in every terminal.
 #
@@ -14,7 +14,7 @@ if [ -n "$BASH_SOURCE" ] && [ "$BASH_SOURCE" = "$0" ]; then
     exit 1
 fi
 
-_drone_env_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+_drone_env_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
 # --- ROS 2 ------------------------------------------------------------------
 # Read before sourcing ROS. ROS 2 Jazzy ships an environment hook
@@ -60,8 +60,8 @@ export QT_QPA_PLATFORM=xcb
 # --- PATH -------------------------------------------------------------------
 # drone-sim and drone-gcs.
 case ":$PATH:" in
-    *":$_drone_env_root/scripts/native/bin:"*) ;;
-    *) export PATH="$_drone_env_root/scripts/native/bin:$PATH" ;;
+    *":$_drone_env_root/scripts:"*) ;;
+    *) export PATH="$_drone_env_root/scripts:$PATH" ;;
 esac
 # PX4's build tooling installs here.
 case ":$PATH:" in

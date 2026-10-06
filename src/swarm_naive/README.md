@@ -78,7 +78,7 @@ launch. An edit to `waypoint_drone.cpp` needs a rebuild.
 
 ### Run in the simulator
 
-Three terminals. Each terminal needs `source scripts/native/env.sh` first,
+Three terminals. Each terminal needs `source scripts/env.sh` first,
 unless it is in your `~/.bashrc`.
 
 Do not run `drone-sim`. The launch file starts its own PX4 instances and
@@ -412,5 +412,5 @@ measures the first.
 |---|---|
 | The same flight with the drones talking | [`../swarm_comms`](../swarm_comms/README.md) |
 | Both swarm packages side by side | [docs/SWARM.md](../../docs/SWARM.md) |
-| What the launch file replaces, by hand | "More than one drone" in [QUICKSTART.md](../../QUICKSTART.md) |
+| What the launch file replaces, by hand | "More than one drone" in [HOW-IT-WORKS.md](../../docs/simulation/HOW-IT-WORKS.md) |
 | The PX4 binary without any scripts | [docs/UNDER-THE-SCRIPTS.md](../../docs/UNDER-THE-SCRIPTS.md) |

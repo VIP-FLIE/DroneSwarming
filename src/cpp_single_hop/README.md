@@ -53,7 +53,7 @@ This is C++, so every edit to the source needs a rebuild.
 
 ### Run in the simulator
 
-Four terminals. Each terminal needs `source scripts/native/env.sh` first, unless
+Four terminals. Each terminal needs `source scripts/env.sh` first, unless
 it is in your `~/.bashrc`.
 
 ```bash
@@ -124,7 +124,7 @@ ros2 run cpp_single_hop hop --ros-args -p px4_ns:=px4_1 -p system_id:=2
 | `Package 'cpp_single_hop' not found` | Overlay not sourced in this terminal | `source install/setup.bash` |
 | Exits at once with `altitude_m must be greater than zero.` | Bad parameter | Pass a positive altitude |
 
-The full table for the stack is in [QUICKSTART.md](../../QUICKSTART.md).
+The full table for the stack is in [HOW-IT-WORKS.md](../../docs/simulation/HOW-IT-WORKS.md).
 
 ## 4. How it works
 

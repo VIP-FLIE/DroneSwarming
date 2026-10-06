@@ -639,10 +639,11 @@ void FormationDrone::check_separation()
     if (!state) {
       continue;
     }
+    const double north_error = static_cast<double>(state->north_m) - me.north_m;
+    const double east_error = static_cast<double>(state->east_m) - me.east_m;
+    const double down_error = static_cast<double>(state->down_m) - me.down_m;
     const double gap_m = std::sqrt(
-      std::pow(static_cast<double>(state->north_m) - me.north_m, 2) +
-      std::pow(static_cast<double>(state->east_m) - me.east_m, 2) +
-      std::pow(static_cast<double>(state->down_m) - me.down_m, 2));
+      north_error * north_error + east_error * east_error + down_error * down_error);
     if (gap_m < closest_m) {
       closest_m = gap_m;
       closest_slot = slot;

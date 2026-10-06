@@ -1,20 +1,10 @@
-# Worlds: flying somewhere other than the grey void
+# Worlds
 
-> **Convention:** In examples that show you creating your own world, names like
-> `your_world` are placeholders. Use the name you choose.
+The blank grey ground is PX4's `default.sdf`: a flat plane and one light.
 
-The blank grey ground is a real world file, PX4's `default.sdf`. It contains a
-flat plane and one light.
+A map in Gazebo is a world (one `.sdf` file). Your code does not change. The world is a Gazebo concern. PX4 publishes the same topics. `ros2 run cpp_single_hop hop` behaves identically in all worlds.
 
-A map in Gazebo is a **world**, and a world is one `.sdf` file. This document
-covers picking a different one, writing your own, and getting your own in front
-of PX4.
-
-Your code does not change for any of this. The world is a Gazebo concern. PX4
-publishes the same topics, your node subscribes to the same topics, and
-`ros2 run cpp_single_hop hop` behaves identically in all of them.
-
-## Fly in a world PX4 already ships
+## Fly in a world PX4 ships
 
 One environment variable, no rebuild:
 
@@ -23,39 +13,30 @@ cd ~/PX4-Autopilot
 PX4_GZ_WORLD=lawn PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4
 ```
 
-Everything else stays as it is in [QUICKSTART.md](QUICKSTART.md): the agent,
-`drone-gcs`, then your node in the fourth terminal.
+Agent, `drone-gcs`, then your node in the fourth terminal, as in [HOW-IT-WORKS.md](HOW-IT-WORKS.md).
 
-PX4 v1.16.1 ships ten worlds. They live in
-`~/PX4-Autopilot/Tools/simulation/gz/worlds/`.
+PX4 v1.16.1 ships ten worlds in `~/PX4-Autopilot/Tools/simulation/gz/worlds/`.
 
-| `PX4_GZ_WORLD=` | What is in it | Notes |
+| `PX4_GZ_WORLD=` | Contents | Notes |
 |---|---|---|
-| `default` | Flat grey plane, one sun | The default when the variable is unset |
-| `lawn` | Green ground, sky with clouds, grid | Low render cost |
-| `walls` | Four boxes around the origin | Obstacles, and something to judge motion against |
-| `windy` | Flat plane plus a 5.4 m/s wind | Tests whether your controller holds position |
-| `forest` | Trees and grass patches | Downloads from Fuel on first run |
-| `baylands` | A park and a coastline, real terrain mesh | Downloads from Fuel, large, slowest to load |
-| `aruco` | A flat plane with an ArUco marker | For the camera models, `gz_x500_mono_cam` |
-| `moving_platform` | A platform that drives away | Landing on a moving target |
-| `rover` | Ground tuned for wheeled vehicles | 500 Hz physics, for the rover airframes |
-| `frictionless` | Zero friction ground | **Broken in v1.16.1, see below** |
+| `default` | Flat grey plane, one sun | Default when variable is unset |
+| `lawn` | Green ground, sky, grid | Low render cost |
+| `walls` | Four boxes around origin | Obstacles, motion reference |
+| `windy` | Flat plane, 5.4 m/s wind | Controller test |
+| `forest` | Trees and grass | Downloads from Fuel on first run |
+| `baylands` | Park and coastline, real terrain | Downloads from Fuel, slowest to load |
+| `aruco` | Flat plane with ArUco marker | For `gz_x500_mono_cam` |
+| `moving_platform` | Platform that drives away | Landing on moving target |
+| `rover` | Ground for wheeled vehicles | 500 Hz physics |
+| `frictionless` | Zero friction ground | Broken in v1.16.1 |
 
-`forest` and `baylands` pull their models from
-[Gazebo Fuel](https://app.gazebosim.org/fuel) the first time you load them, so
-the first launch needs internet and takes a few minutes with nothing on screen.
-After that they are cached in `~/.gz/fuel` and load offline.
+`forest` and `baylands` pull models from [Gazebo Fuel](https://app.gazebosim.org/fuel) on first launch. Needs internet. Cached in `~/.gz/fuel` after.
 
-`frictionless` does not start. Its file is `frictionless.sdf` but the world
-inside it is named `default`, and PX4 looks a world up by file name. Launching
-it prints `Waiting for Gazebo world...` thirty times and exits. It is the same
-mismatch the rule in [Writing your own](#writing-your-own-world) exists to
-prevent, present in PX4's own file.
+`frictionless` does not start. File is `frictionless.sdf`, world inside is named `default`. PX4 looks up by file name. Prints `Waiting for Gazebo world...` 30 times and exits.
 
 ### Running your package in one
 
-Terminal 3 is the only line that changes:
+Only terminal 3 changes:
 
 ```bash
 MicroXRCEAgent udp4 -p 8888              # 1
@@ -65,115 +46,83 @@ PX4_GZ_WORLD=walls PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4
 ros2 run cpp_single_hop hop              # 4
 ```
 
-`hop` takes off, flies 3 m forward and lands, in `walls` exactly as it does in
-`default`. `hop` contains no obstacle avoidance, so pointing it at a pillar
-flies it into one. Gazebo simulates the collision; PX4 does not know the wall is
-there.
+`hop` takes off, flies 3 m forward, lands in `walls` as in `default`. `hop` contains no obstacle avoidance. Pointing it at a pillar flies it into one. Gazebo simulates the collision; PX4 does not know the wall is there.
 
 ## What PX4 does with that variable
 
-PX4 does not accept a path to a world. Its startup script,
-`ROMFS/px4fmu_common/init.d-posix/px4-rc.gzsim`, does the equivalent of:
+PX4's startup script (`ROMFS/px4fmu_common/init.d-posix/px4-rc.gzsim`) does:
 
 ```sh
 gz sim -r -s "$PX4_GZ_WORLDS/$PX4_GZ_WORLD.sdf"     # line 54
 ```
 
-and then waits for a running world **by name**:
+Waits for a running world by name:
 
 ```sh
 gz service -i --service "/world/${PX4_GZ_WORLD}/scene/info"    # line 80
 ```
 
-Two constraints follow:
+Two constraints:
 
-1. **The world's name and its file name have to match.** The file name is what
-   gets loaded, the name is what gets waited for. A mismatch makes PX4 hang for
-   30 seconds and exit, which is what `frictionless` does.
-2. **The world has to be in PX4's own worlds directory.** `$PX4_GZ_WORLDS` is
-   set by `build/px4_sitl_default/rootfs/gz_env.sh`, generated at build time,
-   and it overwrites whatever you set. `scripts/install-worlds.sh` symlinks
-   worlds into that directory.
+1. World name and file name must match. Mismatch: 30-second hang then exit.
+2. World must be in PX4's worlds directory. `$PX4_GZ_WORLDS` is set by `build/px4_sitl_default/rootfs/gz_env.sh` at build time. `scripts/install-worlds.sh` symlinks worlds into that directory.
 
-Where the value comes from, last one wins:
+Value source, last one wins:
 
-| Source | Example | When to use it |
+| Source | Example | Use |
 |---|---|---|
-| The airframe default | `4001_gz_x500` sets `PX4_GZ_WORLD=${PX4_GZ_WORLD:=default}` | Fallback only |
-| A make target | `make px4_sitl gz_x500_lawn` | Rarely, see below |
-| The environment | `PX4_GZ_WORLD=lawn PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4` | Always |
+| Airframe default | `4001_gz_x500` sets `PX4_GZ_WORLD=${PX4_GZ_WORLD:=default}` | Fallback |
+| Make target | `make px4_sitl gz_x500_lawn` | Rarely |
+| Environment | `PX4_GZ_WORLD=lawn PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4` | Always |
 
-The make targets are generated by globbing the worlds directory at CMake
-configure time (`src/modules/simulation/gz_bridge/CMakeLists.txt`), one target
-per model and world pair, named `gz_<model>_<world>`. A world you add today does
-not get a target until PX4 is reconfigured. The environment variable needs no
-rebuild.
+Make targets are generated by globbing the worlds directory at CMake configure time. A world added today needs a PX4 reconfigure for a target. The environment variable needs no rebuild.
 
 ## Writing your own world
 
-[`../../worlds/vip_field.sdf`](../../worlds/vip_field.sdf) is a worked example
-built to be copied: grass, four pillars on a 20 m square, a landing pad, and
-two instances of a model of our own. Every block in it is commented with what it
-does and what it costs you.
+[`../../worlds/vip_field.sdf`](../../worlds/vip_field.sdf) is a worked example: grass, four pillars on a 20 m square, landing pad, two instances of a local model. Every block is commented.
 
 ```bash
-./scripts/install-worlds.sh          # link this repo's worlds into PX4
+./scripts/install-worlds.sh          # link worlds into PX4
 cd ~/PX4-Autopilot
 PX4_GZ_WORLD=vip_field PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4
 ```
 
-Start your own by copying it:
+Start your own:
 
 ```bash
 cp worlds/vip_field.sdf worlds/your_world.sdf
 ```
 
-Then, in order:
-
-1. **Rename the world inside the file.** `<world name="your_world">` has to
-   match the file name. `install-worlds.sh` refuses to link a file that gets
-   this wrong rather than letting you find out through a 30 second hang.
-2. Edit the contents. Models are positioned by `<pose>x y z roll pitch yaw</pose>`,
-   in metres and radians, ENU, so `+y` is north and `+z` is up.
-3. Check the XML before you launch anything:
+1. **Rename the world inside the file.** `<world name="your_world">` must match the file name. `install-worlds.sh` refuses a mismatch.
+2. Edit contents. `<pose>x y z roll pitch yaw</pose>`, metres and radians, ENU: `+y` north, `+z` up.
+3. Validate XML:
    ```bash
    gz sdf -k worlds/your_world.sdf
    ```
-   It prints `Valid.` or the line number of the problem. It does not resolve
-   `model://` URIs, so `Unable to find uri[model://...]` from this command
-   alone is expected; it is not a fault.
-4. Link it in and fly it:
+   Prints `Valid.` or the line number. Does not resolve `model://` URIs.
+4. Link and fly:
    ```bash
    ./scripts/install-worlds.sh
    cd ~/PX4-Autopilot
    PX4_GZ_WORLD=your_world PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4
    ```
 
-`install-worlds.sh` symlinks rather than copies, so after the first run editing
-the file in this repo is enough. Next launch picks it up. There is no colcon
-build and no PX4 rebuild in this loop.
+`install-worlds.sh` symlinks. After first run, editing the file in this repo is enough. No colcon build, no PX4 rebuild.
 
-`./scripts/install-worlds.sh --list` shows what PX4 can currently load and
-which of those are ours.
+`./scripts/install-worlds.sh --list` shows what PX4 can load and which are ours.
 
-### The four things in a world the flight code can feel
+### Four physics elements the flight code feels
 
-Everything else in an SDF world is scenery. These four are physics. Getting one
-wrong gives you a simulator that flies differently from the aircraft. See
-[SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md).
+Everything else in an SDF world is scenery. These four are physics.
 
-| Element | Value to keep | What breaks if you change it |
+| Element | Value to keep | What breaks if changed |
 |---|---|---|
-| `<max_step_size>` and `<real_time_update_rate>` | `0.004` and `250` | PX4 runs in lockstep with Gazebo. A different step rate changes the rate its estimator and controllers are fed |
-| `<gravity>` | `0 0 -9.8` | Hover throttle, and therefore every tuned gain |
-| `<magnetic_field>` | Has to match the latitude and longitude below | The simulated magnetometer reads this. If it disagrees with where the world claims to be, EKF2 fights its own declination table and yaw drifts |
-| `<spherical_coordinates>` | Any real place, `world_frame_orientation` ENU | This is where on Earth the origin is. PX4 reports GPS from it and sets home from it |
+| `<max_step_size>` and `<real_time_update_rate>` | `0.004` and `250` | PX4 lockstep. Different step rate changes estimator and controller feed rate |
+| `<gravity>` | `0 0 -9.8` | Hover throttle and every tuned gain |
+| `<magnetic_field>` | Must match coordinates | EKF2 declination table disagrees, yaw drifts |
+| `<spherical_coordinates>` | Real place, `world_frame_orientation` ENU | PX4 reports GPS from it, sets home from it |
 
-Moving a world to a real location requires updating both the coordinates and
-the magnetic field. Get the declination (D), inclination (I) and total field
-(F) for the site from the
-[NOAA magnetic field calculator](https://www.ncei.noaa.gov/products/geomagnetic-calculators),
-then, with F in tesla:
+Moving a world to a real location: update both coordinates and magnetic field. Get declination (D), inclination (I) and total field (F) from [NOAA magnetic field calculator](https://www.ncei.noaa.gov/products/geomagnetic-calculators). With F in tesla:
 
 ```
 east  = F * cos(I) * sin(D)
@@ -181,34 +130,25 @@ north = F * cos(I) * cos(D)
 up    = -F * sin(I)
 ```
 
-and write those three into `<magnetic_field>` in that order. `vip_field.sdf`
-ships on PX4's own coordinates outside Zurich with PX4's own field vector,
-which is a known-consistent pair.
+Write those three into `<magnetic_field>` in that order. `vip_field.sdf` uses PX4's own Zurich coordinates and field vector (a known-consistent pair).
 
-### What a world needs at minimum
+### Minimum world
 
-Strip `vip_field.sdf` down and this is what has to survive:
+Strip `vip_field.sdf` down. What must survive:
 
 - `<physics>`, `<gravity>`, `<magnetic_field>`, `<atmosphere>`
-- One light, or the scene is black
-- A ground plane, or the drone falls forever
+- One light (or scene is black)
+- A ground plane (or drone falls forever)
 - `<spherical_coordinates>`
-- `<scene>` is optional. `<sky/>` adds a horizon, which helps when judging
-  attitude by eye
+- `<scene>` optional. `<sky/>` adds horizon for attitude reference
 
-## Models of your own
+## Models
 
-A world is mostly `<include>` statements. There are three ways to get geometry
-into one.
+Three ways to get geometry into a world.
 
-**Write the shapes inline.** Boxes, spheres, cylinders and planes directly in
-the world file, like the pillars in `vip_field.sdf`. Right for a handful of
-primitives, unreadable past about ten.
+**Inline shapes.** Boxes, spheres, cylinders, planes directly in the world file. Right for a few primitives.
 
-**Make a model.** A model is a directory with `model.config` and `model.sdf` in
-it. [`../../worlds/models/goal_marker/`](../../worlds/models/goal_marker/) is a
-complete minimal one. Put yours next to it in `worlds/models/`, run
-`./scripts/install-worlds.sh`, and the bare name resolves from any world:
+**Make a model.** Directory with `model.config` and `model.sdf`. [`../../worlds/models/goal_marker/`](../../worlds/models/goal_marker/) is a minimal example. Put yours in `worlds/models/`, run `./scripts/install-worlds.sh`. Bare name resolves:
 
 ```xml
 <include>
@@ -218,19 +158,11 @@ complete minimal one. Put yours next to it in `worlds/models/`, run
 </include>
 ```
 
-`<name>` is required when you include the same model twice. Two entities with
-the same name is an error, and the second one silently does not appear.
+`<name>` is required when including the same model twice. Two entities with the same name: second silently does not appear.
 
-The script links `worlds/models/*/` into PX4's models directory, which is
-already on `GZ_SIM_RESOURCE_PATH`. No environment setup is needed.
+The script links `worlds/models/*/` into PX4's models directory (already on `GZ_SIM_RESOURCE_PATH`). Mesh goes in the model directory (`meshes/*.dae` or `.stl`), referenced as `<uri>model://your_model/meshes/thing.dae</uri>`. Keep collision geometry a crude box or cylinder. Collision meshes are expensive; a swarm multiplies cost.
 
-Your own mesh goes in the model directory too, usually `meshes/*.dae` or
-`.stl`, referenced as `<uri>model://your_model/meshes/thing.dae</uri>`. Keep
-the collision geometry a crude box or cylinder even when the visual is a
-detailed mesh. Collision meshes are expensive and a swarm multiplies the cost.
-
-**Take one from Fuel.** [app.gazebosim.org/fuel](https://app.gazebosim.org/fuel)
-is a library of ready models. Include by URL, spaces and all:
+**From Fuel.** [app.gazebosim.org/fuel](https://app.gazebosim.org/fuel):
 
 ```xml
 <include>
@@ -239,49 +171,28 @@ is a library of ready models. Include by URL, spaces and all:
 </include>
 ```
 
-First load downloads it, after that it is cached in `~/.gz/fuel` and works
-offline. Downloads happen while the world loads, so a world with fifty Fuel
-models in it takes a long first launch and needs internet during it. Commit
-nothing from `~/.gz/fuel` to this repo.
+First load downloads. Cached in `~/.gz/fuel`. A world with fifty Fuel models takes a long first launch and needs internet. Commit nothing from `~/.gz/fuel`.
 
 ## Building a world by clicking
 
-Gazebo can place things for you:
-
-1. Open the world in Gazebo on its own. No PX4, no drone, so nothing to arm and
-   nothing to crash:
+1. Open the world in Gazebo without PX4:
    ```bash
    gz sim worlds/vip_field.sdf
    ```
-2. Add the Resource Spawner: the vertical dots at the top right, then
-   `Resource Spawner`. It lists your local models and everything on Fuel. Drag
-   one into the scene.
-3. Move and rotate with the translate and rotate tools in the toolbar. Select
-   an entity and the Component Inspector on the left shows its exact pose.
-4. Save with `Save world as` in the menu at the top left, into this repo's
-   `worlds/`.
-5. **Read the saved file before you fly it.** The GUI writes out the whole
-   scene, and the two things to check every time are that `<world name=>` still
-   matches the file name, and that the `<physics>` block still says `0.004` and
-   `250`.
+2. Add Resource Spawner: vertical dots top right → `Resource Spawner`. Lists local models and Fuel. Drag into scene.
+3. Move/rotate with toolbar tools. Component Inspector shows exact pose.
+4. Save with `Save world as` into `worlds/`.
+5. **Read the saved file before flying.** Check `<world name=>` matches file name and `<physics>` block says `0.004` and `250`.
 
-A saved file is more verbose than a hand written one. Trim it to the parts you
-need.
+A saved file is more verbose than hand-written. Trim it.
 
 ## Worlds and swarms
 
-Every vehicle shares one world, and only the first launch creates it.
-`px4-rc.gzsim` looks for a running world before starting one (line 39), and
-when it finds one it uses that (line 64):
+Every vehicle shares one world. Only the first launch creates it. `px4-rc.gzsim` looks for a running world before starting one.
 
-- Set `PX4_GZ_WORLD` on the **first** instance. Later instances join whatever
-  is already running, and a different value on the second one is ignored
-  without a warning.
-- Let the first one finish loading before starting the second. Loading a large
-  world can take a minute.
-- Spawn positions come from `PX4_GZ_MODEL_POSE`, in world frame ENU metres.
-  Check them against your obstacles. Spawning a drone inside a pillar makes
-  Gazebo shove it out at speed, and the flight log will not explain why.
+- Set `PX4_GZ_WORLD` on the first instance. Later instances join whatever is running. A different value on the second is ignored.
+- Let the first finish loading before the second. Large worlds can take a minute.
+- Spawn positions from `PX4_GZ_MODEL_POSE` in ENU metres. Check against obstacles. Spawning inside geometry makes Gazebo shove the drone out at speed.
 
 ```bash
 PX4_GZ_WORLD=vip_field PX4_SYS_AUTOSTART=4001 PX4_SIM_MODEL=gz_x500 \
@@ -290,35 +201,27 @@ PX4_GZ_MODEL_POSE="0,3" PX4_SYS_AUTOSTART=4001 PX4_SIM_MODEL=gz_x500 \
   ./build/px4_sitl_default/bin/px4 -i 2
 ```
 
-Scenery carries a cost. Every Fuel tree, every collision mesh and every shadow
-is work the machine does instead of stepping physics, and with eight vehicles
-the real time factor is what pays. Fly the swarm in `default` or `vip_field`
-and save `baylands` for the demo. `HEADLESS=1` removes the rendering cost
-entirely while leaving the physics identical.
+Scenery costs. Every Fuel tree, collision mesh and shadow is work. With eight vehicles, RTF is what pays. Fly swarms in `default` or `vip_field`. Save `baylands` for demos. `HEADLESS=1` removes rendering cost, physics unchanged.
 
 ## Problems
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `Waiting for Gazebo world...` then `Timed out` | `<world name>` does not match the file name | Make them the same. `install-worlds.sh` catches this before launch |
-| `Starting gazebo with world: .../yours.sdf` then it exits | The file is not there. PX4 prints the path it wanted either way | `./scripts/install-worlds.sh` |
-| Gazebo opens a world chooser with a Prius in it | You ran `gz sim` with no arguments | Run `PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4` |
-| World loads, models missing, `Unable to find uri` in the log | The model is not on the resource path | `./scripts/install-worlds.sh`, then check `--list` shows it |
-| First launch of `forest` or `baylands` hangs | Fuel download in progress | Wait, with internet. It is cached afterwards |
-| Drone launches sideways at spawn | Spawned inside geometry | Move `PX4_GZ_MODEL_POSE` or move the obstacle |
-| Yaw drifts, `mag` warnings in a world you moved | `<magnetic_field>` no longer matches the coordinates | Recompute both, see the formula above |
-| Real time factor drops below 1 with a swarm | Rendering and collision cost | `HEADLESS=1`, simpler world, box collisions |
-| Your world vanished after a PX4 reinstall | The links went with the PX4 tree | `./scripts/install-worlds.sh` |
-| `git status` in `~/PX4-Autopilot` shows untracked files | Our symlinks, in a PX4 submodule | Expected. Leave them. `--remove` takes them out |
+| `Waiting for Gazebo world...` then `Timed out` | `<world name>` doesn't match file name | Make them match. `install-worlds.sh` catches this |
+| `Starting gazebo with world: .../yours.sdf` then exits | File not there | `./scripts/install-worlds.sh` |
+| Gazebo opens world chooser with Prius | Ran `gz sim` with no arguments | `PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4` |
+| World loads, models missing, `Unable to find uri` | Model not on resource path | `./scripts/install-worlds.sh`, check `--list` |
+| First launch of `forest`/`baylands` hangs | Fuel download | Wait with internet. Cached after |
+| Drone launches sideways at spawn | Spawned inside geometry | Move `PX4_GZ_MODEL_POSE` or obstacle |
+| Yaw drifts, `mag` warnings in moved world | `<magnetic_field>` doesn't match coordinates | Recompute both |
+| RTF drops below 1 with swarm | Rendering and collision cost | `HEADLESS=1`, simpler world, box collisions |
+| World vanished after PX4 reinstall | Links went with PX4 tree | `./scripts/install-worlds.sh` |
+| `git status` in `~/PX4-Autopilot` shows untracked files | Our symlinks in PX4 submodule | Expected. `--remove` takes them out |
 
 ## Reference
 
-- [SDF world specification](http://sdformat.org/spec?ver=1.9&elem=world), every
-  element and what it accepts
-- [Gazebo Fuel](https://app.gazebosim.org/fuel), the model library
-- [PX4 Gazebo simulation](https://docs.px4.io/v1.16/en/sim_gazebo_gz/), the
-  upstream page for the pinned version
-- `~/PX4-Autopilot/ROMFS/px4fmu_common/init.d-posix/px4-rc.gzsim`, the script
-  that does all of this. 191 lines, read it once
-- [SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md), what the simulator does and
-  does not reproduce
+- [SDF world specification](http://sdformat.org/spec?ver=1.9&elem=world)
+- [Gazebo Fuel](https://app.gazebosim.org/fuel)
+- [PX4 Gazebo simulation](https://docs.px4.io/v1.16/en/sim_gazebo_gz/)
+- `~/PX4-Autopilot/ROMFS/px4fmu_common/init.d-posix/px4-rc.gzsim` (191 lines)
+- [SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md)
