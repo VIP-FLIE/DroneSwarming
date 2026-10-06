@@ -2,22 +2,22 @@
 # =============================================================================
 # Installs the drone stack directly on Ubuntu 24.04 (noble) and derivatives.
 #
-#   ./scripts/native/install.sh              install or resume
-#   ./scripts/native/install.sh --rebuild-px4
-#   ./scripts/native/install.sh --skip-apt   skip every apt step
-#   JOBS=4 ./scripts/native/install.sh       cap build parallelism
+#   ./scripts/install.sh              install or resume
+#   ./scripts/install.sh --rebuild-px4
+#   ./scripts/install.sh --skip-apt   skip every apt step
+#   JOBS=4 ./scripts/install.sh       cap build parallelism
 #
 # Safe to re-run. Every step checks whether it is already done and skips.
 #
-# The versions installed here are read out of scripts/native/versions.env.
+# The versions installed here are read out of scripts/versions.env.
 #
 # NOTE: no `set -u`. ROS 2 setup files reference unset variables internally and
 # would terminate the shell.
 # =============================================================================
 set -o pipefail
 
-REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-VERSIONS_FILE="$REPO_ROOT/scripts/native/versions.env"
+REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+VERSIONS_FILE="$REPO_ROOT/scripts/versions.env"
 PX4_DIR="${PX4_DIR:-$HOME/PX4-Autopilot}"
 WS_DIR="${WS_DIR:-$HOME/ros2_ws}"
 STAMP_DIR="$HOME/.cache/drone-vip"
@@ -38,16 +38,16 @@ for arg in "$@"; do
             cat <<'USAGE'
 Installs the drone stack natively on Ubuntu 24.04 (noble) and derivatives.
 
-  ./scripts/native/install.sh                 install, or resume an interrupted one
-  ./scripts/native/install.sh --rebuild-px4   recompile PX4 SITL
-  ./scripts/native/install.sh --rebuild-msgs  rebuild px4_msgs
-  ./scripts/native/install.sh --rebuild-agent rebuild the XRCE-DDS Agent
-  ./scripts/native/install.sh --skip-apt      skip every apt step
-  JOBS=4 ./scripts/native/install.sh          cap build parallelism
+  ./scripts/install.sh                 install, or resume an interrupted one
+  ./scripts/install.sh --rebuild-px4   recompile PX4 SITL
+  ./scripts/install.sh --rebuild-msgs  rebuild px4_msgs
+  ./scripts/install.sh --rebuild-agent rebuild the XRCE-DDS Agent
+  ./scripts/install.sh --skip-apt      skip every apt step
+  JOBS=4 ./scripts/install.sh          cap build parallelism
 
 Safe to re-run. Every step checks whether it is already done and skips.
-Versions come from scripts/native/versions.env.
-Full guide: docs/NATIVE-SETUP.md
+Versions come from scripts/versions.env.
+Full guide: docs/setup/NATIVE-SETUP.md
 USAGE
             exit 0 ;;
         *) echo "unknown option: $arg" >&2; exit 2 ;;
@@ -60,7 +60,7 @@ warn()  { printf '    \033[33mWARNING\033[0m %s\n' "$*"; }
 die()   { printf '\n\033[31mSTOPPED\033[0m %s\n\n' "$*" >&2; exit 1; }
 
 [ -f "$VERSIONS_FILE" ] || die "cannot find $VERSIONS_FILE. Run this from inside the repo."
-# shellcheck source=scripts/native/versions.env
+# shellcheck source=scripts/versions.env
 . "$VERSIONS_FILE"
 
 # -----------------------------------------------------------------------------
@@ -104,7 +104,7 @@ ros_free() {
 }
 
 # Records what is installed, one KEY=VALUE per line, read back by
-# scripts/native/smoke-test.sh. Written as each step finishes rather than only
+# scripts/smoke-test.sh. Written as each step finishes rather than only
 # at the end, so a run that stops partway does not lose what it already did.
 stamp_set() {
     mkdir -p "$STAMP_DIR"
@@ -125,7 +125,7 @@ CODENAME="${VERSION_CODENAME:-$(lsb_release -cs 2>/dev/null)}"
 if [ "$CODENAME" != "noble" ]; then
     die "this installs Ubuntu 24.04 (noble) packages, and this machine is '$CODENAME'.
         ROS 2 Jazzy and Gazebo Harmonic only publish debs for noble.
-        On any other distro use a VM or WSL2: docs/SETUP.md"
+        On any other distro use a VM or WSL2: docs/setup/NATIVE-SETUP.md"
 fi
 
 ARCH=$(uname -m)
@@ -239,7 +239,7 @@ fi
 OTHER_GZ=$(dpkg -l 2>/dev/null | awk '/^ii +(gz-ionic|gz-jetty|gz-garden|gz-fortress)/{print $2}')
 if [ -n "$OTHER_GZ" ]; then
     warn "another Gazebo release is installed: $(echo "$OTHER_GZ" | tr '\n' ' ')"
-    warn "run ./scripts/native/smoke-test.sh, section 1 reports which one PX4 gets"
+    warn "run ./scripts/smoke-test.sh, section 1 reports which one PX4 gets"
 fi
 
 # =============================================================================
@@ -257,7 +257,7 @@ else
 fi
 case ":$PATH:" in
     *":$HOME/.local/bin:"*) ;;
-    *) warn "$HOME/.local/bin is not on PATH. scripts/native/env.sh adds it." ;;
+    warn "$HOME/.local/bin is not on PATH. scripts/env.sh adds it."
 esac
 
 # =============================================================================
@@ -335,7 +335,7 @@ else
     # PX4 looks for the Ionic versions first and takes them if they are present.
     if ! ( cd "$PX4_DIR" && ros_free env GZ_DISTRO=harmonic make px4_sitl_default -j"$JOBS" ); then
         die "the PX4 build failed. If the machine ran out of memory, retry with fewer jobs:
-          JOBS=2 ./scripts/native/install.sh --rebuild-px4"
+          JOBS=2 ./scripts/install.sh --rebuild-px4"
     fi
     info "PX4 built"
 fi
@@ -401,10 +401,10 @@ printf '    Total time: %dm %ds\n\n' $(( TOTAL / 60 )) $(( TOTAL % 60 ))
 cat <<NEXT
     Add this line to ~/.bashrc, then open a new terminal:
 
-        source $REPO_ROOT/scripts/native/env.sh
+        source $REPO_ROOT/scripts/env.sh
 
     Then verify the stack:
 
-        ./scripts/native/smoke-test.sh
+        ./scripts/smoke-test.sh
 
 NEXT

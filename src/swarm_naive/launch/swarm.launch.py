@@ -187,7 +187,7 @@ def _launch_swarm(context, *args, **kwargs):
     px4_binary = os.path.join(px4_dir, 'build', 'px4_sitl_default', 'bin', 'px4')
     if not os.path.isfile(px4_binary):
         raise RuntimeError(
-            f'No PX4 binary at {px4_binary}. Run ./scripts/native/install.sh, '
+            f'No PX4 binary at {px4_binary}. Run ./scripts/install.sh, '
             'or pass px4_dir:=/path/to/PX4-Autopilot.')
 
     # PX4 treats this variable as present-or-absent rather than 1-or-0, so even

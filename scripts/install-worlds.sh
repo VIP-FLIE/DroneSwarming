@@ -54,7 +54,7 @@ esac
 
 if [ ! -d "$DEST_DIR" ]; then
     echo "No PX4 worlds directory at $DEST_DIR" >&2
-    echo "PX4 is not installed yet. Run ./scripts/native/install.sh" >&2
+    echo "PX4 is not installed yet. Run ./scripts/install.sh" >&2
     exit 1
 fi
 

@@ -1,16 +1,11 @@
 """Shared QoS profile for talking to PX4 over the uXRCE-DDS bridge.
 
-This is the single most common reason a node "works" but receives nothing.
-PX4 publishes its /fmu/out/ topics as BEST_EFFORT with TRANSIENT_LOCAL
-durability. ROS 2's default subscriber profile is RELIABLE with VOLATILE
-durability. Those are incompatible, so the subscription is created without
-error, never matches the publisher, and the callback simply never fires.
+PX4 publishes /fmu/out/ topics as BEST_EFFORT with TRANSIENT_LOCAL durability.
+ROS 2 subscribers default to RELIABLE with VOLATILE durability. The mismatch
+creates the subscription without error and the callback never fires.
 
-NOTE: `ros2 topic echo` does NOT have this problem on Jazzy. It negotiates QoS
-to match the publisher and prints data with no extra flags. That is exactly
-what makes this confusing: the topic looks perfectly healthy from the command
-line while your node receives nothing. Measured here: default echo gets data
-while a plain rclpy subscription with default QoS on the same topic gets zero
+ros2 topic echo negotiates QoS on Jazzy and prints data with no extra flags.
+A plain rclpy subscription with default QoS on the same topic gets zero
 callbacks.
 """
 
@@ -21,7 +16,7 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 
-PX4_QOS = QoSProfile(
+PX4_QOS: QoSProfile = QoSProfile(
     reliability=ReliabilityPolicy.BEST_EFFORT,
     durability=DurabilityPolicy.TRANSIENT_LOCAL,
     history=HistoryPolicy.KEEP_LAST,
@@ -32,7 +27,7 @@ PX4_QOS = QoSProfile(
 # client, not as a regular subscriber. The replier uses RELIABLE + PERSISTENT
 # QoS (see srv_base.cpp). BEST_EFFORT publishers are incompatible and the
 # command is silently dropped.
-PX4_CMD_QOS = QoSProfile(
+PX4_CMD_QOS: QoSProfile = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
     durability=DurabilityPolicy.TRANSIENT_LOCAL,
     history=HistoryPolicy.KEEP_LAST,

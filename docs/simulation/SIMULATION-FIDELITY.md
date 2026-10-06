@@ -1,7 +1,6 @@
 # Simulation fidelity
 
-Code written here goes onto real X500s. This document lists what is faithful,
-what is not, and the numbers.
+Code here goes onto real X500s. What is faithful, what is not.
 
 ## Nothing in the simulation was changed
 
@@ -16,50 +15,32 @@ what is not, and the numbers.
 | Airframe and SITL params | untouched | PX4 defaults |
 | Lockstep | enabled | PX4 SITL default |
 
-Check it yourself:
+Verify:
 
 ```bash
 cd ~/PX4-Autopilot && git status --short   # the two deleted NuttX submodules
 git diff --name-only ROMFS/                # empty: no airframe or param edits
-git -C Tools/simulation/gz status --short  # added links only, nothing modified
+git -C Tools/simulation/gz status --short  # added links only
 ```
 
-The only deletions are the two NuttX submodules, which are firmware toolchain
-for real flight controllers and unused by SITL. Nothing in this repo sets a PX4
-parameter or changes one of PX4's worlds, airframes or sensor definitions.
+The only deletions are two NuttX submodules (firmware toolchain, unused by SITL). Nothing in this repo sets a PX4 parameter or changes PX4's worlds, airframes or sensor definitions.
 
-Once you have run `./scripts/install-worlds.sh`, the first command also lists
-`Tools/simulation/gz`, the submodule PX4 keeps its worlds and models in. That
-is this repo's worlds and models linked in beside PX4's own, which is the only
-way PX4 will load them, see [WORLDS.md](WORLDS.md). The links add files and
-change none of PX4's, which is what the third command shows: every line is
-`??`. `scripts/native/smoke-test.sh` reads the tree by that same rule.
+After `./scripts/install-worlds.sh`, the first command lists `Tools/simulation/gz` (this repo's worlds and models linked beside PX4's own). The links add files, change none of PX4's. The third command shows every line as `??`. `scripts/smoke-test.sh` reads the tree by the same rule.
 
-### Why the smoke test reports submodule drift
+### Smoke test submodule drift
 
-Section 2 of the smoke test prints two `note` lines on a fresh install:
+Section 2 prints two `note` lines on a fresh install:
 
 ```
 plus 7 submodule(s) at a different commit than PX4 records, expected from the installer's shallow clone
 plus 9 uninitialized submodule(s), which the installer's --recursive clone does not populate
 ```
 
-Both are expected, and neither means PX4 was edited. The installer clones with
-`--shallow-submodules` to keep about 1 GB of submodule history out of the tree,
-and a shallow submodule clone does not always land on the exact commit PX4
-records, nor does `--recursive` populate every submodule PX4 has (including the
-ones nested inside other submodules). The drifted and uninitialized submodules
-are the alternative simulators and flight-controller board trees, none of which
-the Gazebo Harmonic SITL build compiles, so they cannot change flight
-behaviour. The check still fails on a genuine edit to a tracked PX4 file; these
-notes only cover submodule entries, which are installer artifacts rather than
-edits.
+Both are expected. The installer clones with `--shallow-submodules` (~1 GB of submodule history omitted). A shallow submodule clone may not land on the exact commit PX4 records. `--recursive` does not populate every submodule PX4 has (including nested ones). The drifted and uninitialized submodules are alternative simulators and flight-controller board trees. The Gazebo Harmonic SITL build compiles none of them. The check fails on a genuine edit to a tracked PX4 file. These notes cover submodule entries (installer artifacts).
 
-## Your hardware does not change the physics
+## Hardware does not change physics
 
-PX4 SITL runs lockstep: PX4 and Gazebo step together and PX4's control loop
-runs on simulated time. A slow machine takes longer in wall-clock seconds to
-simulate the same flight. It does not drop steps or integrate more coarsely.
+PX4 SITL runs lockstep: PX4 and Gazebo step together, PX4's control loop runs on simulated time. A slow machine takes longer in wall-clock seconds. It does not drop steps or integrate more coarsely.
 
 Real-time factor, headless, no cameras, software rendering:
 
@@ -70,91 +51,54 @@ Real-time factor, headless, no cameras, software rendering:
 | 8 | 0.999 |
 | 8, limited to 4 CPU cores | 0.999 |
 
-## Cameras are the one real limit
+## Cameras
 
-Single vehicle, `x500_mono_cam`, camera configured at 30 Hz:
+Single vehicle, `x500_mono_cam`, camera at 30 Hz:
 
 | Rendering | Frames delivered | RTF |
 |---|---|---|
 | Software (llvmpipe) | 11.5 Hz | 0.744 |
 | NVIDIA GPU | 28.5 Hz | 0.999 |
 
-Software rendering delivers a third of the frame rate you asked for. A vision
-or optical-flow algorithm receives fewer frames, further apart in simulated
-time, than it will on the aircraft. Do not tune vision behavior against it.
+Software rendering delivers one third of the requested frame rate. Vision or optical-flow algorithms receive fewer frames, further apart in simulated time, than on the aircraft. Do not tune vision behavior against software rendering.
 
-- Vision work needs a GPU. Any working GL driver renders on the GPU, whatever
-  the vendor. Without one you get software rendering.
-- No GPU available: lower the camera `<update_rate>` in the model SDF to what
-  the machine can hold, so your code receives what it was told to expect.
-- Not using cameras: unaffected. State estimation, formation control,
-  trajectory planning and collision avoidance run at full fidelity anywhere.
+- Vision work needs a GPU.
+- No GPU: lower `<update_rate>` in the model SDF to what the machine can hold.
+- Not using cameras: unaffected. State estimation, formation control, trajectory planning and collision avoidance run at full fidelity.
 
 ## Satisfy PX4's checks, never disable them
 
-PX4's x500 airframe sets `NAV_DLL_ACT 2`, meaning return on datalink loss. With
-that armed PX4 refuses to arm until it sees a ground control station, same as a
-real aircraft:
+PX4's x500 airframe sets `NAV_DLL_ACT 2` (return on datalink loss). PX4 refuses to arm until it sees a ground station:
 
 ```
 WARN [commander] Arming denied: Resolve system health failures first
 WARN [health_and_arming_checks] Preflight Fail: No connection to the ground control station
 ```
 
-The common fix is `param set NAV_DLL_ACT 0`. That deletes the failsafe rather
-than supplying the link, so the simulated vehicle stops matching the real one
-when telemetry drops, and you never test the return it performs.
+`param set NAV_DLL_ACT 0` deletes the failsafe. `drone-gcs` sends GCS heartbeats and leaves `NAV_DLL_ACT` at 2. Arming goes from denied to `Armed by internal command`.
 
-`drone-gcs` sends GCS heartbeats instead, the role QGroundControl plays, and
-leaves `NAV_DLL_ACT` at 2. Arming goes from denied to `Armed by internal
-command` with the failsafe intact.
+`drone-gcs` listens on udp 14550 and heartbeats each SITL instance's port (`18570 + instance` per `px4-rc.mavlink`). Every vehicle enforces this failsafe separately. Killing `drone-gcs` mid-flight fires the datalink-loss failsafe.
 
-It listens on udp 14550 and also heartbeats each SITL instance's own GCS port,
-`18570 + instance` per `px4-rc.mavlink`. Both halves matter for a swarm: every
-vehicle enforces this failsafe separately, so a station that reaches only one
-of them leaves the rest correctly refusing to arm.
+## Watch RTF
 
-Killing `drone-gcs` mid-flight fires the datalink-loss failsafe. Apply the same
-rule to any other PX4 refusal.
+RTF in Gazebo's bottom bar:
 
-## Watch the real-time factor
+- RTF near 1.0: wall-clock and simulated time agree.
+- RTF below 1.0: physics correct, but wall-clock timers run faster relative to simulated time. Control rates, timeouts and staleness checks stop transferring.
 
-RTF in Gazebo's bottom bar is the fidelity gauge.
+Nodes in `src/py_single_square/` use `self.get_clock().now()` and `create_timer()`. `time.time()` in a control loop is the bug.
 
-- RTF near 1.0: wall-clock and simulated time agree. Wall-clock timers tick at
-  the rate they will on the drone.
-- RTF below 1.0: physics is still correct, but a node on wall-clock timers runs
-  faster relative to simulated time than it will in reality. Control rates,
-  timeouts and staleness checks stop transferring.
+## No firmware
 
-The nodes in `src/py_single_square/` use `self.get_clock().now()` and
-`create_timer()` rather than `time.time()` and `sleep()`. Keep that.
-`time.time()` in a control loop is the bug.
+PX4 is built with `--no-nuttx`: SITL only, no Pixhawk firmware. ROS 2 nodes in `src/py_single_square/` go on the companion computer, identical between sim and hardware. PX4 firmware is flashed from an official release via QGroundControl.
 
-## This tree cannot build firmware
-
-PX4 is set up with `--no-nuttx`, so it builds SITL only. It cannot compile
-firmware for a Pixhawk.
-
-That fits the architecture: the ROS 2 nodes in `src/py_single_square/` are what
-goes on the drone's companion computer, identical between sim and hardware, and
-PX4 firmware is flashed from an official release via QGroundControl.
-
-For custom firmware, drop `--no-nuttx` from the `Tools/setup/ubuntu.sh` call and
-stop pruning `platforms/nuttx/NuttX`, in `scripts/native/install.sh`. It also
-needs `--shallow-submodules` removed from the PX4 clone, because
-`src/lib/version/px_update_git_header.py` reads the newest NuttX tag and a
-shallow submodule checkout has none, which crashes every build including SITL.
-Adds the ARM cross toolchain and about 250 MB. Make it its own commit.
+For custom firmware: drop `--no-nuttx` from `Tools/setup/ubuntu.sh`, stop pruning `platforms/nuttx/NuttX`, remove `--shallow-submodules` from the PX4 clone (`src/lib/version/px_update_git_header.py` reads the newest NuttX tag; a shallow checkout has none, crashes every build including SITL). Adds the ARM cross toolchain and ~250 MB.
 
 ## What SITL never gets right
 
-- Networking. Everything is on one host here. On real drones DDS discovery runs
-  over WiFi across machines, with real latency and loss. Test that separately.
-- Sensor noise. PX4's SITL sensor models are simplified. Real IMUs, barometers
-  and GPS are noisier and drift more.
-- Compute. A companion computer is much weaker than your laptop. Profile on the
-  target.
+- Networking. One host here. Real drones: WiFi, real latency and loss. Test separately.
+- Sensor noise. SITL sensor models are simplified. Real IMUs, barometers and GPS are noisier.
+- Compute. Companion computer is weaker than a laptop. Profile on target.
 - Timing jitter. Lockstep is deterministic. Hardware is not.
 
-These four require hardware-in-the-loop and flight testing.
+These require hardware-in-the-loop and flight testing.

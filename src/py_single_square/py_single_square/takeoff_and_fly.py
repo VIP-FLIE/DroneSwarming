@@ -5,12 +5,13 @@ Run it with PX4 SITL and MicroXRCEAgent already running:
     ros2 run py_single_square fly --ros-args -p altitude:=8.0 -p side:=10.0
     ros2 run py_single_square fly --ros-args -p px4_ns:=px4_1 -p sys_id:=2
 
-Offboard mode has one rule that trips everyone up: PX4 will not accept the
-mode switch until it is already receiving a stream of setpoints, and it will
-drop out of offboard if that stream stops for more than about half a second.
-So the timer below publishes on every tick, in every state, from before the
-mode switch until after landing.
+Offboard mode has one rule: PX4 will not accept the mode switch until it is
+already receiving a stream of setpoints, and it drops out of offboard if that
+stream stops for more than about half a second. The timer below publishes on
+every tick, in every state, from before the mode switch until after landing.
 """
+
+from __future__ import annotations
 
 import math
 
@@ -23,37 +24,46 @@ from px4_msgs.msg import (
     VehicleStatus,
 )
 from rclpy.node import Node
+from rclpy.publisher import Publisher
 
 from py_single_square.px4_qos import PX4_QOS, PX4_CMD_QOS, topic_prefix
 
-TICK_HZ = 10.0
-SETPOINTS_BEFORE_ARM = 10            # 1 second of stream at 10 Hz
-ARM_RETRY_TICKS = 30                 # retry arm for 3 seconds (BEST_EFFORT can drop)
-WAYPOINT_RADIUS_M = 0.5
-# Read off px4_msgs rather than hardcoded, so it tracks the installed branch.
-NAV_STATE_OFFBOARD = VehicleStatus.NAVIGATION_STATE_OFFBOARD
-ARMING_STATE_ARMED = VehicleStatus.ARMING_STATE_ARMED
+TICK_HZ: float = 10.0
+SETPOINTS_BEFORE_ARM: int = 10
+ARMING_TIMEOUT_S: float = 60.0
+ARMING_ATTEMPT_INTERVAL_TICKS: int = 5
+ARMING_QUIET_PERIOD_S: float = 3.0
+WAYPOINT_RADIUS_M: float = 0.5
+NANOSECONDS_PER_MICROSECOND: int = 1000
+PX4_COMPONENT_ID: int = 1
+BASE_MODE_CUSTOM_ENABLED: float = 1.0
+CUSTOM_MAIN_MODE_OFFBOARD: float = 6.0
+
+NAV_STATE_OFFBOARD: int = VehicleStatus.NAVIGATION_STATE_OFFBOARD
+ARMING_STATE_ARMED: int = VehicleStatus.ARMING_STATE_ARMED
+
+Waypoint = tuple[float, float, float]
 
 
 class TakeoffAndFly(Node):
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__('takeoff_and_fly')
         self.declare_parameter('px4_ns', '')
         self.declare_parameter('sys_id', 1)
         self.declare_parameter('altitude', 5.0)
         self.declare_parameter('side', 5.0)
 
-        prefix = topic_prefix(self.get_parameter('px4_ns').value)
-        self.system_id = int(self.get_parameter('sys_id').value)
-        altitude_m = float(self.get_parameter('altitude').value)
-        side_m = float(self.get_parameter('side').value)
+        prefix: str = topic_prefix(self.get_parameter('px4_ns').value)
+        self._system_id: int = int(self.get_parameter('sys_id').value)
+        altitude_m: float = float(self.get_parameter('altitude').value)
+        side_m: float = float(self.get_parameter('side').value)
 
-        self.offboard_mode_publisher = self.create_publisher(
+        self._offboard_mode_publisher: Publisher = self.create_publisher(
             OffboardControlMode, f'{prefix}/fmu/in/offboard_control_mode', PX4_QOS)
-        self.setpoint_publisher = self.create_publisher(
+        self._setpoint_publisher: Publisher = self.create_publisher(
             TrajectorySetpoint, f'{prefix}/fmu/in/trajectory_setpoint', PX4_QOS)
-        self.command_publisher = self.create_publisher(
+        self._command_publisher: Publisher = self.create_publisher(
             VehicleCommand, f'{prefix}/fmu/in/vehicle_command', PX4_CMD_QOS)
 
         self.create_subscription(
@@ -63,21 +73,20 @@ class TakeoffAndFly(Node):
             VehicleStatus, f'{prefix}/fmu/out/vehicle_status_v1',
             self._on_status, PX4_QOS)
 
-        # NED. Down is negative, so -altitude_m is altitude_m metres above the
-        # start point.
-        self.waypoints = [
+        self._waypoints: list[Waypoint] = [
             (0.0,      0.0,     -altitude_m),
             (side_m,   0.0,     -altitude_m),
             (side_m,   side_m,  -altitude_m),
             (0.0,      side_m,  -altitude_m),
             (0.0,      0.0,     -altitude_m),
         ]
-        self.waypoint_index = 0
-        self.ticks = 0
-        self.position = None
-        self.status = None
-        self.landing = False
-        self.offboard_requested = False
+        self._waypoint_index: int = 0
+        self._ticks: int = 0
+        self._arming_attempts: int = 0
+        self._arming_start_time: rclpy.time.Time | None = None
+        self._landing: bool = False
+        self._position: VehicleLocalPosition | None = None
+        self._status: VehicleStatus | None = None
 
         self.create_timer(1.0 / TICK_HZ, self._tick)
         self.get_logger().info(
@@ -85,123 +94,129 @@ class TakeoffAndFly(Node):
             f'talking to {prefix or "/"}fmu/...')
 
     # -- subscriptions ------------------------------------------------------
-    def _on_position(self, msg):
-        self.position = msg
+    def _on_position(self, msg: VehicleLocalPosition) -> None:
+        self._position = msg
 
-    def _on_status(self, msg):
-        self.status = msg
+    def _on_status(self, msg: VehicleStatus) -> None:
+        self._status = msg
 
     # -- outgoing -----------------------------------------------------------
-    def _stamp(self):
-        return int(self.get_clock().now().nanoseconds / 1000)
+    def _stamp(self) -> int:
+        return int(self.get_clock().now().nanoseconds / NANOSECONDS_PER_MICROSECOND)
 
-    def _publish_offboard_mode(self):
+    def _publish_offboard_mode(self) -> None:
         msg = OffboardControlMode()
         msg.position = True
-        msg.velocity = False
-        msg.acceleration = False
-        msg.attitude = False
-        msg.body_rate = False
-        msg.thrust_and_torque = False
-        msg.direct_actuator = False
         msg.timestamp = self._stamp()
-        self.offboard_mode_publisher.publish(msg)
+        self._offboard_mode_publisher.publish(msg)
 
-    def _publish_setpoint(self, north, east, down, yaw=0.0):
+    def _publish_setpoint(self, north: float, east: float, down: float,
+                          yaw: float = 0.0) -> None:
         msg = TrajectorySetpoint()
-        msg.position = [float(north), float(east), float(down)]
-        msg.yaw = float(yaw)
+        msg.position = [north, east, down]
+        msg.yaw = yaw
         msg.timestamp = self._stamp()
-        self.setpoint_publisher.publish(msg)
+        self._setpoint_publisher.publish(msg)
 
-    def _send_command(self, command, **params):
+    def _send_command(self, command: int, param1: float = 0.0,
+                      param2: float = 0.0) -> None:
         msg = VehicleCommand()
         msg.command = command
-        for key, value in params.items():
-            setattr(msg, key, float(value))
-        msg.target_system = self.system_id
-        msg.target_component = 1
-        msg.source_system = self.system_id
-        msg.source_component = 1
+        msg.param1 = param1
+        msg.param2 = param2
+        msg.target_system = self._system_id
+        msg.target_component = PX4_COMPONENT_ID
+        msg.source_system = self._system_id
+        msg.source_component = PX4_COMPONENT_ID
         msg.from_external = True
         msg.timestamp = self._stamp()
-        self.command_publisher.publish(msg)
+        self._command_publisher.publish(msg)
 
     # -- helpers ------------------------------------------------------------
-    def _is_armed(self):
-        return self.status is not None and self.status.arming_state == ARMING_STATE_ARMED
+    def _is_armed(self) -> bool:
+        return self._status is not None and self._status.arming_state == ARMING_STATE_ARMED
 
-    def _distance_to(self, target):
+    def _is_offboard(self) -> bool:
+        return self._status is not None and self._status.nav_state == NAV_STATE_OFFBOARD
+
+    def _distance_to(self, target: Waypoint) -> float:
         north, east, down = target
-        position = self.position
+        if self._position is None:
+            return float('inf')
         return math.sqrt(
-            (position.x - north) ** 2 +
-            (position.y - east) ** 2 +
-            (position.z - down) ** 2)
+            (self._position.x - north) ** 2 +
+            (self._position.y - east) ** 2 +
+            (self._position.z - down) ** 2)
 
     # -- state machine ------------------------------------------------------
-    def _tick(self):
-        # Always publish, on every tick. This is the stream PX4 requires.
-        self._publish_offboard_mode()
-
-        if self.landing:
+    def _tick(self) -> None:
+        if self._landing:
+            if self._status is not None and not self._is_armed():
+                # PX4 disarms after touchdown. Flight is over.
+                self.get_logger().info('landed and disarmed. Flight complete.')
             return
 
-        target = self.waypoints[self.waypoint_index]
-        self._publish_setpoint(*target)
-        self.ticks += 1
+        self._publish_offboard_mode()
+        self._publish_setpoint(*self._waypoints[self._waypoint_index])
+        self._ticks += 1
 
         # Build up the setpoint stream before asking PX4 for anything.
-        if self.ticks < SETPOINTS_BEFORE_ARM:
+        if self._ticks < SETPOINTS_BEFORE_ARM:
             return
         if not self._is_armed():
             self._request_arming()
             return
-        if self.status is not None and self.status.nav_state != NAV_STATE_OFFBOARD:
+        if not self._is_offboard():
             self._request_offboard()
             return
-        self._advance_waypoint(target)
+        self._advance_waypoint()
 
-    def _request_arming(self):
-        """Ask PX4 to arm, retrying for a few seconds."""
-        if self.ticks <= SETPOINTS_BEFORE_ARM + ARM_RETRY_TICKS:
-            if self.ticks == SETPOINTS_BEFORE_ARM:
-                self.get_logger().info('sending arm command (will retry)')
+    def _request_arming(self) -> None:
+        if self._is_armed():
+            return
+        if self._arming_start_time is None:
+            self._arming_start_time = self.get_clock().now()
+
+        waiting_s: float = (self.get_clock().now() - self._arming_start_time).nanoseconds / 1e9
+        if waiting_s > ARMING_TIMEOUT_S:
+            self.get_logger().error(
+                f'Gave up arming after {ARMING_TIMEOUT_S:.0f} s. '
+                'Check pxh> commander status for failsafe flags.')
+            return
+
+        self._arming_attempts += 1
+        if self._arming_attempts % ARMING_ATTEMPT_INTERVAL_TICKS == 0:
             self._send_command(
                 VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, param1=1.0)
-            return
-        self.get_logger().error(
-            f'arming failed after {ARM_RETRY_TICKS} retries. '
-            'Check pxh> commander status for failsafe flags.')
+        if waiting_s >= ARMING_QUIET_PERIOD_S:
+            self.get_logger().warn(
+                f'not armed yet ({waiting_s:.0f} s of {ARMING_TIMEOUT_S:.0f}).',
+                throttle_duration_sec=5.0)
 
-    def _request_offboard(self):
-        """Switch to offboard mode once, after arming."""
-        if self.offboard_requested:
-            return
-        self.get_logger().info('armed, switching to offboard mode')
+    def _request_offboard(self) -> None:
         self._send_command(
-            VehicleCommand.VEHICLE_CMD_DO_SET_MODE, param1=1.0, param2=6.0)
-        self.offboard_requested = True
+            VehicleCommand.VEHICLE_CMD_DO_SET_MODE,
+            param1=BASE_MODE_CUSTOM_ENABLED,
+            param2=CUSTOM_MAIN_MODE_OFFBOARD)
 
-    def _advance_waypoint(self, target):
-        """Move to the next waypoint once this one is reached, then land."""
-        if self.position is None:
+    def _advance_waypoint(self) -> None:
+        if self._position is None:
             return
-        if self._distance_to(target) >= WAYPOINT_RADIUS_M:
+        if self._distance_to(self._waypoints[self._waypoint_index]) >= WAYPOINT_RADIUS_M:
             return
-        self.waypoint_index += 1
-        if self.waypoint_index >= len(self.waypoints):
+        self._waypoint_index += 1
+        if self._waypoint_index >= len(self._waypoints):
             self.get_logger().info('square complete, landing')
             self._send_command(VehicleCommand.VEHICLE_CMD_NAV_LAND)
-            self.landing = True
+            self._landing = True
             return
-        north, east, down = self.waypoints[self.waypoint_index]
+        north, east, down = self._waypoints[self._waypoint_index]
         self.get_logger().info(
-            f'waypoint {self.waypoint_index}/{len(self.waypoints) - 1}: '
+            f'waypoint {self._waypoint_index}/{len(self._waypoints) - 1}: '
             f'n={north:.1f} e={east:.1f} alt={-down:.1f}')
 
 
-def main(args=None):
+def main(args: list[str] | None = None) -> None:
     rclpy.init(args=args)
     node = TakeoffAndFly()
     try:

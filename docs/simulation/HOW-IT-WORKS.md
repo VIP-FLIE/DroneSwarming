@@ -1,28 +1,28 @@
-# How it works, and how to grow it into a swarm
+# How it works
 
-Install instructions are in
-[../setup/NATIVE-SETUP.md](../setup/NATIVE-SETUP.md) for Linux and
-[../setup/SETUP.md](../setup/SETUP.md) for macOS and Windows.
-[QUICKSTART.md](QUICKSTART.md) is the command reference.
+Install: [../setup/NATIVE-SETUP.md](../setup/NATIVE-SETUP.md).
 
-The worked example is
-[`../../src/cpp_single_hop/src/hop.cpp`](../../src/cpp_single_hop/src/hop.cpp):
-one drone, takes off, flies three metres forward, lands. The file is heavily
-commented; read it alongside this document.
+Worked example: [`../../src/cpp_single_hop/src/hop.cpp`](../../src/cpp_single_hop/src/hop.cpp). One drone, takes off, flies 3 m forward, lands. Read it alongside this document.
 
-## Run it
+## Start the stack
 
-Four terminals. The first three are the simulator. The fourth is your code.
+Four terminals:
 
 ```bash
-MicroXRCEAgent udp4 -p 8888     # 1. the bridge between PX4 and ROS 2
-drone-gcs                       # 2. the ground station link PX4 requires
-cd ~/PX4-Autopilot              # 3. PX4 + Gazebo, gives you a pxh> prompt
+MicroXRCEAgent udp4 -p 8888     # 1. PX4 to ROS 2 bridge
+drone-gcs                       # 2. ground control station link
+cd ~/PX4-Autopilot              # 3. simulator, gives a pxh> prompt
 PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4
-ros2 run cpp_single_hop hop     # 4. your flight program
+ros2 run cpp_single_hop hop     # 4. your flight code
 ```
 
-Gazebo opens a window on your desktop. Expect this output:
+Gazebo opens a window. Terminal 4 printing nothing means the agent is not connected.
+
+`drone-gcs` is required. PX4's x500 airframe sets `NAV_DLL_ACT 2` (return on datalink loss). It will not arm without a GCS. Without it: `Arming denied: Resolve system health failures first`. `param set NAV_DLL_ACT 0` deletes the failsafe. Run QGroundControl against udp 14550 for a real GCS. Killing `drone-gcs` mid-flight tests the failsafe.
+
+Terminal 3 is PX4's SITL binary. PX4 also ships `make px4_sitl gz_x500`, which builds SITL if out of date and runs it. Bare `gz sim` opens Gazebo's world chooser. For swarms and long runs: `HEADLESS=1` prefix.
+
+Expected output from `hop`:
 
 ```
 [INFO] [hop]: will climb to 3.0 m, fly 3.0 m north, and land. Commanding /fmu/.
@@ -33,308 +33,340 @@ Gazebo opens a window on your desktop. Expect this output:
 [INFO] [hop]: landed and disarmed. Flight complete.
 ```
 
-The flight parameters are ROS 2 parameters:
+Flight parameters are ROS 2 parameters:
 
 ```bash
 ros2 run cpp_single_hop hop --ros-args -p altitude_m:=6.0 -p forward_m:=10.0
 ```
 
+At the `pxh>` prompt:
+
+```
+pxh> commander takeoff
+pxh> commander land
+pxh> commander status                    # arming state, mode, failsafes
+pxh> commander mode posctl
+pxh> listener vehicle_local_position     # PX4's view of a uORB message
+```
+
+PX4's world is untextured. A blank grey 3D view is normal. Scroll to zoom.
+
+To fly with scenery: [WORLDS.md](WORLDS.md).
+
+```bash
+cd ~/PX4-Autopilot
+PX4_GZ_WORLD=lawn PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4
+```
+
+## Build and run your code
+
+```bash
+colcon build --symlink-install
+source install/setup.bash
+```
+
+`--symlink-install`: editing a Python node takes effect on next `ros2 run`. Rebuild after adding files or changing `setup.py`.
+
+Starting a package: [../development/NEW-PACKAGE.md](../development/NEW-PACKAGE.md).
+
+`src/py_single_square` has two Python nodes:
+
+```bash
+ros2 run py_single_square listener      # position, altitude, heading, mode, 1 Hz
+ros2 run py_single_square fly           # arms, goes offboard, flies a square, lands
+ros2 run py_single_square fly --ros-args -p altitude:=8.0 -p side:=10.0
+```
+
+`src/cpp_single_hop` is the C++ package:
+
+```bash
+ros2 run cpp_single_hop hop         # takes off, flies 3 m forward, lands
+ros2 run cpp_single_hop hop --ros-args -p altitude_m:=6.0 -p forward_m:=10.0
+```
+
+`src/swarm_naive` and `src/swarm_comms` are the multi-drone examples. Each starts its own PX4 instances:
+
+```bash
+ros2 launch swarm_naive swarm.launch.py    # 3 drones, none aware of the others
+ros2 launch swarm_comms swarm.launch.py    # same flight, with inter-drone communication
+ros2 launch swarm_naive swarm.launch.py --show-args
+```
+
+[../swarm/SWARM.md](../swarm/SWARM.md) covers both.
+
 ## The pipeline
 
-Your node never touches a motor. It hands PX4 a position ten times a second,
-and PX4 flies there. The path between your `for` loop and a spinning rotor:
+Your node hands PX4 a position ten times a second. PX4 flies there.
 
 ```mermaid
 flowchart TB
-    node["hop<br/>your C++ node"]
-    agent["MicroXRCEAgent<br/>udp 8888"]
-    gcs["drone-gcs<br/>udp 14550 and 18570+N"]
-    gz["Gazebo<br/>physics and the x500 airframe"]
+    node["hop / your node"]
+    agent["MicroXRCEAgent / udp 8888"]
+    gcs["drone-gcs / udp 14550 and 18570+N"]
+    gz["Gazebo / physics and x500 airframe"]
 
-    subgraph px4 ["PX4 SITL - one process per drone"]
+    subgraph px4 ["PX4 SITL, one process per drone"]
         client["uxrce_dds_client"]
-        uorb[("uORB<br/>PX4's internal bus")]
-        stack["commander<br/>position controller"]
+        uorb[("uORB / PX4 internal bus")]
+        stack["commander / position controller"]
         mav["mavlink module"]
     end
 
-    node <-->|"DDS topics<br/>/fmu/in/ and /fmu/out/"| agent
+    node <-->|"DDS topics /fmu/in/ and /fmu/out/"| agent
     agent <-->|"uXRCE-DDS over UDP"| client
     client <--> uorb
     uorb <--> stack
     uorb <--> mav
     mav <-->|"MAVLink heartbeat"| gcs
-    stack <-->|"actuator commands<br/>simulated sensors"| gz
+    stack <-->|"actuator commands / simulated sensors"| gz
 ```
 
-Each box in order:
+**Your node** publishes `TrajectorySetpoint` and `OffboardControlMode`, subscribes to `VehicleLocalPosition` and `VehicleStatus`. Ordinary ROS 2 topics.
 
-**Your node** publishes `TrajectorySetpoint` ("be at north 3, east 0, down -3")
-and `OffboardControlMode` ("act on the position field"), and subscribes to
-`VehicleLocalPosition` and `VehicleStatus`. These are ordinary ROS 2 topics.
+**MicroXRCEAgent** translates between DDS (ROS 2) and uXRCE-DDS (PX4). Must be running before PX4 starts.
 
-**MicroXRCEAgent** translates between DDS, which ROS 2 speaks, and uXRCE-DDS, a
-compact variant PX4 speaks. It has to be running before PX4 starts, or PX4's
-client gives up looking for it and no `/fmu/` topics appear.
+**uxrce_dds_client** runs inside PX4, creates `/fmu/` topics. Names are `/fmu/in/...` and `/fmu/out/...`. Not renamable from the ROS side.
 
-**uxrce_dds_client** runs inside PX4 and creates the `/fmu/` topics. Topic names
-are `/fmu/in/...` and `/fmu/out/...` because of this client, and they cannot be
-renamed from the ROS side.
+**uORB** is PX4's internal publish/subscribe bus. `px4_msgs` message definitions are byte-for-byte PX4's own.
 
-**uORB** is PX4's internal publish/subscribe bus. Every PX4 module talks over
-it. The client bridges uORB onto the network, and `px4_msgs` message
-definitions are byte-for-byte PX4's own, with no translation layer.
+**commander and position controller** are the flight stack. Commander owns arming, flight modes and failsafes. Position controller turns setpoints into attitude and thrust. Identical between SITL and a real Pixhawk.
 
-**commander and the position controller** are the flight stack. Commander owns
-arming, flight modes and failsafes; the position controller turns your setpoint
-into attitude and thrust. This part is identical between SITL and a real
-Pixhawk, so a bug in your node sends the drone to the wrong place rather than
-making it fall out of the sky.
+**Gazebo** provides physics and sensors. PX4 and Gazebo run in lockstep. A slow laptop takes longer in wall-clock seconds without changing the flight. [SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md). Gazebo is the only box in the diagram not on a real aircraft. [UNDER-THE-SCRIPTS.md](UNDER-THE-SCRIPTS.md) maps the rest onto hardware.
 
-**Gazebo** provides physics and sensors. PX4 and Gazebo run in lockstep, so a
-slow laptop takes longer in wall-clock seconds without changing the flight.
-Details in [SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md). Gazebo is the only
-box in that diagram which does not exist on a real aircraft;
-[UNDER-THE-SCRIPTS.md](UNDER-THE-SCRIPTS.md) maps the rest onto the hardware.
-
-**mavlink and drone-gcs** carry no commands from you. PX4's x500 airframe sets
-`NAV_DLL_ACT 2`, "return home on datalink loss", and PX4 refuses to take off
-with a failsafe whose precondition is already broken. `drone-gcs` supplies the
-heartbeat that satisfies it, the same role QGroundControl plays. Killing it
-mid-flight fires the datalink failsafe.
+**mavlink and drone-gcs** carry no commands from you. PX4's x500 airframe sets `NAV_DLL_ACT 2`. PX4 refuses takeoff with a failsafe whose precondition is broken. `drone-gcs` supplies the heartbeat. Killing it mid-flight fires the datalink failsafe.
 
 ## The three rules
 
-`hop.cpp` marks each rule `RULE 1/2/3` at the line that obeys it.
+`hop.cpp` marks each rule at the line that obeys it.
 
-### Rule 1: QoS has to match
+### Rule 1: QoS must match
 
-PX4 publishes `/fmu/out/` as **BEST_EFFORT** with **TRANSIENT_LOCAL**
-durability. A default ROS 2 subscriber is **RELIABLE** and **VOLATILE**. Those
-are incompatible: the subscription is created without an error, never matches
-the publisher, and the callback never fires. Nothing is logged.
+PX4 publishes `/fmu/out/` as BEST_EFFORT with TRANSIENT_LOCAL durability. ROS 2 subscribers default to RELIABLE and VOLATILE. Incompatible: the subscription is created without error, never matches the publisher, the callback never fires.
 
-`ros2 topic echo` negotiates QoS and prints data:
+`ros2 topic echo` negotiates QoS:
 
 ```bash
-ros2 topic echo /fmu/out/vehicle_local_position   # works, no flags needed
+ros2 topic echo /fmu/out/vehicle_local_position   # works
 ```
 
-The topic prints data from the command line while your node receives zero
-messages. A callback that never fires requires a QoS check.
+The topic prints data from the command line while your node receives zero messages.
 
-One exception, in `px4_command_qos()`: `/fmu/in/vehicle_command` is served by
-PX4 as a **RELIABLE** DDS replier. Arm and mode commands require a RELIABLE
-publisher, or PX4 drops them without warning.
+Use the shared profile on anything touching `/fmu/`:
+
+```python
+from py_single_square.px4_qos import PX4_QOS
+
+self.create_subscription(
+    VehicleLocalPosition, '/fmu/out/vehicle_local_position',
+    self.callback, PX4_QOS)
+```
+
+Exception: `/fmu/in/vehicle_command` is served by PX4 as a RELIABLE DDS replier. Arm and mode commands require a RELIABLE publisher.
 
 ### Rule 2: offboard needs a setpoint stream before and after
 
-PX4 will not switch into offboard mode until it is *already* receiving
-setpoints, and it drops out if the stream pauses for roughly half a second.
-`hop.cpp` publishes on every tick of every phase, including while still sitting
-on the ground waiting to arm. The `Priming` phase builds up one second of
-stream before the arm request.
-
-A drone that refuses offboard, or takes off and reverts to another mode, has a
-missing or stalled setpoint stream.
+PX4 will not enter offboard until already receiving setpoints. Drops out if the stream pauses for ~0.5 s. Publish `OffboardControlMode` every timer tick, before and after the mode switch. `hop.cpp` publishes on every tick of every phase, including before arming. The `Priming` phase builds one second of stream before the arm request.
 
 ### Rule 3: arming is a safety interlock
 
-PX4 runs preflight checks and refuses to arm until they pass. One of them is
-the datalink check described above. `hop.cpp` reads PX4's own
-`gcs_connection_lost`, `failsafe` and `pre_flight_checks_pass` fields and prints
-which one is failing.
+PX4 runs preflight checks and refuses to arm until they pass. `hop.cpp` reads `gcs_connection_lost`, `failsafe` and `pre_flight_checks_pass` and prints which is failing.
 
-The rule for this repo: **satisfy PX4's checks, never disable them.** The
-forum answer is `param set NAV_DLL_ACT 0`, which deletes the failsafe instead of
-supplying the link and makes your simulated vehicle stop matching the real one.
-See [SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md).
+Satisfy PX4's checks. Never disable them. `param set NAV_DLL_ACT 0` deletes the failsafe. [SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md).
 
 ## Frames and units
 
-**Positions are NED**: North, East, **Down**. Down is positive downwards, so
-three metres up is `z = -3`. A sign error here flies the drone into the ground.
+**Positions are NED**: North, East, Down. Down is positive downwards. 3 m up is `z = -3`.
 
-**The origin is the vehicle's own takeoff point**, wherever that drone's
-estimator started. It is not the world origin and not a shared frame. With one
-drone this is invisible. With several, "go to north 5" means a different place
-for each aircraft.
+**The origin is the vehicle's own takeoff point**, not the world origin. With one drone this is invisible. With several, "go to north 5" means a different place for each aircraft.
 
-**Gazebo's world frame is ENU**, East, North, Up; PX4's is NED. A spawn pose of
-`PX4_GZ_MODEL_POSE="0,3"` is x=0 east, y=3 north, and arrives in your node as
-`x = 3` (north). [PX4's notation page](https://docs.px4.io/v1.16/en/contribute/notation.html)
-is the reference for both frames.
+**Gazebo's world frame is ENU** (East, North, Up). PX4's is NED. Spawn pose `PX4_GZ_MODEL_POSE="0,3"` is x=0 east, y=3 north, arrives at your node as `x = 3` (north). [PX4 notation page](https://docs.px4.io/v1.16/en/contribute/notation.html).
 
-**Timestamps are microseconds** since boot, while ROS time is nanoseconds.
-`px4_timestamp_us()` does the conversion. PX4 ignores setpoints whose
-timestamps look wrong, silently.
+**Timestamps are microseconds** since boot. ROS time is nanoseconds. `px4_timestamp_us()` converts. PX4 ignores setpoints with wrong timestamps.
 
 ## Reading hop.cpp
 
-Reading order:
-
 | Read this | To understand |
 |---|---|
-| The header comment | What the program is and the three rules |
-| `Phase` enum | The whole flight, in seven words |
-| `target_position()` | The entire flight path. Two positions |
-| `run_control_tick()` | The loop. Talk to PX4 first, think second |
-| `advance_phase()` | When each phase ends and the next begins |
-| `publish_offboard_control_mode()` | Rule 2, the stream itself |
-| `publish_setpoint()` | The actual "be here" message |
-| `send_vehicle_command()` | Arm, change mode, land, and how addressing works |
-| `run_arming()` and `describe_arming_blocker()` | Rule 3, and what PX4 checks |
-| The constructor | Which topics exist and which QoS each needs |
+| Header comment | The program and three rules |
+| `Phase` enum | The flight in seven words |
+| `target_position()` | The flight path: two positions |
+| `run_control_tick()` | The loop: talk to PX4 first, think second |
+| `advance_phase()` | When each phase ends |
+| `publish_offboard_control_mode()` | Rule 2, the stream |
+| `publish_setpoint()` | The "be here" message |
+| `send_vehicle_command()` | Arm, mode, land, addressing |
+| `run_arming()` and `describe_arming_blocker()` | Rule 3 |
+| Constructor | Topics and QoS |
 
-Two details:
+`std::optional` holds telemetry. Empty means PX4 has not spoken.
 
-`std::optional` holds telemetry, rather than a pointer or a "have I heard from
-PX4 yet" flag. Empty means PX4 has not spoken yet.
-
-The drone lands about 0.4 m short of the nominal 3 m. That is
-`ARRIVAL_RADIUS_M`: "arrived" means within half a metre. A multicopter holding
-position drifts by tens of centimetres, so a tighter radius leaves the drone
-hovering and hunting the target without arriving.
+The drone lands ~0.4 m short of 3 m. `ARRIVAL_RADIUS_M` is 0.5 m. A multicopter holding position drifts by tens of cm.
 
 ## Changing the flight
 
-**Move the target.** Edit `DEFAULT_ALTITUDE_M` and `DEFAULT_FORWARD_M`, or pass
-`-p altitude_m:=6.0`. No other change is needed.
+**Move the target.** Edit `DEFAULT_ALTITUDE_M` and `DEFAULT_FORWARD_M`, or pass `-p altitude_m:=6.0`.
 
-**Fly a path instead of a point.** Replace the two positions in
-`target_position()` with a list and an index:
+**Fly a path.** Replace the two positions in `target_position()` with a list and index:
 
 ```cpp
 constexpr std::array<Position, 4> WAYPOINTS = {{
-  {0.0, 0.0, -ALTITUDE_M},   // straight up
+  {0.0, 0.0, -ALTITUDE_M},   // up
   {5.0, 0.0, -ALTITUDE_M},   // north
   {5.0, 5.0, -ALTITUDE_M},   // east
   {0.0, 0.0, -ALTITUDE_M},   // home
 }};
 ```
 
-`FlyingForward` becomes "advance the index when `has_arrived()`, and land when
-the index runs off the end". The Python node
-[`../../src/py_single_square/py_single_square/takeoff_and_fly.py`](../../src/py_single_square/py_single_square/takeoff_and_fly.py)
-implements this.
+`FlyingForward` becomes "advance index when `has_arrived()`, land when index runs off". [`../../src/py_single_square/py_single_square/takeoff_and_fly.py`](../../src/py_single_square/py_single_square/takeoff_and_fly.py) implements this.
 
-**Fly a function instead of waypoints.** Make the target a function of elapsed
-time rather than an index: a circle is `north = R*cos(2*pi*t/T)`,
-`east = R*sin(2*pi*t/T)`. The drone follows a continuous trajectory, which a
-formation requires. Feeding PX4 the derivative in `TrajectorySetpoint::velocity`
-as a feed-forward term makes it lead the moving target instead of chasing it.
+**Fly a function.** Make the target a function of elapsed time: a circle is `north = R*cos(2*pi*t/T)`, `east = R*sin(2*pi*t/T)`. Feed PX4 the derivative in `TrajectorySetpoint::velocity` as feed-forward.
 
-## Growing it into a swarm
+## More than one drone
 
-The two worked packages are `src/swarm_naive` and `src/swarm_comms`, and
-[../swarm/SWARM.md](../swarm/SWARM.md) is the guide to both. This section lists
-the problems they solve.
+Launch files do this. [../swarm/SWARM.md](../swarm/SWARM.md) is the guide.
 
-**Each drone is its own PX4 instance, with its own copy of your node.** That
-matches hardware, where every airframe carries its own companion computer and
-only ever sees its own autopilot on `/fmu/`.
+```bash
+MicroXRCEAgent udp4 -p 8888                       # 1
+drone-gcs                                         # 2
+ros2 launch swarm_naive swarm.launch.py           # 3. replaces raw PX4 command
+```
+
+Each drone is its own PX4 instance and its own copy of your node. Launch first, wait for Gazebo, then next:
 
 ```bash
 cd ~/PX4-Autopilot
 PX4_SYS_AUTOSTART=4001 PX4_SIM_MODEL=gz_x500 \
   ./build/px4_sitl_default/bin/px4 -i 1
 
-# wait for Gazebo to finish loading, then:
 PX4_SYS_AUTOSTART=4001 PX4_GZ_MODEL_POSE="0,3" PX4_SIM_MODEL=gz_x500 \
   ./build/px4_sitl_default/bin/px4 -i 2
 ```
 
-Three things are instance-dependent:
+`PX4_GZ_MODEL_POSE` is ENU: `"0,3"` is x=0, y=3 north. Arrives at your node as `x = 3`.
 
-- **Topic namespace.** Instance 0 publishes on bare `/fmu/...` like a real
-  vehicle. Instance N above 0 gets a `px4_N` prefix. The `px4_ns` parameter
-  selects the prefix, and `px4_topic_prefix()` builds it in a program that flies
-  one drone.
-- **MAVLink system id.** Instance N gets system id **N + 1**. PX4 ignores any
-  command addressed to a different system, so a wrong id produces a node that
-  runs while nothing arms.
-- **The ground station link.** Each instance runs its own link on port
-  `18570 + instance`
-  ([px4-rc.mavlink](https://github.com/PX4/PX4-Autopilot/blob/v1.16.1/ROMFS/px4fmu_common/init.d-posix/px4-rc.mavlink)).
-  A station that serves only the first vehicle leaves the rest unable to arm.
-  `drone-gcs` heartbeats every instance and counts linked systems.
+Three instance-dependent values:
 
-**The shared frame problem.** Each drone's NED origin is its own takeoff point.
-If all of them fly to "north 5, east 0" they stay in the relative positions
-they started from. Holding a formation requires each drone to convert one
-shared pattern into its own local frame, so each needs to know where it sits
-relative to the others. Two ways to get that:
+| | Instance 0 | Instance N |
+|---|---|---|
+| Topics | bare `/fmu/...` | `/px4_N/fmu/...` |
+| MAVLink system id | 1 | N + 1 |
+| GCS port | 18570 | 18570 + N |
 
-- **Tell it.** Give each node its launch offset as a parameter, and subtract.
-  The launch configuration and the flight code must agree about where each
-  drone is. In the field that number comes from a survey or an RTK fix.
-- **Arrange it.** Spawn each drone on the formation slot it will fly, so its own
-  origin is its slot and the conversion is one subtraction with no extra
-  parameter. This welds the spawn layout to the pattern.
+PX4 ignores commands addressed to a different system. Wrong system id: node runs, nothing arms.
 
-Both packages use the first. `to_local()` in either node is the conversion. The
-separate `SwarmPoint` and `LocalPoint` types make using the wrong frame a
-compile error. See [../swarm/SWARM.md](../swarm/SWARM.md).
+```bash
+ros2 run py_single_square listener --ros-args -p px4_ns:=px4_1
+ros2 run py_single_square fly --ros-args -p px4_ns:=px4_2 -p sys_id:=3
+ros2 run cpp_single_hop hop --ros-args -p px4_ns:=px4_2 -p system_id:=3
+```
 
-**The shared start problem.** A formation flown as a function of time only
-holds if every drone uses the same time. A drone that starts its pattern twenty
-seconds late is permanently in the wrong place. A readiness topic outside any
-`px4_` namespace, say `/swarm/ready`, fixes this: each drone publishes to it once
-it is at altitude and subscribes to it to count the others, and nobody starts
-until everybody has reported. The topic sits outside the `px4_` namespaces
-because on hardware every drone publishes on bare `/fmu/`, so drone-to-drone
-coordination cannot live under those names.
+`drone-gcs` prints one line per vehicle:
 
-`swarm_comms` implements this on `/swarm/state`, with one difference: the topic
-is BEST_EFFORT rather than RELIABLE. Readiness is published as a state that
-repeats ten times a second rather than as a one-off announcement, so a lost
-message costs nothing and a slow retransmit cannot hold up the swarm. Depth
-still has to be at least the number of drones. `msg/SwarmState.msg` has the
-full reasoning.
+```
+GCS link running from /usr/local/bin/drone-gcs
+Listening on udpin:0.0.0.0:14550, and heartbeating SITL instances 0-10 on ports 18570-18580.
+Linked to PX4 system 2. Datalink failsafe satisfied for 1 vehicle(s); they can arm.
+Linked to PX4 system 3. Datalink failsafe satisfied for 2 vehicle(s); they can arm.
+```
 
-**What changes on real aircraft.**
+`--expect 3` checks the count:
 
-- **The network.** Everything here is one machine and DDS discovery is free. On
-  real drones it runs over WiFi, with real latency, loss and partitions. Test
-  it separately.
+```bash
+drone-gcs --expect 3
+```
+
+Two drones flying the same path independently form a fleet. A swarm holds a formation (shared frame, shared clock). `src/swarm_naive` flies without either. `src/swarm_comms` implements both. [../swarm/SWARM.md](../swarm/SWARM.md).
+
+## Growing it into a swarm
+
+The two worked packages are `src/swarm_naive` and `src/swarm_comms`. [../swarm/SWARM.md](../swarm/SWARM.md) is the guide. Problems they solve:
+
+**Each drone is its own PX4 instance, with its own copy of your node.** Matches hardware: every airframe carries its own companion computer and sees only its own autopilot on `/fmu/`.
+
+```bash
+cd ~/PX4-Autopilot
+PX4_SYS_AUTOSTART=4001 PX4_SIM_MODEL=gz_x500 \
+  ./build/px4_sitl_default/bin/px4 -i 1
+
+# wait for Gazebo, then:
+PX4_SYS_AUTOSTART=4001 PX4_GZ_MODEL_POSE="0,3" PX4_SIM_MODEL=gz_x500 \
+  ./build/px4_sitl_default/bin/px4 -i 2
+```
+
+Three instance-dependent things:
+
+- **Topic namespace.** Instance 0: bare `/fmu/...`. Instance N > 0: `/px4_N` prefix. `px4_ns` parameter selects prefix.
+- **MAVLink system id.** Instance N: system id N + 1. Wrong id: node runs, nothing arms.
+- **Ground station link.** Each instance runs its own link on port `18570 + instance`. `drone-gcs` heartbeats every instance.
+
+**Shared frame.** Each drone's NED origin is its own takeoff point. "North 5" means a different place per aircraft. Holding a formation requires converting one shared pattern into each drone's local frame. Two approaches:
+
+- **Tell it.** Give each node its launch offset as a parameter. The launch config and flight code must agree. In the field, the number comes from a survey or RTK fix.
+- **Arrange it.** Spawn each drone on its formation slot. Its origin is its slot. Conversion is one subtraction with no extra parameter. Welds spawn layout to pattern.
+
+Both packages use the first. `to_local()` is the conversion. `SwarmPoint` and `LocalPoint` are separate types: wrong-frame usage is a compile error.
+
+**Shared start.** A formation flown as a function of time holds only if every drone uses the same time. A readiness topic (`/swarm/ready`, outside `px4_` namespaces) fixes this: each drone publishes when at altitude and subscribes to count others. Nobody starts until all report. Topic is outside `px4_` because on hardware every drone publishes on bare `/fmu/`.
+
+`swarm_comms` implements this on `/swarm/state`. Topic is BEST_EFFORT. Readiness repeats 10 Hz; a lost message costs nothing. Depth must be at least the number of drones.
+
+**What changes on real aircraft:**
+
+- **Network.** One machine here. Real drones: WiFi, real latency, loss, partitions. Test separately.
 - **One agent per drone.** `MicroXRCEAgent` runs on each companion computer.
-  The fleet does not share one agent.
-- **Position accuracy.** Formation spacing is limited by each vehicle's
-  position estimate. Plain GPS is metres; RTK is centimetres. That difference
-  sets the tightest formation you can fly.
-- **Recovery.** In simulation a bad setpoint costs a restart.
+- **Position accuracy.** Plain GPS: metres. RTK: centimetres. Sets tightest formation.
+- **Recovery.** Simulation: bad setpoint costs a restart.
+
+## Problems
+
+Run `./scripts/smoke-test.sh` first.
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Arming denied: Resolve system health failures first` | No GCS link | Run `drone-gcs`. Not `NAV_DLL_ACT 0` |
+| Gazebo shows demo worlds, no drone | Ran `gz sim` | `PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4` |
+| `Waiting for Gazebo world...` then timeout | World name doesn't match file name | [WORLDS.md](WORLDS.md) |
+| No `/fmu/` topics | Agent not running or started after PX4 | Start agent, restart PX4 |
+| Callback never fires, `ros2 topic echo` shows data | QoS mismatch | `PX4_QOS` |
+| `Standalone PX4 launch, waiting for Gazebo` | `PX4_GZ_STANDALONE` set | `unset PX4_GZ_STANDALONE` |
+| Gazebo at 2 fps | Software rendering | Smoke test section 6 |
+| Offboard rejected | Setpoint stream not running | Publish setpoints before mode change |
+| Arms then disarms | Failsafe tripped | `pxh> commander status` |
+| `ros2 run py_single_square` not found | Overlay not sourced | `source install/setup.bash` |
+| Node runs, never arms | Wrong `system_id` | Instance N needs system id N + 1 |
+| First drone flies, rest never arm | `drone-gcs` serving one vehicle | Should print one linked system per drone |
+| New drones spawn into field with existing drones | Gazebo server survived last run | `pkill -f 'gz sim'` |
 
 ## Reference
 
-Anything about PX4's behaviour should be checked against the **pinned
-version**, v1.16.1, rather than a search result. PX4 changes these conventions
-between releases.
+PX4 v1.16.1 pinned. Check behavior against it, not a search result.
 
 **PX4 and ROS 2**
 - [ROS 2 User Guide](https://docs.px4.io/v1.16/en/ros2/user_guide)
 - [Offboard Control example](https://docs.px4.io/v1.16/en/ros2/offboard_control)
 - [Offboard mode reference](https://docs.px4.io/v1.16/en/flight_modes_mc/offboard.html)
 - [uXRCE-DDS bridge](https://docs.px4.io/v1.16/en/middleware/uxrce_dds)
-- [px4_msgs, release/1.16](https://github.com/PX4/px4_msgs/tree/release/1.16/msg), the message definitions you are publishing
+- [px4_msgs, release/1.16](https://github.com/PX4/px4_msgs/tree/release/1.16/msg)
 - [Multi-vehicle with ROS 2](https://docs.px4.io/v1.16/en/ros2/multi_vehicle)
 - [Multi-vehicle in Gazebo](https://docs.px4.io/v1.16/en/sim_gazebo_gz/multi_vehicle_simulation.html)
 - [Gazebo simulation](https://docs.px4.io/v1.16/en/sim_gazebo_gz/)
-- [Safety and failsafe configuration](https://docs.px4.io/v1.16/en/config/safety.html), where `NAV_DLL_ACT` lives
+- [Safety and failsafe configuration](https://docs.px4.io/v1.16/en/config/safety.html)
 - [Parameter reference](https://docs.px4.io/v1.16/en/advanced_config/parameter_reference.html)
 - [Frame and notation conventions](https://docs.px4.io/v1.16/en/contribute/notation.html)
-- [MAVLink common messages](https://mavlink.io/en/messages/common.html), what `VehicleCommand`'s param1..7 mean
+- [MAVLink common messages](https://mavlink.io/en/messages/common.html)
 
 **ROS 2 Jazzy**
 - [Understanding topics](https://docs.ros.org/en/jazzy/Tutorials/Beginner-CLI-Tools/Understanding-ROS2-Topics/Understanding-ROS2-Topics.html)
-- [Quality of Service](https://docs.ros.org/en/jazzy/Concepts/Intermediate/About-Quality-of-Service-Settings.html), read this one properly
+- [Quality of Service](https://docs.ros.org/en/jazzy/Concepts/Intermediate/About-Quality-of-Service-Settings.html)
 - [Writing a C++ publisher and subscriber](https://docs.ros.org/en/jazzy/Tutorials/Beginner-Client-Libraries/Writing-A-Simple-Cpp-Publisher-And-Subscriber.html)
 - [Creating a package](https://docs.ros.org/en/jazzy/Tutorials/Beginner-Client-Libraries/Creating-Your-First-ROS2-Package.html)
 - [Launch files](https://docs.ros.org/en/jazzy/Tutorials/Intermediate/Launch/Creating-Launch-Files.html)
+- [Custom messages](https://docs.ros.org/en/jazzy/Tutorials/Beginner-Client-Libraries/Custom-ROS2-Interfaces.html)
 
 **This repo**
-- [../swarm/SWARM.md](../swarm/SWARM.md), the two worked multi-drone packages
-- [UNDER-THE-SCRIPTS.md](UNDER-THE-SCRIPTS.md), the stack with no wrapper scripts
-- [QUICKSTART.md](QUICKSTART.md), commands and a troubleshooting table
-- [SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md), what the simulator gets right, with numbers
-- [../setup/NATIVE-SETUP.md](../setup/NATIVE-SETUP.md), the stack installed directly on Ubuntu
-- [../setup/SETUP.md](../setup/SETUP.md), the same install inside a VM or WSL2
+- [../swarm/SWARM.md](../swarm/SWARM.md)
+- [UNDER-THE-SCRIPTS.md](UNDER-THE-SCRIPTS.md)
+- [SIMULATION-FIDELITY.md](SIMULATION-FIDELITY.md)
+- [WORLDS.md](WORLDS.md)
+- [../development/NEW-PACKAGE.md](../development/NEW-PACKAGE.md)
+- [../setup/NATIVE-SETUP.md](../setup/NATIVE-SETUP.md)

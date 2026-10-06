@@ -111,7 +111,7 @@ ros2 interface show swarm_comms/msg/SwarmState
 
 ### Run in the simulator
 
-Three terminals. Each terminal needs `source scripts/native/env.sh` first,
+Three terminals. Each terminal needs `source scripts/env.sh` first,
 unless it is in your `~/.bashrc`.
 
 Do not run `drone-sim`. The launch file starts its own PX4 instances and

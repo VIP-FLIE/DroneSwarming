@@ -7,13 +7,18 @@ For the second vehicle in a multi-vehicle sim:
     ros2 run py_single_square listener --ros-args -p px4_ns:=px4_1
 """
 
+from __future__ import annotations
+
+from typing import Any
+
 import rclpy
 from px4_msgs.msg import VehicleLocalPosition, VehicleStatus
 from rclpy.node import Node
 
 from py_single_square.px4_qos import PX4_QOS, topic_prefix
 
-def _constants(msg_class, prefix):
+
+def _constants(msg_class: type[Any], prefix: str) -> dict[int, str]:
     """Build a value -> name table from a message class's own constants.
 
     Read off px4_msgs at runtime rather than hardcoded, so these labels cannot
@@ -26,19 +31,20 @@ def _constants(msg_class, prefix):
     }
 
 
-ARMING_STATE = _constants(VehicleStatus, 'ARMING_STATE_')
-NAV_STATE = _constants(VehicleStatus, 'NAVIGATION_STATE_')
+ARMING_STATE: dict[int, str] = _constants(VehicleStatus, 'ARMING_STATE_')
+NAV_STATE: dict[int, str] = _constants(VehicleStatus, 'NAVIGATION_STATE_')
+REPORT_INTERVAL_S: float = 1.0
 
 
 class Listener(Node):
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__('listener')
         self.declare_parameter('px4_ns', '')
-        prefix = topic_prefix(self.get_parameter('px4_ns').value)
+        prefix: str = topic_prefix(self.get_parameter('px4_ns').value)
 
-        self.position = None
-        self.status = None
+        self.position: VehicleLocalPosition | None = None
+        self.status: VehicleStatus | None = None
 
         self.create_subscription(
             VehicleLocalPosition, f'{prefix}/fmu/out/vehicle_local_position',
@@ -47,23 +53,24 @@ class Listener(Node):
             VehicleStatus, f'{prefix}/fmu/out/vehicle_status_v1',
             self._on_status, PX4_QOS)
 
-        self.create_timer(1.0, self._report)
+        self.create_timer(REPORT_INTERVAL_S, self._report)
         self.get_logger().info(f'listening on {prefix or "/"}fmu/out/...')
 
-    def _on_position(self, msg):
+    def _on_position(self, msg: VehicleLocalPosition) -> None:
         self.position = msg
 
-    def _on_status(self, msg):
+    def _on_status(self, msg: VehicleStatus) -> None:
         self.status = msg
 
-    def _report(self):
+    def _report(self) -> None:
         if self.position is None:
             self.get_logger().warn(
                 'no messages yet. Is PX4 running and is MicroXRCEAgent up?')
             return
 
-        position = self.position
-        arming_state = nav_state = '?'
+        position: VehicleLocalPosition = self.position
+        arming_state: str | int = '?'
+        nav_state: str | int = '?'
         if self.status is not None:
             arming_state = ARMING_STATE.get(
                 self.status.arming_state, self.status.arming_state)
@@ -76,7 +83,7 @@ class Listener(Node):
             f'{arming_state}/{nav_state}')
 
 
-def main(args=None):
+def main(args: list[str] | None = None) -> None:
     rclpy.init(args=args)
     node = Listener()
     try:
