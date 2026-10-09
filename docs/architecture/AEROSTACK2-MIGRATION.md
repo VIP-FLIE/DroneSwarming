@@ -1,7 +1,11 @@
 # Aerostack2 Migration Plan
 
 Current environment: ROS 2 Jazzy, Gazebo Harmonic, PX4 v1.16.1, Ubuntu 24.04.
-Aerostack2 requires ROS 2 Humble, Ubuntu 22.04.
+
+Aerostack2 stable (`main` branch) targets ROS 2 Humble, Ubuntu 22.04.
+Jazzy support is available on the `preparation-to-jazzy` branch (PR #751,
+merged 2025-10-08). This branch has been tested on the Multirotor Simulator.
+More platforms need testing before it lands in `main`.
 
 ## Architecture
 
@@ -75,22 +79,39 @@ planner.
 
 ### 1. Target platform
 
-Aerostack2 requires ROS 2 Humble on Ubuntu 22.04. Options:
+Aerostack2 `main` branch requires ROS 2 Humble on Ubuntu 22.04.
+The `preparation-to-jazzy` branch runs on ROS 2 Jazzy, Ubuntu 24.04.
 
-- Install Ubuntu 22.04 alongside 24.04.
-- Run Ubuntu 22.04 in a VM or Docker container.
-- Port Aerostack2 to ROS 2 Jazzy (unsupported).
+Options:
+
+- Use the `preparation-to-jazzy` branch on the current Ubuntu 24.04 system.
+- Install Ubuntu 22.04 alongside 24.04 and use the `main` branch.
+- Run Ubuntu 22.04 in a VM or Docker container with the `main` branch.
 
 ### 2. Install Aerostack2
 
+Clone the `preparation-to-jazzy` branch for Jazzy support:
+
 ```bash
 cd ~
-git clone https://github.com/aerostack2/aerostack2.git
+git clone -b preparation-to-jazzy https://github.com/aerostack2/aerostack2.git
 cd aerostack2
 ```
 
-Follow install instructions at:
-https://aerostack2.github.io/_00_getting_started/index.html
+Build with:
+
+```bash
+colcon build --symlink-install
+```
+
+Key differences from `main`:
+
+- BehaviorTree v4 (`behaviortree_cpp`) replaces v3 (`behaviortree_cpp_v3`).
+- Gazebo default is `harmonic` instead of `fortress`.
+- `cv_bridge` headers use `.hpp` extension.
+- `ament_index_cpp` added as a dependency in several packages.
+
+Reference: https://github.com/aerostack2/aerostack2/pull/751
 
 ### 3. PX4 and Gazebo
 
@@ -149,15 +170,14 @@ in the planner. Upload. Drones execute.
 
 ## Migration steps
 
-1. Set up Ubuntu 22.04 with ROS 2 Humble for the ground station.
-2. Install Aerostack2.
-3. Extract PX4 interface code from `formation_drone.cpp` into `src/px4_interface/`.
-4. Write `src/pattern_planner/`: receives mission definition, outputs flight plan.
-5. Write `src/mission_executor/`: receives mission from planner, coordinates
+1. Install Aerostack2 from the `preparation-to-jazzy` branch on Ubuntu 24.04.
+2. Extract PX4 interface code from `formation_drone.cpp` into `src/px4_interface/`.
+3. Write `src/pattern_planner/`: receives mission definition, outputs flight plan.
+4. Write `src/mission_executor/`: receives mission from planner, coordinates
    Pattern Planner and PX4 Interface, publishes/subscribes `/swarm/state`.
-6. Write launch file for N drones.
-7. Write Aerostack2 ground control launch file.
-8. Run smoke test.
+5. Write launch file for N drones.
+6. Write Aerostack2 ground control launch file.
+7. Run smoke test.
 
 ## Reference
 
