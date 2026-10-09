@@ -1,0 +1,146 @@
+digraph G {
+    rankdir=TB
+    newrank=true
+    compound=true
+    splines=true
+    bgcolor="#1A1A2E"
+    fontcolor="#E0E0E0"
+    nodesep=2.8
+    ranksep=1.2
+    ratio=0.45
+
+    node [shape=box style="filled,rounded" fontname="Arial" fontsize=52 margin="0.65,0.55"]
+    edge [fontname="Arial" fontsize=52 penwidth=6]
+
+    // ── Drone 1 ──────────────────────────────────────────────
+    subgraph cluster_drone1 {
+        label="Drone 1"
+        fontsize=48
+        style="filled,rounded"
+        fillcolor="#16213E"
+        color="#0F3460"
+        fontcolor="#E0E0E0"
+        penwidth=2
+        margin="18,40"
+
+        subgraph cluster_d1_flight {
+            label="Flight Control"
+            fontsize=40
+            style="filled,rounded"
+            fillcolor="#1A1A2E"
+            color="#0F3460"
+            fontcolor="#E0E0E0"
+
+            px4_1 [label="PX4 Flight Controller" fillcolor="#0F3460" color="#1A5F7A" fontcolor="#FFFFFF"]
+            pxf_1 [label="PX4 Interface"          fillcolor="#0F3460" color="#1A5F7A" fontcolor="#FFFFFF"]
+
+            px4_1 -> pxf_1 [dir=both color="#16C79A" fontcolor="#16C79A" label="  uXRCE-DDS  "]
+        }
+
+        subgraph cluster_d1_autonomy {
+            label="Autonomy"
+            fontsize=40
+            style="filled,rounded"
+            fillcolor="#1A1A2E"
+            color="#533483"
+            fontcolor="#E0E0E0"
+
+            me1 [label="Mission Executor" fillcolor="#533483" color="#7B2D8E" fontcolor="#FFFFFF"]
+            pp1 [label="Pattern Planner"  fillcolor="#533483" color="#7B2D8E" fontcolor="#FFFFFF"]
+
+            me1 -> pp1 [color="#E94560" fontcolor="#E94560" label="  Mission definition  "]
+            pp1 -> me1 [color="#E94560" fontcolor="#E94560" label="  Flight plan  "]
+        }
+
+        pxf_1 -> pp1 [style=invis weight=10]
+
+        pxf_1 -> me1 [color="#E94560" fontcolor="#E94560" label="  Drone state  "]
+        me1 -> pxf_1 [color="#E94560" fontcolor="#E94560" label="  Flight commands  "]
+    }
+
+    // ── Drone 2 ──────────────────────────────────────────────
+    subgraph cluster_drone2 {
+        label="Drone 2"
+        fontsize=48
+        style="filled,rounded"
+        fillcolor="#16213E"
+        color="#0F3460"
+        fontcolor="#E0E0E0"
+        penwidth=2
+        margin="18,40"
+
+        subgraph cluster_d2_flight {
+            label="Flight Control"
+            fontsize=40
+            style="filled,rounded"
+            fillcolor="#1A1A2E"
+            color="#0F3460"
+            fontcolor="#E0E0E0"
+
+            px4_2 [label="PX4 Flight Controller" fillcolor="#0F3460" color="#1A5F7A" fontcolor="#FFFFFF"]
+            pxf_2 [label="PX4 Interface"          fillcolor="#0F3460" color="#1A5F7A" fontcolor="#FFFFFF"]
+
+            px4_2 -> pxf_2 [dir=both color="#16C79A" fontcolor="#16C79A" label="  uXRCE-DDS  "]
+        }
+
+        subgraph cluster_d2_autonomy {
+            label="Autonomy"
+            fontsize=40
+            style="filled,rounded"
+            fillcolor="#1A1A2E"
+            color="#533483"
+            fontcolor="#E0E0E0"
+
+            me2 [label="Mission Executor" fillcolor="#533483" color="#7B2D8E" fontcolor="#FFFFFF"]
+            pp2 [label="Pattern Planner"  fillcolor="#533483" color="#7B2D8E" fontcolor="#FFFFFF"]
+
+            me2 -> pp2 [color="#E94560" fontcolor="#E94560" label="  Mission definition  "]
+            pp2 -> me2 [color="#E94560" fontcolor="#E94560" label="  Flight plan  "]
+        }
+
+        pxf_2 -> pp2 [style=invis weight=10]
+
+        pxf_2 -> me2 [color="#E94560" fontcolor="#E94560" label="  Drone state  "]
+        me2 -> pxf_2 [color="#E94560" fontcolor="#E94560" label="  Flight commands  "]
+    }
+
+    // ── Decentralized: drones talk directly ──────────────────
+    me1 -> me2 [dir=both color="#F5A623" fontcolor="#F5A623" penwidth=10
+                style=dashed label="  /swarm/state  "]
+
+    // ── Aerostack2 ground control ────────────────────────────
+    subgraph cluster_aerostack {
+        label="Aerostack2 Ground Control"
+        fontsize=48
+        style="filled,rounded"
+        fillcolor="#16213E"
+        color="#1A5F7A"
+        fontcolor="#E0E0E0"
+        penwidth=2
+        margin=18
+
+        mission [label="Mission Planner" fillcolor="#1A5F7A" color="#16C79A" fontcolor="#FFFFFF"]
+        gcs     [label="Ground Station"  fillcolor="#1A5F7A" color="#16C79A" fontcolor="#FFFFFF"]
+    }
+
+    // ── Mission upload ───────────────────────────────────────
+    mission -> me1 [color="#16C79A" fontcolor="#16C79A" penwidth=6
+                    style=dotted label="  Mission upload  "]
+    mission -> me2 [color="#16C79A" fontcolor="#16C79A" penwidth=6
+                    style=dotted label="  Mission upload  "]
+
+    // ── Ground station monitors /swarm/state ─────────────────
+    me1 -> gcs [color="#16C79A" fontcolor="#16C79A" penwidth=6
+                style=dotted label="  /swarm/state  "]
+    me2 -> gcs [color="#16C79A" fontcolor="#16C79A" penwidth=6
+                style=dotted label="  /swarm/state  "]
+
+    // Force horizontal layout
+    { rank=same px4_1 pxf_1 px4_2 pxf_2 }
+    { rank=same me1 pp1 me2 pp2 }
+    { rank=same mission gcs }
+    me1 -> mission [style=invis weight=100]
+    me2 -> mission [style=invis weight=100]
+    me1 -> gcs [style=invis weight=100]
+    me2 -> gcs [style=invis weight=100]
+}
