@@ -3,6 +3,8 @@ build/
 install/
 log/
 
+*.png
+
 # Python
 __pycache__/
 *.py[cod]
@@ -25,5 +27,3 @@ __pycache__/
 !.vscode/settings.json
 !.vscode/c_cpp_properties.json
 !.vscode/extensions.json
-
-
