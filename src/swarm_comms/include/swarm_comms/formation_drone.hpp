@@ -114,7 +114,7 @@ constexpr int64_t NANOSECONDS_PER_MICROSECOND = 1000;
 constexpr float BASE_MODE_CUSTOM_ENABLED = 1.0F;
 constexpr float CUSTOM_MAIN_MODE_OFFBOARD = 6.0F;
 constexpr uint8_t PX4_COMPONENT_ID = 1;
-constexpr int MAX_SWARM_SIZE = 10;
+constexpr int MAX_SWARM_SIZE = 255;
 
 // -- New in this package ----------------------------------------------------
 
@@ -156,7 +156,7 @@ constexpr int SEPARATION_REPORT_INTERVAL_MS = 5000;
 
 /// How long to wait at the barrier before deciding the swarm is not coming.
 ///
-/// Generous, because the last drone to boot may still be waiting on drone-gcs.
+/// The last vehicle may still be waiting for its PX4 telemetry topics.
 /// Past it the drone lands rather than hovering indefinitely on a swarm that
 /// will never assemble.
 constexpr double BARRIER_TIMEOUT_S = 180.0;
@@ -462,7 +462,7 @@ private:
   /// One MAVLink-style order to this vehicle's flight controller. PX4 drops any
   /// command aimed at a different system id, which is the only thing stopping
   /// this node from arming every other drone on the field. SITL instance N
-  /// answers to system id N + 1 (PX4 v1.16.1, rcS line 140).
+  /// answers to system id N + 1.
   void send_vehicle_command(uint32_t command, float param1 = 0.0F, float param2 = 0.0F);
 
   // -- State --------------------------------------------------------------

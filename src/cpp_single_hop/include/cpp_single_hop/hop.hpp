@@ -4,7 +4,7 @@
 // This file holds the declarations: the tunables, the shared helpers, and the
 // Hop class. The method bodies are in hop.cpp, and main() is in main.cpp.
 //
-// Run it with the simulator already up (see docs/HOW-IT-WORKS.md):
+// Run it with the simulator already up (see docs/simulation/HOW-IT-WORKS.md):
 //
 //     ros2 run cpp_single_hop hop
 //     ros2 run cpp_single_hop hop --ros-args -p altitude_m:=5.0 -p forward_m:=6.0
@@ -35,10 +35,7 @@
 #include <optional>
 #include <string>
 
-// Message definitions generated from PX4's own uORB message set. These are the
-// exact structs PX4 publishes internally, so there is no translation layer and
-// no place for a field to be misinterpreted.
-//   https://github.com/PX4/px4_msgs/tree/release/1.16/msg
+// The container provides px4_msgs definitions that match its PX4 firmware.
 #include <px4_msgs/msg/offboard_control_mode.hpp>
 #include <px4_msgs/msg/trajectory_setpoint.hpp>
 #include <px4_msgs/msg/vehicle_command.hpp>

@@ -1,0 +1,12 @@
+.git
+.vscode
+.zed
+.agents
+.aws
+.codex
+.cache
+build
+install
+log
+docs
+*.ulg

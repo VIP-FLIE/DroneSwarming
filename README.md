@@ -1,62 +1,69 @@
 # DroneSwarming
-University of Delaware VIP Drone team, Swarm subteam.
 
-AI was used to port code from the ROS1 version, create examples, and document. Code run on a physical drone is written and reviewed by humans.
+ROS 2 control software for PX4 X500 search and rescue drones. The Linux simulation uses PX4 SITL and Gazebo Harmonic in Docker. QGroundControl runs on the Linux host.
 
-## Setup
+## Requirements
 
-ROS 2 Jazzy, Gazebo Harmonic and PX4 install on Ubuntu 24.04 and derivatives.
+- Ubuntu 24.04
+- Docker Engine with Docker Compose
+- QGroundControl
 
-**Linux.** [docs/setup/NATIVE-SETUP.md](docs/setup/NATIVE-SETUP.md).
+The image pins PX4 SITL to `v1.18.0-beta1-660-g61907962c9` by tag and digest. It includes Ubuntu 24.04, ROS 2 Jazzy, Gazebo Harmonic, Micro XRCE-DDS Agent v2.4.3, and matching `px4_msgs`.
+
+macOS and Windows setup is unverified. If you get the workflow running on either platform, document the steps in [docs/platforms](docs/platforms/README.md).
+
+## Start
+
+Build and start the container:
 
 ```bash
-git clone git@github.com:VIP-FLIE/DroneSwarming.git && cd DroneSwarming
-./scripts/install.sh
+docker compose up --build -d
 ```
 
-**macOS.** Ubuntu 24.04 in a UTM VM, then the same install inside it. [docs/setup/NATIVE-SETUP.md](docs/setup/NATIVE-SETUP.md).
+Start QGroundControl on the host. Open a shell in the container:
 
-**Windows.** Ubuntu 24.04 under WSL2, then the same install inside it. [docs/setup/NATIVE-SETUP.md](docs/setup/NATIVE-SETUP.md).
+```bash
+docker compose exec simulation bash
+```
+
+## Fly one drone
+
+Run the launch file in the container shell:
+
+```bash
+ros2 launch swarm_naive swarm.launch.py count:=1
+```
+
+The launch starts the XRCE-DDS Agent, one PX4 SITL instance, Gazebo, and one flight node. PX4 sends MAVLink to QGroundControl on UDP port 14550.
+
+## Fly two independent drones
+
+```bash
+ros2 launch swarm_naive swarm.launch.py count:=2
+```
+
+Each drone flies its assigned route. The nodes do not exchange swarm state.
+
+## Edit code
+
+The host `src/` directory is mounted at `/workspace/src`, so edits appear in the running container. Existing Python and launch file changes are available to new processes. Rebuild after C++ source changes, then restart the affected process:
+
+```bash
+colcon build --symlink-install
+```
+
+## Stop
+
+Press Ctrl-C in the launch shell, then stop the container:
+
+```bash
+docker compose down
+```
 
 ## Documentation
 
-| Document | Covers |
-|---|---|
-| [docs/setup/NATIVE-SETUP.md](docs/setup/NATIVE-SETUP.md) | Install, environment, troubleshooting |
-| [docs/simulation/HOW-IT-WORKS.md](docs/simulation/HOW-IT-WORKS.md) | Pipeline from your code to the rotors, commands, QoS, offboard, multi-vehicle |
-| [docs/swarm/SWARM.md](docs/swarm/SWARM.md) | Multi-drone examples in `src/swarm_naive` and `src/swarm_comms` |
-| [docs/development/NEW-PACKAGE.md](docs/development/NEW-PACKAGE.md) | Starting a package in Python or C++ |
-| [docs/simulation/UNDER-THE-SCRIPTS.md](docs/simulation/UNDER-THE-SCRIPTS.md) | Stack without `drone-sim` or `drone-gcs`, mapped onto aircraft hardware |
-| [docs/simulation/WORLDS.md](docs/simulation/WORLDS.md) | Flying in worlds other than the default, building a map |
-| [docs/simulation/SIMULATION-FIDELITY.md](docs/simulation/SIMULATION-FIDELITY.md) | What the simulator reproduces and what it does not |
-
-Three drones taking off, flying a ring and landing:
-
-```bash
-ros2 launch swarm_naive swarm.launch.py    # drones unaware of each other
-ros2 launch swarm_comms swarm.launch.py    # same flight, with inter-drone communication
-```
-
-## Git workflow
-
-- Branches: `main` (stable) ← `dev` (integration) ← `feature` (work in progress).
-- Never commit to `main` without team review.
-- Start each session from a new branch off `dev`: `feature-date-author`.
-- Scope changes to the smallest functional unit.
-- Revert to the last known safe state when the process breaks. Ask for help.
-
-## Testing
-
-[docs/setup/NATIVE-SETUP.md](docs/setup/NATIVE-SETUP.md) lists tested configurations.
-
-Verified: Pop!_OS 24.04, NVIDIA GPU. If your setup is untested, run the smoke test and open an Issue:
-
-```bash
-./scripts/smoke-test.sh
-```
-
-Machines without a GPU use software rendering. This costs GUI framerate and camera sensor rate. Flight behavior is unchanged: PX4 runs in lockstep. 8 vehicles held RTF 0.999 on 4 CPU cores. See [docs/simulation/SIMULATION-FIDELITY.md](docs/simulation/SIMULATION-FIDELITY.md).
-
-## Communication
-
-Use GitHub Issues for bugs, package requests, and long-standing problems. Use GroupMe for urgent items.
+- [Linux setup](docs/setup/LINUX.md)
+- [Simulation](docs/simulation/HOW-IT-WORKS.md)
+- [Simulation limits](docs/simulation/SIMULATION-FIDELITY.md)
+- [Gazebo world resources](worlds/README.md)
+- [Swarm stages](docs/swarm/SWARM.md)
