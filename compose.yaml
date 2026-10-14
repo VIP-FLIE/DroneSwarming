@@ -1,0 +1,19 @@
+services:
+  simulation:
+    build: .
+    image: drone-swarming:px4-v1.18.0-beta1
+    command: ["sleep", "infinity"]
+    init: true
+    network_mode: host
+    stdin_open: true
+    tty: true
+    environment:
+      DISPLAY: ${DISPLAY:?Run this workflow from a Linux desktop session}
+      XAUTHORITY: /root/.Xauthority
+      QT_QPA_PLATFORM: xcb
+      QT_X11_NO_MITSHM: "1"
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+      - ${XAUTHORITY:-${HOME}/.Xauthority}:/root/.Xauthority:ro
+      - ./src:/workspace/src:rw
+      - ./worlds:/workspace/worlds:ro

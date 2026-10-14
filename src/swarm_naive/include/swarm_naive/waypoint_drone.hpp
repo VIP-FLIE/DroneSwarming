@@ -56,7 +56,7 @@
 //
 // Run the launch file with `layer_m:=0.0` to put every drone on one level and
 // watch what "naive" actually costs you. swarm_comms is the same flight with
-// the drones talking to each other, and docs/SWARM.md explains the difference.
+// the drones talking to each other, and docs/swarm/SWARM.md explains the difference.
 // ===========================================================================
 #pragma once
 
@@ -65,9 +65,7 @@
 #include <string>
 #include <vector>
 
-// Generated from PX4's own uORB message set, so these structs are byte for
-// byte what PX4 publishes internally.
-//   https://github.com/PX4/px4_msgs/tree/release/1.16/msg
+// The container provides px4_msgs definitions that match its PX4 firmware.
 #include <px4_msgs/msg/offboard_control_mode.hpp>
 #include <px4_msgs/msg/trajectory_setpoint.hpp>
 #include <px4_msgs/msg/vehicle_command.hpp>
@@ -146,9 +144,8 @@ constexpr float CUSTOM_MAIN_MODE_OFFBOARD = 6.0F;
 /// A PX4 flight controller is always component 1 of its MAVLink system.
 constexpr uint8_t PX4_COMPONENT_ID = 1;
 
-/// Sanity ceiling on swarm size. Nothing here breaks above it, but drone-gcs
-/// heartbeats SITL instances 0-10, so drone 11 would never be able to arm.
-constexpr int MAX_SWARM_SIZE = 10;
+/// MAVLink system IDs are one byte. PX4 instance N uses system ID N + 1.
+constexpr int MAX_SWARM_SIZE = 255;
 
 // ---------------------------------------------------------------------------
 // RULE 1: QoS.
@@ -181,7 +178,6 @@ rclcpp::QoS px4_command_qos();
 /// SITL instance 0 publishes on bare /fmu/..., exactly like a real aircraft's
 /// autopilot, and instance N above 0 publishes on /px4_N/fmu/.... An empty
 /// namespace therefore gives an empty prefix and the same binary serves both.
-/// Verified in PX4 v1.16.1, ROMFS/px4fmu_common/init.d-posix/rcS line 299.
 std::string px4_topic_prefix(const std::string & px4_namespace);
 
 // ---------------------------------------------------------------------------

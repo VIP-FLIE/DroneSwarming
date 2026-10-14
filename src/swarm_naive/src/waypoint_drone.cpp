@@ -107,7 +107,7 @@ WaypointDrone::WaypointDrone()
   // -- The clock --------------------------------------------------------
   // rclcpp::create_timer with the node's clock rather than a wall timer, so
   // the loop follows ROS time. That matters the moment simulated time and
-  // wall-clock time stop agreeing. See docs/SIMULATION-FIDELITY.md.
+  // wall-clock time stop agreeing. See docs/simulation/SIMULATION-FIDELITY.md.
   arming_started_ = now();
   leg_started_ = now();
   control_timer_ = rclcpp::create_timer(
@@ -125,8 +125,7 @@ void WaypointDrone::validate_parameters() const
   if (count_ < 1 || count_ > MAX_SWARM_SIZE) {
     throw std::invalid_argument(
             "count must be between 1 and " + std::to_string(MAX_SWARM_SIZE) +
-            ". drone-gcs heartbeats SITL instances 0-10, so a larger swarm "
-            "would have vehicles that can never arm.");
+            ". PX4 instance N uses MAVLink system ID N + 1.");
   }
   if (slot_ < 0 || slot_ >= count_) {
     throw std::invalid_argument("slot must be in the range 0 to count-1.");
@@ -320,9 +319,8 @@ void WaypointDrone::run_arming()
   // that catches everybody in a swarm is the datalink check: the x500 airframe
   // sets NAV_DLL_ACT 2, "return home on datalink loss", and PX4 will not take
   // off with a failsafe whose precondition is already broken. Each vehicle
-  // enforces it separately, so the classic symptom is drone 0 flying away
-  // while the rest sit on their pads. Supplying the link with drone-gcs is the
-  // fix; switching the failsafe off is not.
+  // enforces it separately. QGroundControl supplies the ground station link;
+  // the failsafe remains enabled.
   if (is_armed()) {
     RCLCPP_INFO(get_logger(), "armed.");
     phase_ = Phase::EngagingOffboard;
@@ -396,8 +394,7 @@ void WaypointDrone::warn_if_leg_is_stalled() const
 
 void WaypointDrone::warn_if_px4_took_control() const
 {
-  // Killing drone-gcs mid-flight is how you watch this happen on purpose, and
-  // with a swarm you get to watch every drone react at once.
+  // Closing QGroundControl mid-flight makes PX4 apply its configured failsafe.
   if (phase_ == Phase::Flying && !is_offboard()) {
     RCLCPP_WARN_THROTTLE(
       get_logger(), *get_clock(), PROBLEM_REPORT_INTERVAL_MS,
@@ -413,8 +410,7 @@ std::string WaypointDrone::describe_arming_blocker() const
   const VehicleStatus & status = vehicle_status_.value();
   if (status.gcs_connection_lost) {
     return "PX4 reports no ground control station link, so its datalink-loss "
-           "failsafe is blocking arming. Is drone-gcs running, and does it "
-           "report one linked system per drone?";
+           "failsafe is blocking arming. Check QGroundControl's UDP link.";
   }
   if (status.failsafe) {
     return "PX4 reports a failsafe active.";
@@ -523,8 +519,7 @@ void WaypointDrone::send_vehicle_command(uint32_t command, float param1, float p
   // Addressing, and the reason a swarm needs it. PX4 drops any command aimed
   // at a different system id, which is the only thing stopping this node from
   // arming every other drone on the field. SITL instance N answers to system
-  // id N + 1 (PX4 v1.16.1, rcS line 140: `param set MAV_SYS_ID
-  // $((px4_instance+1))`), so a wrong system_id looks like a node that runs
+  // id N + 1, so a wrong system_id looks like a node that runs
   // perfectly while nothing ever arms.
   message.target_system = system_id_;
   message.target_component = PX4_COMPONENT_ID;

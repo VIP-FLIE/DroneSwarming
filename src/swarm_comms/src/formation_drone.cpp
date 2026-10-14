@@ -146,8 +146,7 @@ void FormationDrone::validate_parameters() const
   if (count_ < 1 || count_ > MAX_SWARM_SIZE) {
     throw std::invalid_argument(
             "count must be between 1 and " + std::to_string(MAX_SWARM_SIZE) +
-            ". drone-gcs heartbeats SITL instances 0-10, so a larger swarm "
-            "would have vehicles that can never arm.");
+            ". PX4 instance N uses MAVLink system ID N + 1.");
   }
   if (slot_ < 0 || slot_ >= count_) {
     throw std::invalid_argument("slot must be in the range 0 to count-1.");
@@ -701,8 +700,7 @@ std::string FormationDrone::describe_arming_blocker() const
   const VehicleStatus & status = vehicle_status_.value();
   if (status.gcs_connection_lost) {
     return "PX4 reports no ground control station link, so its datalink-loss "
-           "failsafe is blocking arming. Is drone-gcs running, and does it "
-           "report one linked system per drone?";
+           "failsafe is blocking arming. Check QGroundControl's UDP link.";
   }
   if (status.failsafe) {
     return "PX4 reports a failsafe active.";

@@ -91,7 +91,7 @@ Hop::Hop() : Node("hop")
   // -- The clock --------------------------------------------------------
   // rclcpp::create_timer with the node's clock, rather than a wall timer, so
   // the loop follows ROS time. That matters the moment simulated time and
-  // wall-clock time stop agreeing. See docs/SIMULATION-FIDELITY.md.
+  // wall-clock time stop agreeing. See docs/simulation/SIMULATION-FIDELITY.md.
   arming_started_ = now();
   control_timer_ = rclcpp::create_timer(
     this, get_clock(), rclcpp::Duration::from_seconds(1.0 / CONTROL_LOOP_HZ),
@@ -207,8 +207,8 @@ void Hop::run_arming()
   // A refusal here is almost always a preflight check doing its job. The one
   // that catches everybody is the datalink check: the x500 airframe sets
   // NAV_DLL_ACT 2, "return home on datalink loss", and PX4 will not take off
-  // with a failsafe whose precondition is already broken. Supplying the link
-  // with drone-gcs is the fix; switching the failsafe off is not.
+  // with a failsafe whose precondition is already broken. QGroundControl
+  // supplies the ground station link; the failsafe remains enabled.
   if (is_armed()) {
     RCLCPP_INFO(get_logger(), "armed.");
     phase_ = Phase::EngagingOffboard;
@@ -244,7 +244,7 @@ std::string Hop::describe_arming_blocker() const
   const VehicleStatus & status = vehicle_status_.value();
   if (status.gcs_connection_lost) {
     return "PX4 reports no ground control station link, so its datalink-loss "
-           "failsafe is blocking arming. Is drone-gcs running?";
+           "failsafe is blocking arming. Check QGroundControl's UDP link.";
   }
   if (status.failsafe) {
     return "PX4 reports a failsafe active.";
@@ -262,7 +262,7 @@ void Hop::warn_if_px4_took_control() const
   // that argument. Say so plainly rather than streaming setpoints at a vehicle
   // that has stopped listening.
   //
-  // Killing drone-gcs mid-flight is how you watch this happen on purpose.
+  // Closing QGroundControl mid-flight makes PX4 apply its configured failsafe.
   const bool airborne = phase_ == Phase::Climbing || phase_ == Phase::FlyingForward;
   if (airborne && !is_offboard()) {
     RCLCPP_WARN_THROTTLE(
