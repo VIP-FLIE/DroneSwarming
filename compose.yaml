@@ -1,19 +1,25 @@
 services:
   simulation:
+    container_name: swarm-sim
     build: .
-    image: drone-swarming:px4-v1.18.0-beta1
+    image: drone-swarming:px4-v1.17.0
     command: ["sleep", "infinity"]
     init: true
     network_mode: host
     stdin_open: true
     tty: true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     environment:
-      DISPLAY: ${DISPLAY:?Run this workflow from a Linux desktop session}
-      XAUTHORITY: /root/.Xauthority
-      QT_QPA_PLATFORM: xcb
-      QT_X11_NO_MITSHM: "1"
+      DISPLAY: ${DISPLAY:?Set DISPLAY for the active Linux desktop session}
+      XAUTHORITY: /dev/null
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics,display
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:ro
-      - ${XAUTHORITY:-${HOME}/.Xauthority}:/root/.Xauthority:ro
       - ./src:/workspace/src:rw
       - ./worlds:/workspace/worlds:ro

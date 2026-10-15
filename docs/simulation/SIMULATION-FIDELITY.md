@@ -1,6 +1,6 @@
 # Simulation limits
 
-The container pins PX4 SITL to `v1.18.0-beta1-660-g61907962c9` with Gazebo Harmonic and the stock X500 simulation model. The flight software communicates with PX4 through ROS 2 Jazzy, matching `px4_msgs`, and Micro XRCE-DDS. QGroundControl uses MAVLink over UDP.
+The container builds PX4 SITL from stable release `v1.17.0` and uses Gazebo Harmonic with PX4's stock X500 simulation model. The flight software communicates with PX4 through ROS 2 Jazzy, `px4_msgs` from the matching `v1.17.0` tag, and Micro XRCE-DDS. QGroundControl uses MAVLink over UDP.
 
 The simulated control path is:
 
