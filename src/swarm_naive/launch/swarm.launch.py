@@ -1,5 +1,4 @@
 import os
-import shutil
 import subprocess
 
 from launch import LaunchDescription
@@ -50,9 +49,13 @@ def _launch_swarm(context: LaunchContext) -> list[Action]:
     if not 1 <= count <= MAX_VEHICLE_COUNT:
         raise RuntimeError(f'count must be between 1 and {MAX_VEHICLE_COUNT}')
 
-    px4_binary = shutil.which('px4-gazebo')
-    if px4_binary is None:
-        raise RuntimeError('px4-gazebo is missing; run this launch inside the project container')
+    px4_dir = os.environ.get('PX4_DIR')
+    if not px4_dir:
+        raise RuntimeError('PX4_DIR must point to the PX4 SITL source directory')
+
+    px4_binary = os.path.join(px4_dir, 'build/px4_sitl_default/bin/px4')
+    if not os.access(px4_binary, os.X_OK):
+        raise RuntimeError(f'PX4 SITL executable is missing under PX4_DIR={px4_dir}')
 
     pad_spacing_m = float(value('pad_spacing_m'))
     radius_m = float(value('radius_m'))
@@ -63,9 +66,6 @@ def _launch_swarm(context: LaunchContext) -> list[Action]:
     world = value('world')
     centre_north_m = float(value('centre_north_m') or radius_m + pad_spacing_m)
     centre_east_m = float(value('centre_east_m') or (count - 1) * pad_spacing_m / 2.0)
-
-    # PX4 treats PX4_GZ_STANDALONE as present-or-absent, so remove inherited values.
-    os.environ.pop('PX4_GZ_STANDALONE', None)
 
     actions: list[Action] = [
         LogInfo(msg=(
@@ -79,17 +79,18 @@ def _launch_swarm(context: LaunchContext) -> list[Action]:
         pad_north_m = 0.0
         pad_east_m = slot * pad_spacing_m
         px4_environment = {
+            'HEADLESS': '1' if headless else '',
             'PX4_SYS_AUTOSTART': PX4_AIRFRAME_X500,
+            'PX4_GZ_STANDALONE': '1' if instance > 0 else '',
             'PX4_SIM_MODEL': PX4_SIM_MODEL,
             'PX4_GZ_MODEL_POSE': f'{pad_east_m},{pad_north_m}',
             'PX4_GZ_WORLD': world,
         }
-        if headless:
-            px4_environment['HEADLESS'] = '1'
 
         px4_process = ExecuteProcess(
             cmd=[px4_binary, '-i', str(instance), '-d'],
             name=f'px4_{instance}',
+            cwd=px4_dir,
             additional_env=px4_environment,
             output='screen',
         )

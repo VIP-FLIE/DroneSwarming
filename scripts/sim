@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repository_root"
+unset COMPOSE_FILE
+
+compose_options=()
+if [[ "${1:-}" == "--progress=plain" ]]; then
+    compose_options+=("$1")
+    shift
+fi
+
+action="${1:-}"
+if [[ -z "$action" ]]; then
+    printf 'Usage: %s [--progress=plain] {up|start|restart|stop|down|exec|ps|logs|build} [options]\n' "$0" >&2
+    exit 2
+fi
+shift
+
+compose() {
+    docker compose "${compose_options[@]}" "$@"
+}
+
+display_access_is_granted() {
+    local access_list
+    local access_entry
+
+    if ! access_list="$(xhost 2>/dev/null)"; then
+        return 2
+    fi
+    if [[ "$access_list" == *"access control disabled"* ]]; then
+        return 3
+    fi
+    while IFS= read -r access_entry; do
+        if [[ "$access_entry" == SI:localuser:root ]]; then
+            return 0
+        fi
+    done <<< "$access_list"
+    return 1
+}
+
+grant_display_access() {
+    local access_status
+
+    if [[ -z "${DISPLAY:-}" ]]; then
+        printf 'DISPLAY must be set for the active Linux desktop session.\n' >&2
+        return 1
+    fi
+    if ! command -v xhost >/dev/null 2>&1; then
+        printf 'xhost is required. Install it with: sudo apt install x11-xserver-utils\n' >&2
+        return 1
+    fi
+    if ! xhost +SI:localuser:root; then
+        printf 'Could not grant display access to localuser:root.\n' >&2
+        return 1
+    fi
+    if display_access_is_granted; then
+        printf 'Verified X access list entry SI:localuser:root on %s.\n' "$DISPLAY"
+        return 0
+    else
+        access_status=$?
+    fi
+    if [[ "$access_status" -eq 2 ]]; then
+        printf 'Could not verify the display access grant.\n' >&2
+    elif [[ "$access_status" -eq 3 ]]; then
+        printf 'X access control is disabled; a root-only display grant cannot be confirmed.\n' >&2
+    else
+        printf 'The X access list does not include SI:localuser:root after the grant.\n' >&2
+    fi
+    return 1
+}
+
+revoke_display_access() {
+    local access_status
+
+    if ! command -v xhost >/dev/null 2>&1; then
+        printf 'Cannot verify display access revocation because xhost is missing.\n' >&2
+        return 1
+    fi
+    if ! xhost -SI:localuser:root >/dev/null; then
+        printf 'xhost could not remove SI:localuser:root from the display access list.\n' >&2
+        return 1
+    fi
+    if display_access_is_granted; then
+        printf 'The X access list still includes SI:localuser:root.\n' >&2
+        return 1
+    else
+        access_status=$?
+    fi
+    if [[ "$access_status" -eq 2 ]]; then
+        printf 'Could not verify that display access was revoked.\n' >&2
+        return 1
+    elif [[ "$access_status" -eq 3 ]]; then
+        printf 'The root X access entry was removed, but X access control is disabled and the display remains open to all clients.\n' >&2
+        return 1
+    fi
+    printf 'Verified X access list entry SI:localuser:root was removed.\n'
+}
+
+cleanup_display_access() {
+    local command_status=$?
+    local running_container_ids
+    local revoke_status=0
+
+    trap - EXIT
+    if [[ "$command_status" -eq 0 ]] && [[ "$action" == stop || "$action" == down ]]; then
+        if revoke_display_access; then
+            exit "$command_status"
+        fi
+        exit 1
+    fi
+    if ! running_container_ids="$(compose ps --quiet simulation 2>/dev/null)"; then
+        printf 'Could not check whether swarm-sim is running; display access was left unchanged.\n' >&2
+        exit "$command_status"
+    fi
+    if [[ -z "$running_container_ids" ]]; then
+        if ! revoke_display_access; then
+            revoke_status=1
+        fi
+    else
+        printf 'The container is running; keeping the verified X access list entry.\n'
+    fi
+    if [[ "$command_status" -eq 0 && "$revoke_status" -ne 0 ]]; then
+        exit "$revoke_status"
+    fi
+    exit "$command_status"
+}
+
+case "$action" in
+    up|start|restart|stop|down)
+        trap cleanup_display_access EXIT
+        if [[ "$action" == up || "$action" == start || "$action" == restart ]]; then
+            grant_display_access
+        fi
+        compose "$action" "$@"
+        ;;
+    exec|ps|logs|build)
+        compose "$action" "$@"
+        ;;
+    *)
+        printf 'Unsupported action: %s\n' "$action" >&2
+        printf 'Use up, start, restart, stop, down, exec, ps, logs, or build.\n' >&2
+        exit 2
+        ;;
+esac

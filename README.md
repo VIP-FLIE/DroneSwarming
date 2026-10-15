@@ -8,7 +8,11 @@ ROS 2 control software for PX4 X500 search and rescue drones. The Linux simulati
 - Docker Engine with Docker Compose
 - QGroundControl
 
-The image pins PX4 SITL to `v1.18.0-beta1-660-g61907962c9` by tag and digest. It includes Ubuntu 24.04, ROS 2 Jazzy, Gazebo Harmonic, Micro XRCE-DDS Agent v2.4.3, and matching `px4_msgs`.
+Gazebo uses Qt's `xcb` display backend. On Wayland, this connects through XWayland; on X11, it connects to the active X server. The [Linux setup guide](docs/setup/LINUX.md) describes the display access command.
+
+Gazebo rendering uses the host NVIDIA GPU through the NVIDIA Container Toolkit. See the [Linux setup guide](docs/setup/LINUX.md) for the host requirement.
+
+The image builds PX4 SITL from the stable `v1.17.0` source tag and builds matching `px4_msgs` from its `v1.17.0` tag. It uses PX4's Ubuntu 24.04, ROS 2 Jazzy, and Gazebo Harmonic toolchain image, pinned by digest. The base image includes Micro XRCE-DDS Agent v2.4.3. The Dockerfile builds PX4 from source because PX4 does not publish a stable `px4-sitl-gazebo` image for `v1.17.0`.
 
 macOS and Windows setup is unverified. If you get the workflow running on either platform, document the steps in [docs/platforms](docs/platforms/README.md).
 
@@ -17,13 +21,19 @@ macOS and Windows setup is unverified. If you get the workflow running on either
 Build and start the container:
 
 ```bash
-docker compose up --build -d
+./scripts/sim up --build -d
 ```
+
+The command grants display access before startup. The helper revokes access after the container stops or shuts down. The container is named `swarm-sim`.
+
+### Optional useful flags
+
+- `--progress=plain` prints full build output, including Dockerfile command traces. Example: `./scripts/sim --progress=plain up --build -d`.
 
 Start QGroundControl on the host. Open a shell in the container:
 
 ```bash
-docker compose exec simulation bash
+./scripts/sim exec simulation bash
 ```
 
 ## Fly one drone
@@ -57,7 +67,7 @@ colcon build --symlink-install
 Press Ctrl-C in the launch shell, then stop the container:
 
 ```bash
-docker compose down
+./scripts/sim down
 ```
 
 ## Documentation

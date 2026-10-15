@@ -1,6 +1,6 @@
 # Simulation
 
-The Linux container pins PX4 SITL to `v1.18.0-beta1-660-g61907962c9` and includes ROS 2 Jazzy, Gazebo Harmonic, Micro XRCE-DDS Agent v2.4.3, and matching `px4_msgs`. QGroundControl runs on the host and uses PX4's MAVLink connection on UDP port 14550.
+The Linux container builds PX4 SITL from stable release `v1.17.0` and builds matching `px4_msgs` from its `v1.17.0` tag. The pinned PX4 toolchain image provides Ubuntu 24.04, ROS 2 Jazzy, Gazebo Harmonic, and Micro XRCE-DDS Agent v2.4.3. QGroundControl runs on the host and uses PX4's MAVLink connection on UDP port 14550.
 
 ## Processes
 
@@ -21,6 +21,8 @@ Follow the [Linux setup](../setup/LINUX.md), then start one drone:
 ```bash
 ros2 launch swarm_naive swarm.launch.py count:=1
 ```
+
+The launch starts PX4 and Gazebo together, including Gazebo's server and GUI. Running `gz sim -g` by itself starts only the GUI client; it can show an empty scene when no Gazebo server is running.
 
 Start two drones with independent routes:
 
