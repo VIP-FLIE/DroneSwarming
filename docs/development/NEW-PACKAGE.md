@@ -5,7 +5,7 @@ Create the package under `src/` and declare its ROS dependencies in `package.xml
 Build it in the project image:
 
 ```bash
-./scripts/sim up --build -d
+./scripts/sim up --build -d simulation
 ./scripts/sim-shell
 ```
 

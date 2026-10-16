@@ -4,14 +4,18 @@ set -Eeuo pipefail
 repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repository_root"
 
+# Compose builds the image when missing and starts or resumes the service.
 ./scripts/sim up -d simulation
 
 exec ./scripts/sim exec simulation bash -c '
-set -Eeuo pipefail
+set -Ee -o pipefail
 cd /workspace
+# ROS setup scripts inspect unset variables, so enable nounset only afterward.
 source /opt/ros/jazzy/setup.bash
 source /opt/px4_ros2/install/setup.bash
 source /workspace/install/setup.bash
+
+set -u
 
 if (($# > 0)); then
     exec "$@"

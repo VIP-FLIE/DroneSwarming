@@ -17,6 +17,6 @@ The Linux container builds PX4 SITL v1.17.0 and matching `px4_msgs` v1.17.0. The
 
 ## Start
 
-Follow the [Linux setup](../setup/LINUX.md) and the root [simulation flight procedure](../../README.md#simulation-flight-procedure). Run `./scripts/xrce-agent` and `./scripts/px4-sitl` in separate host terminals. Use `./scripts/sim-shell` to open sourced container shells for the application launch and ROS commands. These wrappers start the simulation service if needed and use the built image. QGroundControl runs separately on the host. Check that it shows the simulated vehicle and updating telemetry before starting the flight-enabled application.
+Follow the [Linux setup](../setup/LINUX.md) and the root [simulation flight procedure](../../README.md#simulation-flight-procedure). Run `./scripts/xrce-agent` and `./scripts/px4-sitl` in separate native terminals. Each wrapper starts the simulation service and builds its image if it is missing, then runs its process inside the container with terminal input and output attached. Use `./scripts/sim-shell` to open a sourced interactive container shell for the application launch and ROS commands. QGroundControl runs separately on the host. Check that it shows the simulated vehicle and updating telemetry before starting the flight-enabled application.
 
 The `vehicle_control` default keeps flight actions disabled. The example enables them only for the simulation procedure.

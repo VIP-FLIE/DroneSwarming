@@ -54,15 +54,15 @@ sudo apt install x11-xserver-utils
 
 ## Build the image
 
-Run from the repository root:
+The shell and process wrappers start the simulation service and build its image when the image is missing. They do not rebuild an existing image automatically. To rebuild after Dockerfile or container dependency changes, run this from the repository root:
 
 ```bash
-./scripts/sim up --build -d
+./scripts/sim up --build -d simulation
 ```
 
 ### Optional useful flags
 
-- `--progress=plain` prints full build output, including Dockerfile command traces. Example: `./scripts/sim --progress=plain up --build -d`.
+- `--progress=plain` prints full build output, including Dockerfile command traces. Example: `./scripts/sim --progress=plain up --build -d simulation`.
 
 The build uses PX4's Ubuntu 24.04, ROS 2 Jazzy, and Gazebo Harmonic toolchain image, pinned by OCI digest. It builds PX4 SITL from the stable `v1.17.0` source tag and uses its `bin/px4` executable directly. It builds `px4_msgs` from the matching `v1.17.0` tag, then builds the repository packages with `colcon`.
 
@@ -83,14 +83,14 @@ Run these commands from the repository root.
 | Stop | `./scripts/sim stop` | Stops the container and revokes display access. |
 | Start | `./scripts/sim start` | Starts a stopped container and grants display access. |
 | Restart | `./scripts/sim restart` | Restarts the container and grants display access. |
-| Rebuild | `./scripts/sim up --build -d` | Rebuilds the image and starts the container. Use after Dockerfile or container dependency changes. |
+| Rebuild | `./scripts/sim up --build -d simulation` | Rebuilds the image and starts the simulation container. Use after Dockerfile or container dependency changes. |
 | Shut down | `./scripts/sim down` | Stops and removes the container, then revokes display access. The image and source files remain. |
 
 ## Start the application and simulation
 
 Start QGroundControl on the host and leave it open. PX4 sends its ground-station link on UDP port 14550, and QGroundControl listens on that port by default when UDP auto-connect is enabled. If no vehicle appears, check QGroundControl's [UDP auto-connect setting](https://docs.qgroundcontrol.com/master/en/qgc-user-guide/settings_view/comm_links.html). After PX4 starts, confirm that QGroundControl shows the simulated vehicle and updating telemetry.
 
-Build the workspace once, then use the [simulation flight procedure](../../README.md#simulation-flight-procedure) for the launch and mission commands. It uses four host terminals. From the repository root, run these wrappers in separate terminals:
+Use the [simulation flight procedure](../../README.md#simulation-flight-procedure) for the launch and mission commands. It uses four native terminals. From the repository root, run these wrappers in separate terminals:
 
 ```bash
 ./scripts/xrce-agent
@@ -98,7 +98,7 @@ Build the workspace once, then use the [simulation flight procedure](../../READM
 ./scripts/sim-shell
 ```
 
-The first two wrappers start the XRCE-DDS Agent and PX4 SITL with Gazebo. Use `./scripts/sim-shell` for the application and ROS command terminals. It opens a shell with ROS 2, PX4 messages, and the workspace sourced. The container uses host networking for the PX4 MAVLink connection to QGroundControl.
+The first two wrappers run the XRCE-DDS Agent and PX4 SITL with Gazebo inside the container, attached to their native terminals. They start the service and build the image if it is missing. Use `./scripts/sim-shell` for the application and ROS command terminals. It opens a shell with ROS 2, PX4 messages, and the workspace sourced. The container uses host networking for the PX4 MAVLink connection to QGroundControl.
 
 ## Stop a flight
 

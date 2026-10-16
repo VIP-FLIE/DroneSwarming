@@ -18,19 +18,15 @@ The application frame is `local_enu`: X is east, Y is north, and Z is up, in met
 
 ## Container setup and build
 
-Start the project container:
-
-```bash
-./scripts/sim up --build -d simulation
-```
-
-Open a shell with ROS 2, PX4 messages, and the workspace sourced:
+From a native terminal at the repository root, enter the project container:
 
 ```bash
 ./scripts/sim-shell
 ```
 
-Build from that shell:
+The script starts the simulation service, builds its image if it is missing, and opens a shell with ROS 2, PX4 messages, and the workspace sourced. To rebuild after Dockerfile or container dependency changes, run `./scripts/sim up --build -d simulation`.
+
+Build the workspace from the container shell:
 
 ```bash
 cd /workspace
@@ -38,7 +34,7 @@ colcon build --symlink-install
 source /workspace/install/setup.bash
 ```
 
-`scripts/sim-shell` starts the simulation service if needed and reuses the built image. With no command argument it opens a sourced shell; with a command, it runs that command in the sourced environment.
+With no command argument, `scripts/sim-shell` opens an interactive shell. With a command, it runs the command inside the sourced container and keeps the process attached to the native terminal. For example, `./scripts/sim-shell ros2 topic list` runs `ros2 topic list` in the container.
 
 Run the coordinate, distance, and mission-offset unit tests:
 
@@ -63,7 +59,7 @@ The single-vehicle simulation uses the default PX4 topic prefix `/fmu`. Use a di
 
 Complete the [Linux setup](docs/setup/LINUX.md), build the workspace, and install [QGroundControl](docs/setup/LINUX.md#install-qgroundcontrol) on the host. Start QGroundControl and leave it open. With its default UDP auto-connect enabled, it listens for PX4 on UDP port 14550. If no vehicle appears, check QGroundControl's [UDP auto-connect setting](https://docs.qgroundcontrol.com/master/en/qgc-user-guide/settings_view/comm_links.html). Confirm the simulated vehicle appears and its telemetry updates before starting the flight-enabled application.
 
-Use four container terminals. Run each wrapper from the repository root on the host. The scripts start the simulation service if needed and use the built image.
+Use four native terminals. Run each wrapper from the repository root on the host. Each wrapper starts the simulation service and builds its image if it is missing. The XRCE-DDS and PX4 wrappers run their processes inside the container and attach them to the terminal; they do not require opening an interactive shell first.
 
 Container terminal 1 starts the XRCE-DDS Agent and remains occupied:
 
@@ -77,7 +73,7 @@ Container terminal 2 starts PX4 SITL and Gazebo Harmonic and remains occupied:
 ./scripts/px4-sitl
 ```
 
-After the vehicle appears in QGroundControl, open a sourced shell for container terminal 3 and start the application with flight actions explicitly enabled for SITL:
+After the vehicle appears in QGroundControl, open a sourced container shell in terminal 3 and start the application with flight actions explicitly enabled for SITL:
 
 ```bash
 ./scripts/sim-shell
