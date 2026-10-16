@@ -1,0 +1,9 @@
+# Request PX4's controlled landing procedure. Zero selects the configured default.
+# timeout_sec is measured in seconds. Cancellation is rejected after the PX4 land command is sent.
+float32 timeout_sec
+---
+bool success
+bool landed
+string message
+---
+string status

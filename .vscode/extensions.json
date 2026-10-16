@@ -1,11 +1,10 @@
 {
-  // Recommended extensions, offered the first time the folder is opened.
   "recommendations": [
     "ms-python.python",
     "ms-python.vscode-pylance",
-    "ms-vscode.cpptools",
     "ms-vscode.cmake-tools",
     "ms-iot.vscode-ros",
-    "redhat.vscode-yaml"
+    "redhat.vscode-yaml",
+    "llvm-vs-code-extensions.vscode-clangd"
   ]
 }

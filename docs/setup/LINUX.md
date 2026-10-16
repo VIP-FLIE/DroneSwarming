@@ -86,27 +86,19 @@ Run these commands from the repository root.
 | Rebuild | `./scripts/sim up --build -d` | Rebuilds the image and starts the container. Use after Dockerfile or container dependency changes. |
 | Shut down | `./scripts/sim down` | Stops and removes the container, then revokes display access. The image and source files remain. |
 
-## Start a flight
+## Start the application and simulation
 
-Start QGroundControl on the host. Open a container shell:
+Start QGroundControl on the host and leave it open. PX4 sends its ground-station link on UDP port 14550, and QGroundControl listens on that port by default when UDP auto-connect is enabled. If no vehicle appears, check QGroundControl's [UDP auto-connect setting](https://docs.qgroundcontrol.com/master/en/qgc-user-guide/settings_view/comm_links.html). After PX4 starts, confirm that QGroundControl shows the simulated vehicle and updating telemetry.
 
-```bash
-./scripts/sim exec simulation bash
-```
-
-Start one drone:
+Build the workspace once, then use the [simulation flight procedure](../../README.md#simulation-flight-procedure) for the launch and mission commands. It uses four host terminals. From the repository root, run these wrappers in separate terminals:
 
 ```bash
-ros2 launch swarm_naive swarm.launch.py count:=1
+./scripts/xrce-agent
+./scripts/px4-sitl
+./scripts/sim-shell
 ```
 
-Start two independent drones:
-
-```bash
-ros2 launch swarm_naive swarm.launch.py count:=2
-```
-
-The launch file starts `MicroXRCEAgent`, PX4 SITL, Gazebo, and the flight nodes. PX4 uses its default MAVLink connection to QGroundControl on UDP port 14550. Docker uses host networking so the connection uses the host network stack.
+The first two wrappers start the XRCE-DDS Agent and PX4 SITL with Gazebo. Use `./scripts/sim-shell` for the application and ROS command terminals. It opens a shell with ROS 2, PX4 messages, and the workspace sourced. The container uses host networking for the PX4 MAVLink connection to QGroundControl.
 
 ## Stop a flight
 

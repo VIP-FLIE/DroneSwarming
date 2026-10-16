@@ -4,6 +4,7 @@
 .agents
 .aws
 .codex
+.claude
 .cache
 build
 install

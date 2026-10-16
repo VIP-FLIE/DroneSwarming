@@ -1,0 +1,66 @@
+digraph CurrentSystem {
+  graph [
+    bgcolor="#101820",
+    fontcolor="#f8fafc",
+    fontname="DejaVu Sans",
+    fontsize=24,
+    label="Current system: one vehicle",
+    labelloc=t,
+    pad=0.4,
+    rankdir=TB,
+    ranksep=1.0,
+    nodesep=0.65,
+    splines=polyline
+  ];
+  node [
+    color="#e2e8f0",
+    fontcolor="#10212b",
+    fontname="DejaVu Sans",
+    fontsize=20,
+    margin="0.24,0.16",
+    penwidth=1.8,
+    shape=box,
+    style="rounded,filled"
+  ];
+  edge [
+    color="#d7e3f4",
+    fontcolor="#f8fafc",
+    fontname="DejaVu Sans",
+    fontsize=17,
+    penwidth=2.3,
+    arrowsize=1.15
+  ];
+
+  subgraph cluster_application {
+    label="ROS 2 application";
+    color="#64748b";
+    fillcolor="#17212b";
+    fontcolor="#f8fafc";
+    fontname="DejaVu Sans";
+    fontsize=20;
+    penwidth=1.8;
+    style="rounded,filled";
+
+    bringup [label="drone_bringup\nlaunches nodes", fillcolor="#7dd3fc"];
+    mission [label="mission_execution\nmission action + flight clients", fillcolor="#22d3ee"];
+    control [label="vehicle_control\nactions + VehicleState", fillcolor="#86efac"];
+    interfaces [label="swarm_interfaces\napp actions + messages", fillcolor="#fde047"];
+  }
+
+  agent [label="Micro XRCE-DDS Agent", fillcolor="#a7f3d0"];
+  px4 [label="PX4 SITL\nOffboard + failsafes", fillcolor="#bbf7d0"];
+  gazebo [label="Gazebo Harmonic\nX500 physics", fillcolor="#67e8f9"];
+  qgc [label="QGroundControl", fillcolor="#fde68a"];
+
+  mission -> control [label="flight actions"];
+  control -> mission [label="vehicle state"];
+  bringup -> mission [label="launches", style=dashed, color="#94a3b8"];
+  bringup -> control [label="launches", style=dashed, color="#94a3b8"];
+  mission -> interfaces [style=dotted, dir=none, color="#facc15"];
+  control -> interfaces [style=dotted, dir=none, color="#facc15"];
+
+  control -> agent [dir=both, label="PX4 topics"];
+  agent -> px4 [dir=both, label="uXRCE-DDS"];
+  px4 -> gazebo [dir=both, label="simulation"];
+  px4 -> qgc [label="MAVLink"];
+}

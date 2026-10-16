@@ -13,6 +13,10 @@ ENV ROS_DISTRO=jazzy \
 
 SHELL ["/bin/bash", "-o", "pipefail", "-x", "-c"]
 
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y clangd \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN source /etc/os-release \
     && test "$VERSION_ID" = "24.04" \
     && source /opt/ros/jazzy/setup.bash \
@@ -37,7 +41,9 @@ COPY src/ src/
 
 RUN source /opt/ros/jazzy/setup.bash \
     && source /opt/px4_ros2/install/setup.bash \
-    && colcon build --symlink-install
+    && colcon build --symlink-install --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+RUN chown -R ubuntu:ubuntu /workspace/build /workspace/install /workspace/log
 
 RUN cat >> /etc/bash.bashrc <<'EOF'
 source /opt/ros/jazzy/setup.bash

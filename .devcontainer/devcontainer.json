@@ -1,0 +1,10 @@
+{
+  "name": "Drone Swarming",
+  "dockerComposeFile": "../compose.yaml",
+  "service": "development",
+  "workspaceFolder": "/workspace",
+  "remoteUser": "ubuntu",
+  "updateRemoteUserUID": true,
+  "shutdownAction": "stopCompose",
+  "postCreateCommand": "bash -lc 'source /opt/ros/jazzy/setup.bash && source /opt/px4_ros2/install/setup.bash && colcon build --symlink-install --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'"
+}

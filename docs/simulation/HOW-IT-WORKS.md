@@ -1,41 +1,22 @@
 # Simulation
 
-The Linux container builds PX4 SITL from stable release `v1.17.0` and builds matching `px4_msgs` from its `v1.17.0` tag. The pinned PX4 toolchain image provides Ubuntu 24.04, ROS 2 Jazzy, Gazebo Harmonic, and Micro XRCE-DDS Agent v2.4.3. QGroundControl runs on the host and uses PX4's MAVLink connection on UDP port 14550.
+The Linux container builds PX4 SITL v1.17.0 and matching `px4_msgs` v1.17.0. The pinned toolchain image provides Ubuntu 24.04, ROS 2 Jazzy, Gazebo Harmonic, and Micro XRCE-DDS Agent v2.4.3. QGroundControl runs on the host and uses MAVLink over UDP port 14550.
 
 ## Processes
 
 | Process | Role |
-|---|---|
-| PX4 SITL | Autopilot software and vehicle state |
-| Gazebo Harmonic | X500 model, simulated sensors, physics, and selected world |
-| Micro XRCE-DDS Agent | Bridges PX4's uXRCE-DDS client to ROS 2 |
-| ROS 2 flight node | Sends offboard setpoints and vehicle commands |
+| --- | --- |
+| PX4 SITL | Autopilot software, vehicle state, and failsafes |
+| Gazebo Harmonic | X500 model, sensors, physics, and world |
+| Micro XRCE-DDS Agent | Connects PX4's uXRCE-DDS client to ROS 2 |
+| `vehicle_control` | Sends Offboard position setpoints and PX4 vehicle commands |
+| `mission_execution` | Sequences application flight actions |
 | QGroundControl | Ground control station and MAVLink telemetry |
 
-The launch file starts the Agent before PX4. It starts one PX4 process for each vehicle. PX4 instance 0 uses the unprefixed `/fmu/...` topics and system ID 1. Later instances use `/px4_N/fmu/...` and system ID `N + 1`.
+`drone_bringup` starts only the two ROS application nodes. Start the agent and PX4 SITL in separate terminals. The PX4 v1.17.0 SITL ROS 2 graph exposes versioned state topics `/fmu/out/vehicle_local_position_v1`, `/fmu/out/vehicle_status_v1`, and `/fmu/out/battery_status_v1`. It exposes `/fmu/out/vehicle_land_detected` and `/fmu/out/vehicle_command_ack` without a version suffix. PX4 receives Offboard control and trajectory setpoints under `/fmu/in/`.
 
-## Run
+## Start
 
-Follow the [Linux setup](../setup/LINUX.md), then start one drone:
+Follow the [Linux setup](../setup/LINUX.md) and the root [simulation flight procedure](../../README.md#simulation-flight-procedure). Run `./scripts/xrce-agent` and `./scripts/px4-sitl` in separate host terminals. Use `./scripts/sim-shell` to open sourced container shells for the application launch and ROS commands. These wrappers start the simulation service if needed and use the built image. QGroundControl runs separately on the host. Check that it shows the simulated vehicle and updating telemetry before starting the flight-enabled application.
 
-```bash
-ros2 launch swarm_naive swarm.launch.py count:=1
-```
-
-The launch starts PX4 and Gazebo together, including Gazebo's server and GUI. Running `gz sim -g` by itself starts only the GUI client; it can show an empty scene when no Gazebo server is running.
-
-Start two drones with independent routes:
-
-```bash
-ros2 launch swarm_naive swarm.launch.py count:=2
-```
-
-The communicating prototype uses a shared ROS topic:
-
-```bash
-ros2 launch swarm_comms swarm.launch.py count:=2
-```
-
-The `swarm_comms` example demonstrates position sharing and leader/follower control. It does not allocate search areas or reassign work after a vehicle failure.
-
-PX4 starts in its stock `default` world unless the `world` argument selects another world.
+The `vehicle_control` default keeps flight actions disabled. The example enables them only for the simulation procedure.

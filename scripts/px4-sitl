@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+exec "$repository_root/scripts/sim-shell" make -C /opt/PX4-Autopilot px4_sitl gz_x500
