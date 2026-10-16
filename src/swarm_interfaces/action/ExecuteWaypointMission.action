@@ -1,0 +1,15 @@
+# Waypoint offsets use local_enu meters from the position at mission start.
+float32 takeoff_altitude_m
+geometry_msgs/Point[] waypoint_offsets
+float32 position_tolerance_m
+float32 waypoint_timeout_sec
+bool land_after_waypoints
+---
+bool success
+uint32 completed_waypoints
+string message
+---
+uint32 current_waypoint
+uint32 completed_waypoints
+float32 distance_to_target_m
+string status

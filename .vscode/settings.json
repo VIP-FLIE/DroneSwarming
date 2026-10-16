@@ -1,15 +1,8 @@
 {
-    // ${workspaceFolder} and ${env:HOME} keep these correct wherever the repo is
-    // cloned.
-    "python.autoComplete.extraPaths": [
-        "${workspaceFolder}/install/py_single_square/lib/python3.12/site-packages",
-        "${env:HOME}/ros2_ws/install/px4_msgs/lib/python3.12/site-packages",
-        "/opt/ros/jazzy/lib/python3.12/site-packages"
-    ],
+    "C_Cpp.intelliSenseEngine": "disabled",
+    "python.defaultInterpreterPath": "/usr/bin/python3",
     "python.analysis.extraPaths": [
-        "${workspaceFolder}/install/py_single_square/lib/python3.12/site-packages",
-        "${env:HOME}/ros2_ws/install/px4_msgs/lib/python3.12/site-packages",
-        "/opt/ros/jazzy/lib/python3.12/site-packages"
-    ],
-    "cmake.sourceDirectory": "${workspaceFolder}/src/cpp_single_hop"
+        "/opt/ros/jazzy/lib/python3.12/site-packages",
+        "/opt/px4_ros2/install/px4_msgs/lib/python3.12/site-packages"
+    ]
 }

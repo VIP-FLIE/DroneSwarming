@@ -6,7 +6,7 @@ Build it in the project image:
 
 ```bash
 ./scripts/sim up --build -d
-./scripts/sim exec simulation bash
+./scripts/sim-shell
 ```
 
 The Dockerfile runs `colcon build --symlink-install` for packages under `src/`. Rebuild the image after adding a package or changing build metadata.

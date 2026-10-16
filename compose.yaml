@@ -1,4 +1,18 @@
 services:
+  development:
+    build: .
+    image: drone-swarming:px4-v1.17.0
+    command: ["sleep", "infinity"]
+    init: true
+    network_mode: host
+    stdin_open: true
+    tty: true
+    volumes:
+      - .:/workspace:rw
+      - development_build:/workspace/build
+      - development_install:/workspace/install
+      - development_log:/workspace/log
+
   simulation:
     container_name: swarm-sim
     build: .
@@ -16,10 +30,15 @@ services:
               count: all
               capabilities: [gpu]
     environment:
-      DISPLAY: ${DISPLAY:?Set DISPLAY for the active Linux desktop session}
+      DISPLAY: ${DISPLAY:-}
       XAUTHORITY: /dev/null
       NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics,display
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:ro
       - ./src:/workspace/src:rw
       - ./worlds:/workspace/worlds:ro
+
+volumes:
+  development_build:
+  development_install:
+  development_log:

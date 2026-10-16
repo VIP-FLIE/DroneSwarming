@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repository_root"
+
+./scripts/sim up -d simulation
+
+exec ./scripts/sim exec simulation bash -c '
+set -Eeuo pipefail
+cd /workspace
+source /opt/ros/jazzy/setup.bash
+source /opt/px4_ros2/install/setup.bash
+source /workspace/install/setup.bash
+
+if (($# > 0)); then
+    exec "$@"
+fi
+
+exec bash -i
+' sim-shell "$@"

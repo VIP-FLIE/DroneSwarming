@@ -1,0 +1,8 @@
+# Vertical climb in meters above the position captured when this goal is accepted.
+float32 altitude_m
+---
+bool success
+string message
+---
+float32 current_altitude_m
+float32 target_altitude_m

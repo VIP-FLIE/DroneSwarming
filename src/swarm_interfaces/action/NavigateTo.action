@@ -1,0 +1,13 @@
+# Absolute position in local_enu (East, North, Up), relative to the PX4 local origin.
+geometry_msgs/Point target_position
+string frame_id
+# Zero selects the configured default. Units are meters.
+float32 position_tolerance_m
+# Zero selects the configured default. Units are seconds.
+float32 timeout_sec
+---
+bool success
+string message
+float32 final_distance_m
+---
+float32 distance_to_target_m

@@ -1,0 +1,89 @@
+digraph FutureSystem {
+  graph [
+    bgcolor="#101820",
+    fontcolor="#f8fafc",
+    fontname="DejaVu Sans",
+    fontsize=24,
+    label="Future system: multi-vehicle search and rescue",
+    labelloc=t,
+    pad=0.4,
+    rankdir=LR,
+    ranksep=1.0,
+    nodesep=0.7,
+    splines=polyline
+  ];
+  node [
+    color="#e2e8f0",
+    fontcolor="#10212b",
+    fontname="DejaVu Sans",
+    fontsize=20,
+    margin="0.24,0.16",
+    penwidth=1.8,
+    shape=box,
+    style="rounded,filled"
+  ];
+  edge [
+    color="#d7e3f4",
+    fontcolor="#f8fafc",
+    fontname="DejaVu Sans",
+    fontsize=17,
+    penwidth=2.3,
+    arrowsize=1.15
+  ];
+
+  operator [label="Mission input", fillcolor="#ffd166"];
+  coordination [
+    label="Swarm coordination\nassign / monitor / reassign\n(decentralized; protocol TBD)",
+    fillcolor="#c084fc",
+    color="#e9d5ff"
+  ];
+  perception [label="Perception\nvictim reports", fillcolor="#f0abfc", color="#f5d0fe", style="rounded,dashed,filled"];
+  contracts [label="swarm_interfaces\nflight + task contracts", fillcolor="#fde047"];
+
+  subgraph cluster_fleet {
+    label="Multi-vehicle fleet";
+    color="#64748b";
+    fillcolor="#17212b";
+    fontcolor="#f8fafc";
+    fontname="DejaVu Sans";
+    fontsize=20;
+    penwidth=1.8;
+    style="rounded,filled";
+
+    subgraph cluster_vehicle_a {
+      label="Vehicle A";
+      color="#475569";
+      fillcolor="#1d2935";
+      fontcolor="#f8fafc";
+      style="rounded,filled";
+      mission_a [label="Mission executor", fillcolor="#22d3ee"];
+      control_a [label="Vehicle control", fillcolor="#86efac"];
+      px4_a [label="PX4\ncontrol + failsafes", fillcolor="#bbf7d0"];
+      mission_a -> control_a [label="actions"];
+      control_a -> mission_a [label="state"];
+      control_a -> px4_a [dir=both, label="PX4 DDS"];
+    }
+
+    subgraph cluster_vehicle_b {
+      label="Vehicle B ... N";
+      color="#475569";
+      fillcolor="#1d2935";
+      fontcolor="#f8fafc";
+      style="rounded,filled";
+      mission_b [label="Mission executor", fillcolor="#22d3ee"];
+      control_b [label="Vehicle control", fillcolor="#86efac"];
+      px4_b [label="PX4\ncontrol + failsafes", fillcolor="#bbf7d0"];
+      mission_b -> control_b [label="actions"];
+      control_b -> mission_b [label="state"];
+      control_b -> px4_b [dir=both, label="PX4 DDS"];
+    }
+  }
+
+  operator -> coordination [label="objectives"];
+  coordination -> mission_a [label="assignments"];
+  coordination -> mission_b [label="assignments"];
+  control_a -> coordination [label="state / health"];
+  control_b -> coordination [label="state / health"];
+  perception -> coordination [label="victim reports", style=dashed];
+  contracts -> coordination [style=dotted, dir=none, color="#facc15"];
+}

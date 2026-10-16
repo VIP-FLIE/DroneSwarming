@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>mission_execution</name>
+  <version>0.1.0</version>
+  <description>Sequences vehicle-control actions into waypoint missions.</description>
+  <maintainer email="maintainer@example.com">DroneSwarming maintainers</maintainer>
+  <license>BSD-3-Clause</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>geometry_msgs</depend>
+  <depend>rclcpp</depend>
+  <depend>rclcpp_action</depend>
+  <depend>swarm_interfaces</depend>
+  <exec_depend>vehicle_control</exec_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

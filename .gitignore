@@ -5,6 +5,9 @@ log/
 
 *.png
 
+# Generated Graphviz architecture diagram outputs.
+docs/architecture/generated/
+
 # Python
 __pycache__/
 *.py[cod]

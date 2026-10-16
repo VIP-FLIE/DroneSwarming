@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repository_root"
+
+if [[ -z "$(docker compose ps --quiet --status running development)" ]]; then
+    docker compose up --build --detach development >&2
+fi
+
+exec docker compose exec --interactive --no-TTY development \
+    clangd "--path-mappings=${repository_root}=/workspace" "$@"
