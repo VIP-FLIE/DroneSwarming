@@ -2,6 +2,8 @@
 
 ROS 2 control software for PX4 search-and-rescue drones. The supported development environment is a Docker container with Ubuntu 24.04, ROS 2 Jazzy, PX4 SITL v1.17.0, Gazebo Harmonic, and matching `px4_msgs` v1.17.0. QGroundControl runs on the Linux host.
 
+> **Do not push directly to `main`.** Create feature branches from `dev`, validate the changes, and open pull requests into `dev`. Promote `dev` to `main` through a release pull request after required validation and approval by at least two team members. `main` must build, run the documented SITL mission without a vehicle crash, and remain ready for project demos. Read the [Repository Rules](docs/REPOSITORY_RULES.md) and [Contributing](CONTRIBUTING.md) before changing the repository.
+
 ## Architecture
 
 | Package | Responsibility |
@@ -36,10 +38,10 @@ source /workspace/install/setup.bash
 
 With no command argument, `scripts/sim-shell` opens an interactive shell. With a command, it runs the command inside the sourced container and keeps the process attached to the native terminal. For example, `./scripts/sim-shell ros2 topic list` runs `ros2 topic list` in the container.
 
-Run the coordinate, distance, and mission-offset unit tests:
+Run the unit tests and ROS launch-file lint checks:
 
 ```bash
-colcon test --packages-select vehicle_control mission_execution
+colcon test --packages-select vehicle_control mission_execution drone_bringup
 colcon test-result --verbose
 ```
 
@@ -121,5 +123,6 @@ The v1.17 Offboard topic and timestamp behavior follows the [PX4 v1.17 ROS 2 Off
 - [Neovim LSP setup](docs/development/NEOVIM.md)
 - [VS Code LSP setup](docs/development/VS-CODE.md)
 - [Zed LSP setup](docs/development/ZED.md)
+- [Repository rules](docs/REPOSITORY_RULES.md)
 - [Repository coding rules](CONTRIBUTING.md)
 - [Glossary](docs/reference/GLOSSARY.md)

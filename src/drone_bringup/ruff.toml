@@ -1,0 +1,36 @@
+line-length = 100
+target-version = "py312"
+
+[lint]
+select = ["ALL"]
+ignore = [
+  "COM812",  # The formatter controls trailing commas.
+  "COM819",  # The formatter controls trailing commas.
+  "D203",    # Conflicts with D211 and the formatter's class layout.
+  "D206",    # Conflicts with the formatter's indentation.
+  "D300",    # The formatter controls docstring quotes.
+  "D213",    # Conflicts with D212's first-line summary style.
+  "E111",    # The formatter controls indentation.
+  "E114",    # The formatter controls comment indentation.
+  "E117",    # The formatter controls indentation.
+  "ISC001",  # The formatter controls implicit string concatenation.
+  "ISC002",  # Conflicts with ISC001 and the formatter's string layout.
+  "Q000",    # The formatter controls inline quotes.
+  "Q001",    # The formatter controls multiline string quotes.
+  "Q002",    # The formatter controls docstring quotes.
+  "Q003",    # The formatter controls escaped quotes.
+  "Q004",    # The formatter controls escaped quotes.
+  "W191",    # The formatter controls indentation.
+]
+
+[lint.per-file-ignores]
+"**/launch/*.launch.py" = [
+  "CPY001",  # The repository uses a top-level license instead of file headers.
+  "INP001",  # ROS launch directories are resource directories, not Python packages.
+]
+
+[lint.isort]
+known-third-party = ["launch", "launch_ros"]
+
+[format]
+quote-style = "single"

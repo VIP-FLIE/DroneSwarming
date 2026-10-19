@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <stdexcept>
 #include <utility>
@@ -47,7 +48,7 @@ VehicleControlNode::VehicleControlNode()
 {
   enable_flight_commands_ = declare_parameter<bool>("enable_flight_commands", false);
   const std::string topic_prefix = declare_parameter<std::string>("px4_topic_prefix", "/fmu");
-  const int configured_system_id = declare_parameter<int>("px4_system_id", 1);
+  const std::int64_t configured_system_id = declare_parameter<std::int64_t>("px4_system_id", 1);
   setpoint_rate_hz_ = declare_parameter<double>("setpoint_rate_hz", 20.0);
   telemetry_timeout_sec_ = declare_parameter<double>("telemetry_timeout_sec", 1.0);
   default_navigation_timeout_sec_ = declare_parameter<double>(
@@ -472,7 +473,7 @@ void VehicleControlNode::execute_takeoff(const std::shared_ptr<TakeoffHandle> & 
     }
 
     Position target_position = start_position;
-    target_position[2] += goal->altitude_m;
+    target_position[2] += static_cast<double>(goal->altitude_m);
     {
       std::lock_guard<std::mutex> lock(control_mutex_);
       target_position_ = target_position;
@@ -527,9 +528,9 @@ void VehicleControlNode::execute_navigation(const std::shared_ptr<NavigateHandle
   result->final_distance_m = std::numeric_limits<float>::quiet_NaN();
   const std::shared_ptr<const NavigateTo::Goal> goal = goal_handle->get_goal();
   const double tolerance = goal->position_tolerance_m == 0.0F ?
-    default_position_tolerance_m_ : goal->position_tolerance_m;
+    default_position_tolerance_m_ : static_cast<double>(goal->position_tolerance_m);
   const double timeout = goal->timeout_sec == 0.0F ?
-    default_navigation_timeout_sec_ : goal->timeout_sec;
+    default_navigation_timeout_sec_ : static_cast<double>(goal->timeout_sec);
   const Position target_position{
     goal->target_position.x, goal->target_position.y, goal->target_position.z};
   const std::chrono::steady_clock::time_point deadline = deadline_after(timeout);
@@ -602,7 +603,7 @@ void VehicleControlNode::execute_land(const std::shared_ptr<LandHandle> & goal_h
   result->landed = false;
   const std::shared_ptr<const Land::Goal> goal = goal_handle->get_goal();
   const double timeout = goal->timeout_sec == 0.0F ?
-    transition_timeout_sec_ * 6.0 : goal->timeout_sec;
+    transition_timeout_sec_ * 6.0 : static_cast<double>(goal->timeout_sec);
   const std::chrono::steady_clock::time_point deadline = deadline_after(timeout);
   const std::function<bool()> is_cancelled =
     [goal_handle]() {return goal_handle->is_canceling() || !rclcpp::ok();};
