@@ -1,0 +1,32 @@
+# colcon output. Rebuilt from source, never committed.
+build/
+install/
+log/
+
+*.png
+
+# Generated Graphviz architecture diagram outputs.
+docs/architecture/generated/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# PX4 SITL runtime droppings
+**/dataman
+**/*.ulg
+
+# LSP caches
+.cache/
+
+# VS Code. Track only the workspace config the whole team shares. Everything
+# else that lands in here is personal: launch.json with someone's absolute
+# paths, tasks.json, whatever an extension decides to write.
+#
+# Order matters. The negations below only work because the line above ignores
+# the CONTENTS of the directory rather than the directory itself.
+.vscode/*
+!.vscode/settings.json
+!.vscode/c_cpp_properties.json
+!.vscode/extensions.json
