@@ -342,7 +342,7 @@ void MissionExecutionNode::execute_mission(const std::shared_ptr<MissionHandle> 
     }
 
     const double waypoint_timeout = goal->waypoint_timeout_sec == 0.0F ?
-      default_waypoint_timeout_sec_ : goal->waypoint_timeout_sec;
+      default_waypoint_timeout_sec_ : static_cast<double>(goal->waypoint_timeout_sec);
     for (std::size_t index = 0; index < goal->waypoint_offsets.size(); ++index) {
       if (parent_is_canceling()) {
         result->message = "Mission canceled after " + std::to_string(result->completed_waypoints) +

@@ -37,6 +37,15 @@ RUN mkdir -p src \
 
 WORKDIR /workspace
 
+ARG RUFF_VERSION=0.17.1
+
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y python3-venv \
+    && rm -rf /var/lib/apt/lists/* \
+    && python3 -m venv /opt/ruff \
+    && /opt/ruff/bin/python -m pip install --no-cache-dir "ruff==${RUFF_VERSION}" \
+    && install -m 0755 /opt/ruff/bin/ruff /usr/local/bin/ruff
+
 COPY src/ src/
 
 RUN source /opt/ros/jazzy/setup.bash \

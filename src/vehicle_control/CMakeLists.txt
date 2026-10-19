@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.8)
 project(vehicle_control)
 
+include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/ProjectWarnings.cmake")
+
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_gtest REQUIRED)
 find_package(geometry_msgs REQUIRED)
@@ -16,15 +18,15 @@ add_library(vehicle_control_core
 )
 target_include_directories(vehicle_control_core PUBLIC include)
 target_compile_features(vehicle_control_core PUBLIC cxx_std_17)
-target_compile_options(vehicle_control_core PRIVATE -Wall -Wextra -Wpedantic)
-ament_target_dependencies(vehicle_control_core
+enable_project_cpp_diagnostics(vehicle_control_core)
+ament_target_dependencies(vehicle_control_core SYSTEM
   geometry_msgs px4_msgs rclcpp rclcpp_action swarm_interfaces
 )
 target_link_libraries(vehicle_control_core ${px4_msgs_TARGETS})
 
 add_executable(vehicle_control_node src/main.cpp)
 target_compile_features(vehicle_control_node PRIVATE cxx_std_17)
-target_compile_options(vehicle_control_node PRIVATE -Wall -Wextra -Wpedantic)
+enable_project_cpp_diagnostics(vehicle_control_node)
 target_link_libraries(vehicle_control_node vehicle_control_core)
 
 install(TARGETS vehicle_control_core vehicle_control_node
@@ -36,6 +38,8 @@ install(DIRECTORY include/ DESTINATION include)
 
 if(BUILD_TESTING)
   ament_add_gtest(test_coordinates test/test_coordinates.cpp)
+  target_compile_features(test_coordinates PRIVATE cxx_std_17)
+  enable_project_cpp_diagnostics(test_coordinates)
   target_link_libraries(test_coordinates vehicle_control_core)
 endif()
 

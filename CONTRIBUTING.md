@@ -2,6 +2,22 @@
 
 These rules apply to application code, tests, launch files, ROS interfaces, and build configuration. They apply to human-written and LLM-generated changes.
 
+## Branch workflow and release approval
+
+- Use `dev` as the shared integration branch. Keep `main` as the latest fully validated release.
+- Create each feature or fix branch from the current `dev` branch.
+- Push changes to the feature or fix branch, then open a pull request targeting `dev`.
+- Do not push directly to `main`. Update `main` only through a release pull request from `dev`.
+- Require approval from at least two team members before merging a release pull request into `main`.
+- Keep `main` buildable, runnable, and ready for project demonstrations. A release candidate must pass the release checks in the [Repository Rules](docs/REPOSITORY_RULES.md), including the documented SITL mission without a vehicle crash.
+
+## Standards are acceptance criteria
+
+- Changes that do not follow these rules will not be accepted or merged.
+- Apply the same requirements to human-written and LLM-generated changes.
+- A successful build or passing generated tests does not waive a requirement in this document.
+- Read the repository's [coding-standards skill](skills/coding-standards/SKILL.md) before changing code and the [docs-writing skill](skills/docs-writing/SKILL.md) before writing or editing documentation.
+
 ## Priorities
 
 Apply these priorities in order:
@@ -86,6 +102,9 @@ Minimality does not permit skipping validation, error handling, or required test
 - Add or update focused tests for behavior changes and deterministic calculations.
 - Run the affected package tests in the project container.
 - Run `colcon test-result --verbose` after `colcon test` and resolve reported failures.
+- Build project-owned C++ targets and tests with the compiler diagnostics in `src/cmake/ProjectWarnings.cmake`. Treat warnings as errors and compile without GNU language extensions.
+- Apply the strict warning profile to project targets only. Keep ROS and other dependency headers as system includes, and do not apply the profile to ROS-generated interface code.
+- Run the `drone_bringup` package tests to check launch files with Ruff's full stable rule set and formatter. The project Docker image pins Ruff to version `0.17.1`.
 - Validate flight-control changes in SITL before enabling flight commands in a live session.
 - Record checks that were not run. Do not report an unrun build, test, or simulation as successful.
 
