@@ -41,6 +41,8 @@ struct CommandAcknowledgement
 {
   std::uint32_t command{0};
   std::uint8_t result{0};
+  std::uint8_t result_parameter_1{0};
+  std::int32_t result_parameter_2{0};
   std::uint64_t generation{0};
 };
 

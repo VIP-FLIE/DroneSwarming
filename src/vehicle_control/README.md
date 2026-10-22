@@ -2,6 +2,8 @@
 
 `vehicle_control` is the only application package that depends on `px4_msgs`. Its PX4 adapter owns DDS topic names, command routing and acknowledgements, telemetry conversion, and ENU/NED conversion. The node exposes `VehicleState` and the `takeoff`, `navigate_to`, and `land` actions.
 
+The adapter matches command acknowledgements by command and destination system/component. PX4 v1.17 does not set `VehicleCommandAck.from_external` when it publishes acknowledgements. Transition logs identify the stage, command, attempt, acknowledgement, and observed state change. Action errors include PX4 result codes and result parameters for non-accepted acknowledgements.
+
 Application positions use `local_enu` in meters from PX4's local-position origin. PX4 v1.17 local position and trajectory setpoints use NED, so the adapter maps ENU `(east, north, up)` to PX4 `(north, east, down)`.
 
 Flight actions are rejected while `enable_flight_commands` is false. The launch default is false. Enable it only after checking the vehicle, operator control link, PX4 preflight state, configured topic prefix, and system ID. Takeoff warms the setpoint stream before requesting Offboard and arming. Navigation cancellation commands a hold at the latest valid position while the stream continues. Landing uses `VEHICLE_CMD_NAV_LAND` and reports success only after PX4's land detector reports landed.
