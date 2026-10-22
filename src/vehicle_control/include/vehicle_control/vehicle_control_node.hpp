@@ -64,7 +64,8 @@ private:
     std::string & failure_message);
   /// Retries a PX4 command until its telemetry transition predicate succeeds.
   bool request_transition(
-    std::uint32_t command, float parameter_1, float parameter_2,
+    const std::string & transition_name, std::uint32_t command,
+    float parameter_1, float parameter_2,
     const std::function<bool(const VehicleTelemetry &)> & predicate,
     const std::function<bool()> & is_cancelled,
     std::string & failure_message);

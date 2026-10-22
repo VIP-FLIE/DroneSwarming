@@ -41,6 +41,14 @@ if(BUILD_TESTING)
   target_compile_features(test_coordinates PRIVATE cxx_std_17)
   enable_project_cpp_diagnostics(test_coordinates)
   target_link_libraries(test_coordinates vehicle_control_core)
+
+  ament_add_gtest(test_px4_adapter test/test_px4_adapter.cpp)
+  target_compile_features(test_px4_adapter PRIVATE cxx_std_17)
+  enable_project_cpp_diagnostics(test_px4_adapter)
+  ament_target_dependencies(test_px4_adapter SYSTEM px4_msgs rclcpp)
+  target_link_libraries(test_px4_adapter vehicle_control_core)
+  # Keep the ROS test isolated from live PX4 and Gazebo DDS traffic.
+  set_tests_properties(test_px4_adapter PROPERTIES ENVIRONMENT "ROS_DOMAIN_ID=77")
 endif()
 
 ament_package()

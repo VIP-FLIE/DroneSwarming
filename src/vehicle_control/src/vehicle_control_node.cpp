@@ -9,6 +9,7 @@
 #include <utility>
 
 #include <px4_msgs/msg/vehicle_command.hpp>
+#include <px4_msgs/msg/vehicle_command_ack.hpp>
 #include <px4_msgs/msg/vehicle_status.hpp>
 
 namespace vehicle_control
@@ -39,6 +40,30 @@ std::chrono::steady_clock::time_point deadline_after(const double duration_sec)
   return std::chrono::steady_clock::now() +
          std::chrono::duration_cast<std::chrono::steady_clock::duration>(
     std::chrono::duration<double>(duration_sec));
+}
+
+/// Returns the PX4 command acknowledgment result name for action error messages.
+std::string command_acknowledgement_result_name(const std::uint8_t result)
+{
+  using VehicleCommandAck = px4_msgs::msg::VehicleCommandAck;
+  switch (result) {
+    case VehicleCommandAck::VEHICLE_CMD_RESULT_ACCEPTED:
+      return "accepted";
+    case VehicleCommandAck::VEHICLE_CMD_RESULT_TEMPORARILY_REJECTED:
+      return "temporarily rejected";
+    case VehicleCommandAck::VEHICLE_CMD_RESULT_DENIED:
+      return "denied";
+    case VehicleCommandAck::VEHICLE_CMD_RESULT_UNSUPPORTED:
+      return "unsupported";
+    case VehicleCommandAck::VEHICLE_CMD_RESULT_FAILED:
+      return "failed";
+    case VehicleCommandAck::VEHICLE_CMD_RESULT_IN_PROGRESS:
+      return "in progress";
+    case VehicleCommandAck::VEHICLE_CMD_RESULT_CANCELLED:
+      return "cancelled";
+    default:
+      return "unknown";
+  }
 }
 
 }  // namespace
@@ -163,23 +188,53 @@ VehicleControlNode::~VehicleControlNode()
 
 bool VehicleControlNode::reserve_goal(const GoalKind kind, const bool is_goal_valid)
 {
-  if (!enable_flight_commands_ || !is_goal_valid) {
+  const char * goal_name = "flight";
+  switch (kind) {
+    case GoalKind::Takeoff:
+      goal_name = "takeoff";
+      break;
+    case GoalKind::Navigate:
+      goal_name = "navigation";
+      break;
+    case GoalKind::Land:
+      goal_name = "landing";
+      break;
+    case GoalKind::None:
+      break;
+  }
+
+  if (!enable_flight_commands_) {
+    RCLCPP_WARN(get_logger(), "Rejecting %s goal: flight commands are disabled", goal_name);
+    return false;
+  }
+  if (!is_goal_valid) {
+    RCLCPP_WARN(get_logger(), "Rejecting %s goal: goal values are invalid", goal_name);
     return false;
   }
 
   const VehicleTelemetry telemetry = px4_adapter_->telemetry();
   if (!has_fresh_control_telemetry(telemetry, true)) {
+    RCLCPP_WARN(
+      get_logger(), "Rejecting %s goal: PX4 position, status, or land telemetry is stale",
+      goal_name);
     return false;
   }
 
   std::lock_guard<std::mutex> lock(control_mutex_);
   if (goal_active_) {
+    RCLCPP_WARN(get_logger(), "Rejecting %s goal: another flight goal is active", goal_name);
     return false;
   }
   if ((kind == GoalKind::Takeoff && (telemetry.armed || !telemetry.landed || telemetry.offboard)) ||
     (kind == GoalKind::Navigate && (!telemetry.armed || !telemetry.offboard)) ||
     (kind == GoalKind::Land && !telemetry.armed && !telemetry.landed))
   {
+    RCLCPP_WARN(
+      get_logger(),
+      "Rejecting %s goal: incompatible PX4 state (armed=%s, offboard=%s, landed=%s, nav_state=%u)",
+      goal_name, telemetry.armed ? "true" : "false", telemetry.offboard ? "true" : "false",
+      telemetry.landed ? "true" : "false",
+      static_cast<unsigned int>(telemetry.navigation_state));
     return false;
   }
 
@@ -188,6 +243,10 @@ bool VehicleControlNode::reserve_goal(const GoalKind kind, const bool is_goal_va
   if (telemetry.offboard) {
     stream_mode_established_ = true;
   }
+  RCLCPP_INFO(
+    get_logger(), "Accepted ROS %s goal; PX4 state: armed=%s, offboard=%s, landed=%s",
+    goal_name, telemetry.armed ? "true" : "false", telemetry.offboard ? "true" : "false",
+    telemetry.landed ? "true" : "false");
   return true;
 }
 
@@ -257,8 +316,11 @@ bool VehicleControlNode::wait_for_command_acknowledgement(
       px4_adapter_->acknowledgement_after(command, generation);
     if (acknowledgement) {
       if (acknowledgement->result != command_accepted) {
-        failure_message = "PX4 rejected vehicle command with result " +
-          std::to_string(acknowledgement->result);
+        failure_message = "PX4 command acknowledgement result=" +
+          std::to_string(acknowledgement->result) + " (" +
+          command_acknowledgement_result_name(acknowledgement->result) + "), result_param1=" +
+          std::to_string(acknowledgement->result_parameter_1) + ", result_param2=" +
+          std::to_string(acknowledgement->result_parameter_2);
         return false;
       }
       return true;
@@ -270,15 +332,22 @@ bool VehicleControlNode::wait_for_command_acknowledgement(
 }
 
 bool VehicleControlNode::request_transition(
-  const std::uint32_t command, const float parameter_1, const float parameter_2,
+  const std::string & transition_name, const std::uint32_t command,
+  const float parameter_1, const float parameter_2,
   const std::function<bool(const VehicleTelemetry &)> & predicate,
   const std::function<bool()> & is_cancelled, std::string & failure_message)
 {
+  RCLCPP_INFO(
+    get_logger(), "Requesting PX4 %s transition (command=%u, max_attempts=%d)",
+    transition_name.c_str(), static_cast<unsigned int>(command), maximum_command_attempts);
   for (int attempt = 0; attempt < maximum_command_attempts; ++attempt) {
     if (is_cancelled()) {
-      failure_message = "goal canceled";
+      failure_message = "goal canceled before requesting PX4 " + transition_name + " transition";
       return false;
     }
+    RCLCPP_DEBUG(
+      get_logger(), "Publishing PX4 %s command attempt %d/%d", transition_name.c_str(),
+      attempt + 1, maximum_command_attempts);
     const std::int64_t timestamp_us = get_clock()->now().nanoseconds() / 1000;
     const std::uint64_t generation = px4_adapter_->publish_vehicle_command(
       command, parameter_1, parameter_2, timestamp_us);
@@ -288,21 +357,64 @@ bool VehicleControlNode::request_transition(
         command, generation, acknowledgement_deadline, is_cancelled, failure_message))
     {
       if (failure_message == "command acknowledgement timed out") {
+        if (attempt + 1 == maximum_command_attempts) {
+          failure_message = "PX4 did not acknowledge " + transition_name + " transition (command " +
+            std::to_string(command) + ") after " + std::to_string(maximum_command_attempts) +
+            " attempts";
+          RCLCPP_ERROR(get_logger(), "%s", failure_message.c_str());
+          return false;
+        }
+        RCLCPP_WARN(
+          get_logger(), "No PX4 acknowledgement for %s (command=%u, attempt=%d/%d); retrying",
+          transition_name.c_str(), static_cast<unsigned int>(command), attempt + 1,
+          maximum_command_attempts);
         continue;
+      }
+      if (failure_message != "goal canceled") {
+        failure_message = "PX4 did not accept " + transition_name + " transition (command " +
+          std::to_string(command) + "): " + failure_message;
+        RCLCPP_ERROR(get_logger(), "%s", failure_message.c_str());
+      } else {
+        failure_message = "goal canceled while waiting for PX4 " + transition_name +
+          " acknowledgement";
       }
       return false;
     }
+    RCLCPP_INFO(
+      get_logger(), "PX4 acknowledged %s command (command=%u, attempt=%d/%d)",
+      transition_name.c_str(), static_cast<unsigned int>(command), attempt + 1,
+      maximum_command_attempts);
 
     const std::chrono::steady_clock::time_point transition_deadline =
       deadline_after(transition_timeout_sec_);
     if (wait_until(predicate, transition_deadline, is_cancelled, false, failure_message)) {
+      RCLCPP_INFO(
+        get_logger(), "PX4 confirmed %s transition (command=%u)", transition_name.c_str(),
+        static_cast<unsigned int>(command));
       return true;
     }
     if (failure_message != "transition timed out") {
+      if (failure_message != "goal canceled") {
+        failure_message = "PX4 " + transition_name + " transition failed: " + failure_message;
+        RCLCPP_ERROR(get_logger(), "%s", failure_message.c_str());
+      } else {
+        failure_message = "goal canceled while waiting for PX4 " + transition_name + " transition";
+      }
       return false;
     }
+    if (attempt + 1 == maximum_command_attempts) {
+      failure_message = "PX4 acknowledged " + transition_name + " transition command " +
+        std::to_string(command) + " but telemetry did not confirm the transition after " +
+        std::to_string(maximum_command_attempts) + " attempts";
+      RCLCPP_ERROR(get_logger(), "%s", failure_message.c_str());
+      return false;
+    }
+    RCLCPP_WARN(
+      get_logger(), "PX4 acknowledged %s but telemetry did not confirm the transition within %.1f s; "
+      "retrying (%d/%d)", transition_name.c_str(), transition_timeout_sec_, attempt + 1,
+      maximum_command_attempts);
   }
-  failure_message = "PX4 did not complete the requested transition after bounded retries";
+  failure_message = "PX4 " + transition_name + " transition failed after bounded retries";
   return false;
 }
 
@@ -438,6 +550,9 @@ void VehicleControlNode::execute_takeoff(const std::shared_ptr<TakeoffHandle> & 
     [goal_handle]() {return goal_handle->is_canceling() || !rclcpp::ok();};
   const std::chrono::steady_clock::time_point goal_deadline = deadline_after(takeoff_timeout_sec_);
   std::string failure_message;
+  RCLCPP_INFO(
+    get_logger(), "Starting takeoff execution (target_altitude=%.2f m)",
+    static_cast<double>(goal->altitude_m));
   try {
     Position start_position{};
     {
@@ -451,6 +566,7 @@ void VehicleControlNode::execute_takeoff(const std::shared_ptr<TakeoffHandle> & 
     }
 
     if (!request_transition(
+        "Offboard mode",
         px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE,
         custom_mode_enabled, offboard_custom_mode,
         [](const VehicleTelemetry & telemetry) {return telemetry.offboard;},
@@ -464,6 +580,7 @@ void VehicleControlNode::execute_takeoff(const std::shared_ptr<TakeoffHandle> & 
     }
 
     if (!request_transition(
+        "arming",
         px4_msgs::msg::VehicleCommand::VEHICLE_CMD_COMPONENT_ARM_DISARM,
         arm_command_value, 0.0F,
         [](const VehicleTelemetry & telemetry) {return telemetry.armed;},
@@ -493,6 +610,9 @@ void VehicleControlNode::execute_takeoff(const std::shared_ptr<TakeoffHandle> & 
       if (distance(telemetry.position_enu, target_position) <= default_position_tolerance_m_) {
         result->success = true;
         result->message = "Takeoff altitude reached";
+        RCLCPP_INFO(
+          get_logger(), "Takeoff succeeded at target altitude %.2f m",
+          static_cast<double>(goal->altitude_m));
         goal_handle->succeed(result);
         finish_goal();
         return;
@@ -513,9 +633,12 @@ void VehicleControlNode::execute_takeoff(const std::shared_ptr<TakeoffHandle> & 
     hold_current_position();
     result->success = false;
     result->message = exception.what();
-    if (is_cancelled()) {
+    const bool was_cancelled = is_cancelled();
+    if (was_cancelled) {
+      RCLCPP_WARN(get_logger(), "Takeoff canceled: %s", exception.what());
       goal_handle->canceled(result);
     } else {
+      RCLCPP_ERROR(get_logger(), "Takeoff failed: %s", exception.what());
       goal_handle->abort(result);
     }
     finish_goal();
@@ -538,6 +661,10 @@ void VehicleControlNode::execute_navigation(const std::shared_ptr<NavigateHandle
     [goal_handle]() {return goal_handle->is_canceling() || !rclcpp::ok();};
   std::chrono::steady_clock::time_point last_feedback = std::chrono::steady_clock::now();
   std::string failure_message;
+  RCLCPP_INFO(
+    get_logger(), "Starting navigation (target_enu=[%.2f, %.2f, %.2f] m, tolerance=%.2f m, "
+    "timeout=%.1f s)", target_position[0], target_position[1], target_position[2], tolerance,
+    timeout);
 
   try {
     while (std::chrono::steady_clock::now() < deadline) {
@@ -545,6 +672,7 @@ void VehicleControlNode::execute_navigation(const std::shared_ptr<NavigateHandle
         hold_current_position();
         result->success = false;
         result->message = "Navigation canceled; holding the current position";
+        RCLCPP_WARN(get_logger(), "%s", result->message.c_str());
         const VehicleTelemetry telemetry = px4_adapter_->telemetry();
         if (telemetry.position_valid) {
           result->final_distance_m = static_cast<float>(
@@ -564,6 +692,8 @@ void VehicleControlNode::execute_navigation(const std::shared_ptr<NavigateHandle
       if (target_distance <= tolerance) {
         result->success = true;
         result->message = "Navigation target reached";
+        RCLCPP_INFO(
+          get_logger(), "Navigation succeeded (remaining_distance=%.2f m)", target_distance);
         goal_handle->succeed(result);
         finish_goal();
         return;
@@ -588,9 +718,12 @@ void VehicleControlNode::execute_navigation(const std::shared_ptr<NavigateHandle
       result->final_distance_m = static_cast<float>(
         distance(telemetry.position_enu, target_position));
     }
-    if (is_cancelled()) {
+    const bool was_cancelled = is_cancelled();
+    if (was_cancelled) {
+      RCLCPP_WARN(get_logger(), "Navigation canceled: %s", exception.what());
       goal_handle->canceled(result);
     } else {
+      RCLCPP_ERROR(get_logger(), "Navigation failed: %s", exception.what());
       goal_handle->abort(result);
     }
     finish_goal();
@@ -608,6 +741,7 @@ void VehicleControlNode::execute_land(const std::shared_ptr<LandHandle> & goal_h
   const std::function<bool()> is_cancelled =
     [goal_handle]() {return goal_handle->is_canceling() || !rclcpp::ok();};
   std::string failure_message;
+  RCLCPP_INFO(get_logger(), "Starting landing action (timeout=%.1f s)", timeout);
 
   try {
     VehicleTelemetry telemetry = px4_adapter_->telemetry();
@@ -615,6 +749,7 @@ void VehicleControlNode::execute_land(const std::shared_ptr<LandHandle> & goal_h
       result->success = true;
       result->landed = true;
       result->message = "Vehicle is already landed";
+      RCLCPP_INFO(get_logger(), "Landing succeeded: PX4 already reports landed");
       goal_handle->succeed(result);
       finish_goal();
       return;
@@ -630,6 +765,7 @@ void VehicleControlNode::execute_land(const std::shared_ptr<LandHandle> & goal_h
     const bool already_in_auto_land =
       telemetry.navigation_state == px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_AUTO_LAND;
     if (!already_in_auto_land && !request_transition(
+        "Auto Land mode",
         px4_msgs::msg::VehicleCommand::VEHICLE_CMD_NAV_LAND, 0.0F, 0.0F,
         [](const VehicleTelemetry & current) {
           return current.navigation_state ==
@@ -656,6 +792,7 @@ void VehicleControlNode::execute_land(const std::shared_ptr<LandHandle> & goal_h
         result->success = true;
         result->landed = true;
         result->message = "PX4 reported the vehicle landed";
+        RCLCPP_INFO(get_logger(), "Landing succeeded: PX4 land detector reports landed");
         goal_handle->succeed(result);
         finish_goal();
         return;
@@ -668,9 +805,12 @@ void VehicleControlNode::execute_land(const std::shared_ptr<LandHandle> & goal_h
     result->success = false;
     result->landed = false;
     result->message = exception.what();
-    if (is_cancelled()) {
+    const bool was_cancelled = is_cancelled();
+    if (was_cancelled) {
+      RCLCPP_WARN(get_logger(), "Landing canceled: %s", exception.what());
       goal_handle->canceled(result);
     } else {
+      RCLCPP_ERROR(get_logger(), "Landing failed: %s", exception.what());
       goal_handle->abort(result);
     }
     finish_goal();

@@ -99,15 +99,16 @@ struct Px4Adapter::Implementation
     acknowledgement_subscription = node.create_subscription<px4_msgs::msg::VehicleCommandAck>(
       prefix + "/out/vehicle_command_ack", px4_stream_qos(),
       [this](const px4_msgs::msg::VehicleCommandAck & message) {
-        if (!message.from_external || message.target_system != 255U ||
-          message.target_component != 1U)
+        // I am a silly clanker; PX4 v1.17 leaves this command-origin flag unset in acknowledgements.
+        if (message.target_system != 255U || message.target_component != 1U)
         {
           return;
         }
         std::lock_guard<std::mutex> lock(mutex);
         ++acknowledgement_generation;
         last_acknowledgement = CommandAcknowledgement{
-          message.command, message.result, acknowledgement_generation};
+          message.command, message.result, message.result_param1, message.result_param2,
+          acknowledgement_generation};
       });
   }
 
