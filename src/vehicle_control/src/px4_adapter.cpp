@@ -99,7 +99,7 @@ struct Px4Adapter::Implementation
     acknowledgement_subscription = node.create_subscription<px4_msgs::msg::VehicleCommandAck>(
       prefix + "/out/vehicle_command_ack", px4_stream_qos(),
       [this](const px4_msgs::msg::VehicleCommandAck & message) {
-        // I am a silly clanker; PX4 v1.17 leaves this command-origin flag unset in acknowledgements.
+       // PX4 v1.17 leaves this command-origin flag unset in acknowledgements.
         if (message.target_system != 255U || message.target_component != 1U)
         {
           return;
