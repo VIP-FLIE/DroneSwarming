@@ -90,15 +90,7 @@ Run these commands from the repository root.
 
 Start QGroundControl on the host and leave it open. PX4 sends its ground-station link on UDP port 14550, and QGroundControl listens on that port by default when UDP auto-connect is enabled. If no vehicle appears, check QGroundControl's [UDP auto-connect setting](https://docs.qgroundcontrol.com/master/en/qgc-user-guide/settings_view/comm_links.html). After PX4 starts, confirm that QGroundControl shows the simulated vehicle and updating telemetry.
 
-Use the [simulation flight procedure](../../README.md#simulation-flight-procedure) for the launch and mission commands. It uses four native terminals. From the repository root, run these wrappers in separate terminals:
-
-```bash
-./scripts/xrce-agent
-./scripts/px4-sitl
-./scripts/sim-shell
-```
-
-The first two wrappers run the XRCE-DDS Agent and PX4 SITL with Gazebo inside the container, attached to their native terminals. They start the service and build the image if it is missing. Use `./scripts/sim-shell` for the application and ROS command terminals. It opens a shell with ROS 2, PX4 messages, and the workspace sourced. The container uses host networking for the PX4 MAVLink connection to QGroundControl.
+Run `./scripts/tmux-session` from a host terminal to start the simulation service and open the four-pane session. The session starts the XRCE-DDS Agent and PX4 SITL with Gazebo. It opens sourced container shells for the application and ROS 2 CLI. Follow the [tmux simulation session guide](../development/TMUX.md) for pane controls and the [simulation flight procedure](../../README.md#simulation-flight-procedure) for launch and mission commands. The container uses host networking for the PX4 MAVLink connection to QGroundControl.
 
 ## Stop a flight
 

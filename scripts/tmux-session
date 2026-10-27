@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+usage() {
+    printf 'Usage: %s [--help]\n' "${0##*/}"
+}
+
+if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
+    usage
+    exit 0
+fi
+
+if (($# != 0)); then
+    usage >&2
+    exit 2
+fi
+
+if [[ -f /.dockerenv || -f /run/.containerenv || -n "${REMOTE_CONTAINERS:-}" ]]; then
+    printf 'Run this script from a native host terminal, outside the project container.\n' >&2
+    exit 1
+fi
+
+if ! command -v tmux >/dev/null 2>&1; then
+    printf 'tmux is required on the host. Install it with: sudo apt install tmux\n' >&2
+    exit 127
+fi
+
+repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+session_name='drone-swarming'
+
+printf -v agent_command 'exec %q' "$repository_root/scripts/xrce-agent"
+printf -v px4_command 'exec %q' "$repository_root/scripts/px4-sitl"
+printf -v shell_command 'exec %q' "$repository_root/scripts/sim-shell"
+
+pane_titles=(
+    'XRCE-DDS Agent'
+    'PX4 SITL + Gazebo'
+    'Application Launch'
+    'ROS 2 CLI'
+)
+pane_commands=(
+    "$agent_command"
+    "$px4_command"
+    "$shell_command"
+    "$shell_command"
+)
+
+session_created=0
+cleanup_failed_session() {
+    local command_status=$?
+
+    trap - EXIT
+    if [[ "$command_status" -ne 0 && "$session_created" -eq 1 ]]; then
+        tmux kill-session -t "$session_name" 2>/dev/null || true
+    fi
+    exit "$command_status"
+}
+trap cleanup_failed_session EXIT
+
+if ! tmux has-session -t "$session_name" 2>/dev/null; then
+    "$repository_root/scripts/sim" up -d simulation
+    tmux new-session -d -s "$session_name" -c "$repository_root" "$agent_command"
+    session_created=1
+    tmux select-pane -t "$session_name:0.0" -T "${pane_titles[0]}"
+fi
+
+mapfile -t existing_pane_ids < <(tmux list-panes -t "$session_name:0" -F '#{pane_id}')
+mapfile -t existing_pane_titles < <(tmux list-panes -t "$session_name:0" -F '#{pane_title}')
+pane_ids_by_role=()
+
+for role_index in "${!pane_titles[@]}"; do
+    pane_found=0
+    for existing_index in "${!existing_pane_titles[@]}"; do
+        if [[ "${existing_pane_titles[$existing_index]}" == "${pane_titles[$role_index]}" ]]; then
+            pane_ids_by_role[$role_index]="${existing_pane_ids[$existing_index]}"
+            pane_found=1
+            break
+        fi
+    done
+
+    if [[ "$pane_found" -eq 0 ]]; then
+        pane_id="$(tmux split-window -P -F '#{pane_id}' -h -t "$session_name:0" -c "$repository_root" "${pane_commands[$role_index]}")"
+        tmux select-pane -t "$pane_id" -T "${pane_titles[$role_index]}"
+        existing_pane_ids+=("$pane_id")
+        existing_pane_titles+=("${pane_titles[$role_index]}")
+        pane_ids_by_role[$role_index]="$pane_id"
+    fi
+done
+
+tmux select-layout -t "$session_name:0" tiled
+tmux set-window-option -t "$session_name:0" pane-border-status top
+tmux set-window-option -t "$session_name:0" pane-border-format '#{pane_index}: #{pane_title}'
+tmux select-pane -t "${pane_ids_by_role[0]}" -T "${pane_titles[0]}"
+tmux select-pane -t "${pane_ids_by_role[1]}" -T "${pane_titles[1]}"
+tmux select-pane -t "${pane_ids_by_role[2]}" -T "${pane_titles[2]}"
+tmux select-pane -t "${pane_ids_by_role[3]}" -T "${pane_titles[3]}"
+tmux select-pane -t "${pane_ids_by_role[2]}"
+
+trap - EXIT
+exec tmux attach-session -t "$session_name"

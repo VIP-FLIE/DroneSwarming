@@ -61,39 +61,21 @@ The single-vehicle simulation uses the default PX4 topic prefix `/fmu`. Use a di
 
 Complete the [Linux setup](docs/setup/LINUX.md), build the workspace, and install [QGroundControl](docs/setup/LINUX.md#install-qgroundcontrol) on the host. Start QGroundControl and leave it open. With its default UDP auto-connect enabled, it listens for PX4 on UDP port 14550. If no vehicle appears, check QGroundControl's [UDP auto-connect setting](https://docs.qgroundcontrol.com/master/en/qgc-user-guide/settings_view/comm_links.html). Confirm the simulated vehicle appears and its telemetry updates before starting the flight-enabled application.
 
-Use four native terminals. Run each wrapper from the repository root on the host. Each wrapper starts the simulation service and builds its image if it is missing. The XRCE-DDS and PX4 wrappers run their processes inside the container and attach them to the terminal; they do not require opening an interactive shell first.
-
-Container terminal 1 starts the XRCE-DDS Agent and remains occupied:
+Start the tmux simulation session from a host terminal:
 
 ```bash
-./scripts/xrce-agent
+./scripts/tmux-session
 ```
 
-Container terminal 2 starts PX4 SITL and Gazebo Harmonic and remains occupied:
+The session starts the XRCE-DDS Agent and PX4 SITL with Gazebo Harmonic. It opens a sourced container shell for the application in pane 2 and a sourced ROS 2 CLI shell in pane 3. Confirm that the simulated vehicle and telemetry appear in QGroundControl before starting the flight-enabled application.
 
-```bash
-./scripts/px4-sitl
-```
-
-After the vehicle appears in QGroundControl, open a sourced container shell in terminal 3 and start the application with flight actions explicitly enabled for SITL:
-
-```bash
-./scripts/sim-shell
-```
-
-Run this inside that shell:
+In pane 2, start the application with flight actions enabled for SITL:
 
 ```bash
 ros2 launch drone_bringup single_vehicle.launch.py enable_flight_commands:=true
 ```
 
-Open another sourced shell for container terminal 4:
-
-```bash
-./scripts/sim-shell
-```
-
-Check one vehicle-state message, confirm the mission action is available, then send the mission:
+In pane 3, check one vehicle-state message and confirm the mission action is available, then send the mission:
 
 ```bash
 ros2 topic echo --once /vehicle_state
@@ -105,6 +87,8 @@ ros2 action send_goal /execute_waypoint_mission \
 ```
 
 The mission climbs 3 m, flies a 3 m square at 3 m relative to the position captured at mission start, then requests PX4 auto-land. Each waypoint offset is added to that same mission origin. The mission executor converts each offset to an absolute `local_enu` target, and `vehicle_control` converts it to PX4 NED setpoints.
+
+Press `Ctrl-b`, then `d` to detach from tmux. Run `tmux attach-session -t drone-swarming` to return to the session.
 
 ## Scope and verification
 
@@ -121,6 +105,7 @@ The v1.17 Offboard topic and timestamp behavior follows the [PX4 v1.17 ROS 2 Off
 - [Gazebo world resources](worlds/README.md)
 - [Swarm development stages](docs/swarm/SWARM.md)
 - [Neovim LSP setup](docs/development/NEOVIM.md)
+- [tmux simulation session](docs/development/TMUX.md)
 - [VS Code LSP setup](docs/development/VS-CODE.md)
 - [Zed LSP setup](docs/development/ZED.md)
 - [Repository rules](docs/REPOSITORY_RULES.md)
