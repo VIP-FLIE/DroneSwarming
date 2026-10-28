@@ -1,6 +1,6 @@
 # DroneSwarming
 
-ROS 2 control software for PX4 search-and-rescue drones. The supported development environment is a Docker container with Ubuntu 24.04, ROS 2 Jazzy, PX4 SITL v1.17.0, Gazebo Harmonic, and matching `px4_msgs` v1.17.0. QGroundControl runs on the Linux host.
+ROS 2 control software for PX4 search-and-rescue drones. The project targets Ubuntu 24.04, ROS 2 Jazzy, PX4 v1.17.0, and matching `px4_msgs` v1.17.0. Use the Docker environment for SITL and Gazebo. Use the [native Raspberry Pi guide](docs/setup/HITL-PI-SETUP.md) to build the same application packages on a 64-bit Ubuntu 24.04 companion computer.
 
 > **Do not push directly to `main`.** Create feature branches from `dev`, validate the changes, and open pull requests into `dev`. Promote `dev` to `main` through a release pull request after required validation and approval by at least two team members. `main` must build, run the documented SITL mission without a vehicle crash, and remain ready for project demos. Read the [Repository Rules](docs/REPOSITORY_RULES.md) and [Contributing](CONTRIBUTING.md) before changing the repository.
 
@@ -98,6 +98,7 @@ The v1.17 Offboard topic and timestamp behavior follows the [PX4 v1.17 ROS 2 Off
 
 ## Project guides
 
+- [Native Raspberry Pi setup](docs/setup/HITL-PI-SETUP.md)
 - [Architecture diagrams](docs/architecture/README.md)
 - [Linux and Docker setup](docs/setup/LINUX.md)
 - [Simulation architecture](docs/simulation/HOW-IT-WORKS.md)

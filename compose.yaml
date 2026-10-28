@@ -1,7 +1,15 @@
 services:
   development:
-    build: .
-    image: drone-swarming:px4-v1.17.0
+    image: drone-swarming:px4-${PX4_VERSION}
+    build:
+      context: .
+      args:
+        PX4_BASE_IMAGE: ${PX4_BASE_IMAGE:?Set PX4_BASE_IMAGE in .env}
+        UBUNTU_VERSION: ${UBUNTU_VERSION:?Set UBUNTU_VERSION in .env}
+        ROS_DISTRO: ${ROS_DISTRO:?Set ROS_DISTRO in .env}
+        PX4_VERSION: ${PX4_VERSION:?Set PX4_VERSION in .env}
+        PX4_MSGS_VERSION: ${PX4_MSGS_VERSION:?Set PX4_MSGS_VERSION in .env}
+        RUFF_VERSION: ${RUFF_VERSION:?Set RUFF_VERSION in .env}
     command: ["sleep", "infinity"]
     init: true
     network_mode: host
@@ -15,8 +23,16 @@ services:
 
   simulation:
     container_name: swarm-sim
-    build: .
-    image: drone-swarming:px4-v1.17.0
+    build:
+      context: .
+      args:
+        PX4_BASE_IMAGE: ${PX4_BASE_IMAGE:?Set PX4_BASE_IMAGE in .env}
+        UBUNTU_VERSION: ${UBUNTU_VERSION:?Set UBUNTU_VERSION in .env}
+        ROS_DISTRO: ${ROS_DISTRO:?Set ROS_DISTRO in .env}
+        PX4_VERSION: ${PX4_VERSION:?Set PX4_VERSION in .env}
+        PX4_MSGS_VERSION: ${PX4_MSGS_VERSION:?Set PX4_MSGS_VERSION in .env}
+        RUFF_VERSION: ${RUFF_VERSION:?Set RUFF_VERSION in .env}
+    image: drone-swarming:px4-${PX4_VERSION}
     command: ["sleep", "infinity"]
     init: true
     network_mode: host

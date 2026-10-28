@@ -2,6 +2,8 @@
 
 The primary workflow targets Ubuntu 24.04. ROS 2 Jazzy, PX4 SITL, Gazebo Harmonic, the XRCE-DDS Agent, and `px4_msgs` run inside the project container. QGroundControl runs on the host.
 
+The native companion-computer workflow targets 64-bit Raspberry Pi systems running Ubuntu 24.04. Follow [HITL-PI-SETUP.md](HITL-PI-SETUP.md) to install the pinned ROS 2 and PX4 message toolchain without Docker.
+
 ## Requirements
 
 - Ubuntu 24.04 desktop
