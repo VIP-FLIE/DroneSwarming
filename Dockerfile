@@ -1,9 +1,17 @@
-FROM px4io/px4-dev-ros2-gazebo:sha-bf9b1610ca27af976f89ea59a45003dd8cbb5fe2-jazzy@sha256:ed83ec2bb14c283dc10a5acd2675831c0fcca44be37ecc895e65ad4cd610f05a
+ARG PX4_BASE_IMAGE
+FROM ${PX4_BASE_IMAGE}
 
-ARG PX4_VERSION=v1.17.0
-ARG PX4_MSGS_VERSION=v1.17.0
+ARG UBUNTU_VERSION
+ARG ROS_DISTRO
+ARG CC=gcc
+ARG CXX=g++
+ARG PX4_VERSION
+ARG PX4_MSGS_VERSION
+ARG RUFF_VERSION
 
-ENV ROS_DISTRO=jazzy \
+ENV ROS_DISTRO=${ROS_DISTRO} \
+    CC=${CC} \
+    CXX=${CXX} \
     PX4_DIR=/opt/PX4-Autopilot \
     TERM=xterm-256color \
     QT_QPA_PLATFORM=xcb \
@@ -14,13 +22,12 @@ ENV ROS_DISTRO=jazzy \
 SHELL ["/bin/bash", "-o", "pipefail", "-x", "-c"]
 
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y clangd \
+    && apt-get install --no-install-recommends -y clangd g++ \
     && rm -rf /var/lib/apt/lists/*
 
 RUN source /etc/os-release \
-    && test "$VERSION_ID" = "24.04" \
-    && source /opt/ros/jazzy/setup.bash \
-    && test "$ROS_DISTRO" = "jazzy" \
+    && test "$VERSION_ID" = "$UBUNTU_VERSION" \
+    && source "/opt/ros/${ROS_DISTRO}/setup.bash" \
     && command -v MicroXRCEAgent \
     && git clone --depth 1 --branch "$PX4_VERSION" --recursive --shallow-submodules \
         https://github.com/PX4/PX4-Autopilot.git "$PX4_DIR" \
@@ -32,12 +39,10 @@ WORKDIR /opt/px4_ros2
 RUN mkdir -p src \
     && git clone --depth 1 --branch "$PX4_MSGS_VERSION" \
         https://github.com/PX4/px4_msgs.git src/px4_msgs \
-    && source /opt/ros/jazzy/setup.bash \
+    && source "/opt/ros/${ROS_DISTRO}/setup.bash" \
     && colcon build --symlink-install
 
 WORKDIR /workspace
-
-ARG RUFF_VERSION=0.17.1
 
 RUN apt-get update \
     && apt-get install --no-install-recommends -y python3-venv \
@@ -48,14 +53,15 @@ RUN apt-get update \
 
 COPY src/ src/
 
-RUN source /opt/ros/jazzy/setup.bash \
+RUN source "/opt/ros/${ROS_DISTRO}/setup.bash" \
     && source /opt/px4_ros2/install/setup.bash \
     && colcon build --symlink-install --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
 RUN chown -R ubuntu:ubuntu /workspace/build /workspace/install /workspace/log
 
+RUN printf 'source "/opt/ros/%s/setup.bash"\n' "$ROS_DISTRO" >> /etc/bash.bashrc
+
 RUN cat >> /etc/bash.bashrc <<'EOF'
-source /opt/ros/jazzy/setup.bash
 source /opt/px4_ros2/install/setup.bash
 source /workspace/install/setup.bash
 EOF

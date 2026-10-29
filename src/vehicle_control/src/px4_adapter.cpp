@@ -56,8 +56,12 @@ struct Px4Adapter::Implementation
       [this](const px4_msgs::msg::VehicleLocalPosition & message) {
         const std::chrono::steady_clock::time_point received = std::chrono::steady_clock::now();
         std::lock_guard<std::mutex> lock(mutex);
-        telemetry.position_enu = ned_to_enu({message.x, message.y, message.z});
-        telemetry.velocity_enu = ned_to_enu({message.vx, message.vy, message.vz});
+        telemetry.position_enu = ned_to_enu({
+          static_cast<double>(message.x), static_cast<double>(message.y),
+          static_cast<double>(message.z)});
+        telemetry.velocity_enu = ned_to_enu({
+          static_cast<double>(message.vx), static_cast<double>(message.vy),
+          static_cast<double>(message.vz)});
         telemetry.position_valid = message.xy_valid && message.z_valid &&
           std::isfinite(message.x) && std::isfinite(message.y) && std::isfinite(message.z);
         telemetry.velocity_valid = message.v_xy_valid && message.v_z_valid &&
