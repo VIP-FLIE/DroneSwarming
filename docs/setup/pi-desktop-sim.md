@@ -1,17 +1,19 @@
 # Desktop Gazebo SITL with ROS 2 on Raspberry Pi
 
-This setup runs PX4 SITL and Gazebo Harmonic on the Ubuntu 24.04 desktop. The Raspberry Pi runs ROS 2 Jazzy application nodes and the Micro XRCE-DDS Agent. PX4 SITL connects to the Agent over a direct Ethernet link using UDP port `8888`.
+This setup runs PX4 SITL and Gazebo Harmonic on the Ubuntu 24.04 desktop. The Raspberry Pi runs ROS 2 Jazzy application nodes and the Micro XRCE-DDS Agent. PX4 SITL connects to the Agent over UDP port `8888`. Use either a direct Ethernet link or the existing private router/access point LAN.
 
 The project pins PX4 and `px4_msgs` to v1.17.0 and the Micro XRCE-DDS Agent to v2.4.3. Use matching versions on both machines. See [HITL Pi Setup](HITL-PI-SETUP.md) for the Raspberry Pi build environment.
 
-| Machine | Address | Processes |
+| Machine | Direct-link address | Processes |
 | --- | --- | --- |
 | Desktop | `192.168.50.1/24` | PX4 SITL and Gazebo Harmonic |
 | Raspberry Pi | `192.168.50.2/24` | Micro XRCE-DDS Agent and ROS 2 nodes |
 
-The `/24` prefix is the subnet mask `255.255.255.0`. Choose a different unused private subnet if either machine already uses `192.168.50.0/24` on another interface. Do not configure a gateway or DNS server for the direct Ethernet connection.
+The addresses in the table apply to the direct Ethernet option. The `/24` prefix is the subnet mask `255.255.255.0`. Choose a different unused private subnet if either machine already uses `192.168.50.0/24` on another interface. Do not configure a gateway or DNS server for the direct Ethernet connection.
 
-## Configure Ethernet addresses
+## Option A: Direct Ethernet link
+
+### Configure Ethernet addresses
 
 Connect the Ethernet cable. Find each Ethernet interface name with:
 
@@ -20,7 +22,7 @@ nmcli device status
 ip -br link
 ```
 
-### NetworkManager
+#### NetworkManager
 
 Use NetworkManager on each machine when `nmcli` is installed. Replace `enp3s0` with the Ethernet interface name shown on that machine.
 
@@ -46,7 +48,7 @@ sudo nmcli connection up pi-desktop-sim
 
 `ipv4.never-default yes` prevents this link from becoming the default route. The connection profile persists after reboot.
 
-### Netplan on Ubuntu Server
+#### Netplan on Ubuntu Server
 
 Use Netplan on the Raspberry Pi when NetworkManager and `nmcli` are unavailable. Edit the existing Netplan file for the Ethernet interface. Replace `eth0` with the interface name shown by `ip -br link`.
 
@@ -70,7 +72,7 @@ sudo netplan apply
 
 Use `192.168.50.1/24` in the desktop Ethernet interface configuration.
 
-### Verify the link
+#### Verify the direct link
 
 Run these commands on the desktop:
 
@@ -91,6 +93,48 @@ If UFW is active on the Raspberry Pi, allow incoming UDP port `8888` from the de
 ```bash
 sudo ufw allow in on eth0 from 192.168.50.1 to any port 8888 proto udp
 ```
+
+## Option B: Existing router or access point
+
+Connect the desktop and Raspberry Pi to the same private LAN. The desktop can use Wi-Fi or Ethernet. The Raspberry Pi can use Wi-Fi or Ethernet. Use the same non-guest LAN on both devices. The router must allow devices on that LAN to communicate with each other.
+
+Create DHCP reservations for the desktop and Raspberry Pi in the router's DHCP settings. The router associates each reservation with that interface's MAC address. Use `ip link show` or the router's connected-device list to identify the MAC addresses. Keep both network interfaces configured for automatic DHCP. Reserve the Pi address used by PX4. Reserve the desktop address if the Pi firewall rule is limited to a source address.
+
+Find each assigned address with the router's connected-device list or these commands:
+
+```bash
+ip -4 -br addr
+ip link show
+ip route
+```
+
+Use the Pi address assigned to the interface connected to the shared LAN. Replace the example addresses below with the router-assigned addresses.
+
+On the desktop:
+
+```bash
+ping -c 3 192.168.1.25
+ip route get 192.168.1.25
+```
+
+On the Raspberry Pi:
+
+```bash
+ping -c 3 192.168.1.20
+ip route get 192.168.1.20
+```
+
+In these examples, `192.168.1.25` is the Pi address and `192.168.1.20` is the desktop address. The route output identifies the interface used to reach the other machine.
+
+If UFW is active on the Raspberry Pi, allow incoming UDP port `8888` from the desktop LAN address. Replace `wlan0` with the Pi's active Wi-Fi or Ethernet interface and replace `192.168.1.20` with the desktop address.
+
+```bash
+sudo ufw allow in on wlan0 from 192.168.1.20 to any port 8888 proto udp
+```
+
+Start the Raspberry Pi Agent and ROS 2 nodes using the commands in the next section. On the desktop, start PX4 SITL with `./scripts/px4-sitl`. Use the Pi's reserved LAN address in the PX4 client command in the desktop section below.
+
+The simulation container uses host networking and can route to the Pi over the desktop's active LAN interface. PX4 uXRCE-DDS topics have no DDS authentication. Keep this setup on a private LAN and use the local-only DDS settings in the security section below. Guest Wi-Fi and access-point client isolation can block communication between the desktop and Raspberry Pi.
 
 ## Start the Raspberry Pi processes
 
@@ -125,7 +169,7 @@ Run the PX4 SITL wrapper from the DroneSwarming checkout on the desktop:
 
 The wrapper starts PX4 SITL with Gazebo inside the project container. The simulation container uses host networking, so it can reach the Pi's Ethernet address.
 
-PX4 SITL starts its uXRCE-DDS client at `127.0.0.1:8888` by default. At the PX4 shell prompt, stop the default client and start it with the Pi address:
+PX4 SITL starts its uXRCE-DDS client at `127.0.0.1:8888` by default. At the PX4 shell prompt, stop the default client and start it with the Pi address. Use `192.168.50.2` for Option A. For Option B, replace it with the Pi's reserved LAN address.
 
 ```text
 uxrce_dds_client stop
