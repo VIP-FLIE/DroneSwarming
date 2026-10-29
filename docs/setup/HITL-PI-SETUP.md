@@ -1,15 +1,52 @@
 # HITL Pi Setup
 
-This procedure assumes Ubuntu 24.04 on arm64, ROS 2 Jazzy, `colcon`, initialized `rosdep`, Git, CMake, Make, and a C++ compiler are installed.
+This procedure uses Ubuntu 24.04 on arm64 with ROS 2 Jazzy. It installs `rosdep`, builds the matching `px4_msgs` package, builds the Micro XRCE-DDS Agent, and builds DroneSwarming.
 
-Before building, add `noble-updates noble-backports` to the `Suites:` line in `/etc/apt/sources.list.d/ubuntu.sources`. Run `sudo apt update && sudo apt upgrade` after editing the file.
+Before installing packages, add `noble-updates noble-backports` to the `Suites:` line in `/etc/apt/sources.list.d/ubuntu.sources`. Then update and upgrade the Ubuntu packages:
+
+```bash
+sudo apt update
+sudo apt upgrade
+```
+
+The ROS 2 Jazzy installation, `colcon`, Git, CMake, and Make must be available before continuing. This guide does not install ROS 2 itself.
+
+## Install GCC
+
+Install the GNU C and C++ compilers. The project uses `gcc` for C and `g++` for C++.
+
+```bash
+sudo apt install -y g++
+gcc --version
+g++ --version
+```
 
 Run DroneSwarming build commands from the root of the checkout you want to build. Source `.env` in each build terminal:
 
 ```bash
 source ./.env
+export CC CXX
 source /opt/ros/jazzy/setup.bash
 ```
+
+The `.env` file sets `CC=gcc` and `CXX=g++`. Export both variables before building so CMake selects GCC.
+
+## Install and initialize `rosdep`
+
+`rosdep` reads ROS package manifests and installs missing system and ROS dependencies. Install the Ubuntu package, initialize the default rosdep sources list, and download the dependency rules:
+
+```bash
+sudo apt install -y python3-rosdep
+if [ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]; then
+  sudo rosdep init
+fi
+rosdep update
+rosdep --version
+```
+
+Run `sudo rosdep init` once on the Raspberry Pi. The file check skips initialization when the default sources list already exists. Run `rosdep update` as the regular user, without `sudo`.
+
+`rosdep install` must run from a workspace directory and use that workspace's `src` directory. It reads each package's `package.xml`, skips packages found in source with `--ignore-src`, and installs the external dependencies listed by the manifests. It does not build ROS packages.
 
 ## Build `px4_msgs`
 
@@ -59,11 +96,24 @@ Run these commands from the root of the DroneSwarming checkout:
 
 ```bash
 source ./.env
+export CC CXX
 source /opt/ros/jazzy/setup.bash
 source "$HOME/px4_ros2/install/setup.bash"
+```
+
+An existing CMake build directory keeps its original compiler selection. When switching a checkout from Clang to GCC, remove the DroneSwarming build and install directories before rebuilding:
+
+```bash
+rm -rf build install
+```
+
+Continue the build from the DroneSwarming root:
+
+```bash
 rosdep install --from-paths src --ignore-src --rosdistro jazzy -r -y \
   --dependency-types build --dependency-types build_export \
   --dependency-types buildtool --dependency-types buildtool_export \
   --dependency-types exec
 colcon build --symlink-install --cmake-args -DBUILD_TESTING=OFF
 ```
+

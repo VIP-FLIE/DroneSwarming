@@ -3,11 +3,15 @@ FROM ${PX4_BASE_IMAGE}
 
 ARG UBUNTU_VERSION
 ARG ROS_DISTRO
+ARG CC=gcc
+ARG CXX=g++
 ARG PX4_VERSION
 ARG PX4_MSGS_VERSION
 ARG RUFF_VERSION
 
 ENV ROS_DISTRO=${ROS_DISTRO} \
+    CC=${CC} \
+    CXX=${CXX} \
     PX4_DIR=/opt/PX4-Autopilot \
     TERM=xterm-256color \
     QT_QPA_PLATFORM=xcb \
@@ -18,7 +22,7 @@ ENV ROS_DISTRO=${ROS_DISTRO} \
 SHELL ["/bin/bash", "-o", "pipefail", "-x", "-c"]
 
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y clangd \
+    && apt-get install --no-install-recommends -y clangd g++ \
     && rm -rf /var/lib/apt/lists/*
 
 RUN source /etc/os-release \
