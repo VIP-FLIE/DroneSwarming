@@ -9,7 +9,7 @@ sudo apt update
 sudo apt upgrade
 ```
 
-The ROS 2 Jazzy installation, `colcon`, Git, CMake, and Make must be available before continuing. This guide does not install ROS 2 itself.
+The ROS 2 Jazzy installation, `colcon`, Git, CMake, and Make must be available before continuing. This guide does not install ROS 2 itself. Follow (these)[https://docs.ros.org/en/jazzy/Installation/Ubuntu-Install-Debs.html] docs from ros to install ROS2 Jazzy Base
 
 ## Install GCC
 
