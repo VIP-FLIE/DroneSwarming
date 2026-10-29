@@ -16,9 +16,27 @@ The ROS 2 Jazzy installation, `colcon`, Git, CMake, and Make must be available b
 Install the GNU C and C++ compilers. The project uses `gcc` for C and `g++` for C++.
 
 ```bash
-sudo apt install -y g++
+sudo apt install -y g++ python3-venv
 gcc --version
 g++ --version
+```
+
+## Install Ruff
+
+Install the project-pinned Ruff version in a Python virtual environment. Run these commands from the DroneSwarming checkout root:
+
+```bash
+source ./.env
+sudo apt install python3.12-venv
+python3 -m venv "$HOME/.venvs/drone-swarming-ruff"
+"$HOME/.venvs/drone-swarming-ruff/bin/python" -m pip install "ruff==${RUFF_VERSION}"
+"$HOME/.venvs/drone-swarming-ruff/bin/ruff" --version
+```
+
+Activate the virtual environment to run `ruff` from `PATH`:
+
+```bash
+source "$HOME/.venvs/drone-swarming-ruff/bin/activate"
 ```
 
 Run DroneSwarming build commands from the root of the checkout you want to build. Source `.env` in each build terminal:
@@ -116,4 +134,3 @@ rosdep install --from-paths src --ignore-src --rosdistro jazzy -r -y \
   --dependency-types exec
 colcon build --symlink-install --cmake-args -DBUILD_TESTING=OFF
 ```
-
