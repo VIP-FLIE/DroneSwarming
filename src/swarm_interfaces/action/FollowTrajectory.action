@@ -1,0 +1,18 @@
+# At least two points are required. Times start at zero and increase strictly.
+swarm_interfaces/TrajectoryPoint[] points
+# Zero selects the configured default. Units are meters.
+float32 position_tolerance_m
+# Zero selects the configured default. Units are radians.
+float32 yaw_tolerance_rad
+# Zero selects the configured default. Units are seconds.
+float32 timeout_sec
+---
+bool success
+string message
+float32 final_distance_m
+float32 final_yaw_error_rad
+---
+float32 elapsed_sec
+float32 distance_to_target_m
+float32 yaw_error_rad
+string status

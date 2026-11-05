@@ -20,11 +20,24 @@ struct VehicleTelemetry
 {
   Position position_enu{};
   Position velocity_enu{};
+  double yaw_enu_rad{0.0};
   bool position_valid{false};
   bool velocity_valid{false};
+  bool yaw_valid{false};
   bool armed{false};
   bool offboard{false};
+  bool in_transition_mode{false};
+  std::uint8_t vehicle_type{0};
   std::uint8_t navigation_state{0};
+  bool xy_global{false};
+  bool z_global{false};
+  double reference_latitude_deg{0.0};
+  double reference_longitude_deg{0.0};
+  double reference_altitude_amsl_m{0.0};
+  std::uint64_t reference_timestamp{0};
+  std::uint8_t xy_reset_counter{0};
+  std::uint8_t z_reset_counter{0};
+  std::uint64_t setpoint_publication_count{0};
   bool landed{false};
   bool battery_available{false};
   float battery_percentage{0.0F};
@@ -56,7 +69,13 @@ public:
   /// Returns a synchronized snapshot of the latest decoded telemetry.
   VehicleTelemetry telemetry() const;
   /// Publishes an ENU position target as a PX4 NED Offboard setpoint.
-  void publish_position_setpoint(const Position & position_enu, std::int64_t timestamp_us);
+  void publish_position_setpoint(
+    const Position & position_enu, std::int64_t timestamp_us,
+    std::optional<double> yaw_enu_rad = std::nullopt);
+  /// Publishes a PX4 orbit command with its center expressed in WGS84.
+  std::uint64_t publish_orbit_command(
+    double signed_radius_m, float tangential_speed_mps, std::uint8_t yaw_behavior,
+    const GlobalPosition & center, std::int64_t timestamp_us);
   /// Publishes a PX4 command and returns the preceding acknowledgment generation.
   std::uint64_t publish_vehicle_command(
     std::uint32_t command, float parameter_1, float parameter_2, std::int64_t timestamp_us);

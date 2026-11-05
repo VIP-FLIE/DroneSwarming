@@ -8,13 +8,16 @@ find_package(std_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/VehicleState.msg"
+  "msg/TrajectoryPoint.msg"
   "msg/SearchRegion.msg"
   "msg/TaskAssignment.msg"
   "msg/VictimReport.msg"
   "action/Takeoff.action"
   "action/NavigateTo.action"
   "action/Land.action"
+  "action/OrbitPoint.action"
   "action/ExecuteWaypointMission.action"
+  "action/FollowTrajectory.action"
   DEPENDENCIES geometry_msgs std_msgs
 )
 

@@ -4,7 +4,7 @@ The `scripts/tmux-session` command starts the simulation container and opens fou
 
 ## Requirements
 
-- Linux host with Docker Compose and `tmux`.
+- Linux host with Docker Compose, `tmux`, and the util-linux `script` command.
 - NVIDIA Container Toolkit configured for Docker.
 - X11 or XWayland display access for Gazebo.
 - QGroundControl running on the host before the flight-enabled application starts.
@@ -13,7 +13,7 @@ The `scripts/tmux-session` command starts the simulation container and opens fou
 Install tmux on Ubuntu with:
 
 ```bash
-sudo apt install tmux
+sudo apt install tmux util-linux
 ```
 
 Build the workspace from the repository root before starting the ROS application:
@@ -32,7 +32,7 @@ Run this command from the repository root in a host terminal:
 
 The launcher must run outside the project container because tmux starts on the machine that runs the script. The script reports an error when it detects a container environment.
 
-The script starts the `simulation` Compose service through `scripts/sim`, then attaches the `drone-swarming` tmux session. Running the command again attaches to the existing session and recreates any missing project panes.
+The script creates a UTC run directory, starts the `simulation` Compose service through `scripts/sim`, then attaches the `drone-swarming` tmux session. All four panes use the session's `DRONE_RUN_ID`. Running the command again reuses that ID and recreates any missing project panes.
 
 | Pane | Process or shell |
 | --- | --- |
@@ -42,6 +42,22 @@ The script starts the `simulation` Compose service through `scripts/sim`, then a
 | 3 | Sourced container shell for ROS 2 CLI commands |
 
 The application and CLI panes start interactive shells. The script does not start the ROS application or send a mission.
+
+## Run logs
+
+The host stores each run at `run-logs/<UTC timestamp>/`. The simulation container mounts the directory at `/workspace/run-logs`.
+
+| Path | Contents |
+| --- | --- |
+| `run-info.txt` | Run ID, creation time, Git commit, branch, and worktree dirty state |
+| `console/` | Host terminal transcripts and process exit status files |
+| `ros/` | ROS 2 node log files created through `ROS_LOG_DIR` |
+| `px4/log/` | PX4 SITL ULog files |
+| `flight-tests/` | Per-case flight test artifacts |
+
+The tmux launcher creates one ID for the session. Detaching and reattaching preserves the ID. Killing the session and starting a new one creates a new run directory. A session created before run ID support has no saved ID; close it with `tmux kill-session -t drone-swarming` before starting a new session. Remove a run directory manually to reclaim host disk space.
+
+For separate host terminals, run `export DRONE_RUN_ID="$(./scripts/new-run)"` once. Copy `printf 'export DRONE_RUN_ID=%q\n' "$DRONE_RUN_ID"` output into the other terminals before starting the wrappers.
 
 ## Run a flight mission
 

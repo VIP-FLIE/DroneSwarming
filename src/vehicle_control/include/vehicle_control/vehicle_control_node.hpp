@@ -8,15 +8,19 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 
 #include "vehicle_control/px4_adapter.hpp"
+#include "vehicle_control/trajectory.hpp"
 
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <swarm_interfaces/action/land.hpp>
+#include <swarm_interfaces/action/follow_trajectory.hpp>
 #include <swarm_interfaces/action/navigate_to.hpp>
+#include <swarm_interfaces/action/orbit_point.hpp>
 #include <swarm_interfaces/action/takeoff.hpp>
 #include <swarm_interfaces/msg/vehicle_state.hpp>
 
@@ -35,9 +39,13 @@ public:
 private:
   using Takeoff = swarm_interfaces::action::Takeoff;
   using NavigateTo = swarm_interfaces::action::NavigateTo;
+  using FollowTrajectory = swarm_interfaces::action::FollowTrajectory;
+  using OrbitPoint = swarm_interfaces::action::OrbitPoint;
   using Land = swarm_interfaces::action::Land;
   using TakeoffHandle = rclcpp_action::ServerGoalHandle<Takeoff>;
   using NavigateHandle = rclcpp_action::ServerGoalHandle<NavigateTo>;
+  using FollowTrajectoryHandle = rclcpp_action::ServerGoalHandle<FollowTrajectory>;
+  using OrbitHandle = rclcpp_action::ServerGoalHandle<OrbitPoint>;
   using LandHandle = rclcpp_action::ServerGoalHandle<Land>;
 
   enum class GoalKind : std::uint8_t
@@ -45,11 +53,13 @@ private:
     None,
     Takeoff,
     Navigate,
+    FollowTrajectory,
+    Orbit,
     Land
   };
 
-  /// Reserves one valid flight goal when telemetry and vehicle state permit it.
-  bool reserve_goal(GoalKind kind, bool is_goal_valid);
+  /// Reserves a valid flight goal and optionally requires valid yaw telemetry.
+  bool reserve_goal(GoalKind kind, bool is_goal_valid, bool require_yaw = false);
   /// Checks whether position telemetry is valid, finite, and recent.
   bool has_fresh_position(const VehicleTelemetry & telemetry) const;
   /// Checks fresh control telemetry and optional landing-state telemetry.
@@ -96,8 +106,18 @@ private:
   void execute_takeoff(const std::shared_ptr<TakeoffHandle> & goal_handle);
   /// Tracks navigation progress and holds position when navigation ends.
   void execute_navigation(const std::shared_ptr<NavigateHandle> & goal_handle);
+  /// Interpolates timed ENU position and yaw setpoints while monitoring telemetry.
+  void execute_follow_trajectory(
+    const std::shared_ptr<FollowTrajectoryHandle> & goal_handle);
   /// Requests PX4 landing and waits for its land detector confirmation.
   void execute_land(const std::shared_ptr<LandHandle> & goal_handle);
+  /// Commands PX4 Orbit, measures completed revolutions, and restores Offboard hold.
+  void execute_orbit(const std::shared_ptr<OrbitHandle> & goal_handle);
+  /// Returns whether the local-position reference matches the snapshot.
+  bool has_same_local_reference(
+    const VehicleTelemetry & current, const VehicleTelemetry & reference) const;
+  /// Restores Offboard position hold after PX4 exits Orbit under this action's control.
+  bool restore_offboard_after_orbit(std::string & failure_message);
 
   std::shared_ptr<Px4Adapter> px4_adapter_;
   bool enable_flight_commands_{false};
@@ -105,12 +125,20 @@ private:
   double telemetry_timeout_sec_{1.0};
   double default_navigation_timeout_sec_{30.0};
   double default_position_tolerance_m_{0.5};
+  double default_yaw_tolerance_rad_{0.2};
+  double max_orbit_radius_m_{20.0};
+  double max_orbit_speed_mps_{3.0};
+  double max_orbit_center_distance_m_{100.0};
   double command_ack_timeout_sec_{2.0};
   double transition_timeout_sec_{5.0};
   double takeoff_timeout_sec_{30.0};
   std::uint8_t px4_system_id_{1};
   Position reserved_start_position_{};
+  double reserved_start_yaw_rad_{0.0};
   Position target_position_{};
+  std::optional<Position> look_at_position_enu_;
+  std::optional<double> target_yaw_rad_;
+  std::chrono::steady_clock::time_point look_at_setpoint_updated_at_{};
   bool goal_active_{false};
   bool landing_command_started_{false};
   bool stream_requested_{false};
@@ -127,6 +155,8 @@ private:
   rclcpp::TimerBase::SharedPtr state_timer_;
   rclcpp_action::Server<Takeoff>::SharedPtr takeoff_server_;
   rclcpp_action::Server<NavigateTo>::SharedPtr navigation_server_;
+  rclcpp_action::Server<FollowTrajectory>::SharedPtr follow_trajectory_server_;
+  rclcpp_action::Server<OrbitPoint>::SharedPtr orbit_server_;
   rclcpp_action::Server<Land>::SharedPtr land_server_;
 };
 

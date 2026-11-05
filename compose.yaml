@@ -12,6 +12,7 @@ services:
         PX4_VERSION: ${PX4_VERSION:?Set PX4_VERSION in .env}
         PX4_MSGS_VERSION: ${PX4_MSGS_VERSION:?Set PX4_MSGS_VERSION in .env}
         RUFF_VERSION: ${RUFF_VERSION:?Set RUFF_VERSION in .env}
+        DRONE_LOG_MIN_SEVERITY: ${DRONE_LOG_MIN_SEVERITY:-DEBUG}
     command: ["sleep", "infinity"]
     init: true
     network_mode: host
@@ -36,6 +37,7 @@ services:
         PX4_VERSION: ${PX4_VERSION:?Set PX4_VERSION in .env}
         PX4_MSGS_VERSION: ${PX4_MSGS_VERSION:?Set PX4_MSGS_VERSION in .env}
         RUFF_VERSION: ${RUFF_VERSION:?Set RUFF_VERSION in .env}
+        DRONE_LOG_MIN_SEVERITY: ${DRONE_LOG_MIN_SEVERITY:-DEBUG}
     image: drone-swarming:px4-${PX4_VERSION}
     command: ["sleep", "infinity"]
     init: true
@@ -57,6 +59,7 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix:ro
       - ./src:/workspace/src:rw
       - ./worlds:/workspace/worlds:ro
+      - ./run-logs:/workspace/run-logs:rw
 
 volumes:
   development_build:

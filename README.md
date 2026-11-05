@@ -90,6 +90,23 @@ The mission climbs 3 m, flies a 3 m square at 3 m relative to the position captu
 
 Press `Ctrl-b`, then `d` to detach from tmux. Run `tmux attach-session -t drone-swarming` to return to the session.
 
+## Run logs
+
+Each simulation run uses `run-logs/<UTC timestamp>/` on the host. The simulation container mounts this directory at `/workspace/run-logs`, so `scripts/sim down` and container recreation preserve the files.
+
+The run directory contains `run-info.txt`, host terminal transcripts in `console/`, ROS log files in `ros/`, PX4 ULog files in `px4/log/`, and per-case flight test artifacts in `flight-tests/`. The `scripts/tmux-session` panes share one run ID. `scripts/sim-shell` creates a new run ID when `DRONE_RUN_ID` is unset.
+
+To use one run ID across separate host terminals, create it once and copy the printed export command into each terminal:
+
+```bash
+export DRONE_RUN_ID="$(./scripts/new-run)"
+printf 'export DRONE_RUN_ID=%q\n' "$DRONE_RUN_ID"
+```
+
+Run `./scripts/xrce-agent`, `./scripts/px4-sitl`, and `./scripts/sim-shell` with the same exported value. Remove a run directory manually to reclaim host disk space.
+
+`ros2 launch drone_bringup single_vehicle.launch.py` defaults to runtime log threshold `info`. Use `log_level:=debug` to enable runtime debug messages when the build includes them. Set `DRONE_LOG_MIN_SEVERITY` in `.env` and rebuild the image with `./scripts/sim build simulation` to change the compile-time minimum. Valid values are `DEBUG`, `INFO`, `WARN`, `ERROR`, `FATAL`, and `NONE`.
+
 ## Scope and verification
 
 `swarm_coordination` defines no peer discovery, allocation, failure detection, or flight behavior. Perception, collision avoidance, multi-drone task allocation, and payload operations are outside the initial vertical slice.
@@ -103,6 +120,7 @@ The v1.17 Offboard topic and timestamp behavior follows the [PX4 v1.17 ROS 2 Off
 - [Linux and Docker setup](docs/setup/LINUX.md)
 - [Simulation architecture](docs/simulation/HOW-IT-WORKS.md)
 - [Simulation fidelity](docs/simulation/SIMULATION-FIDELITY.md)
+- [Flight test suite usage](docs/testing/README.md)
 - [Gazebo world resources](worlds/README.md)
 - [Swarm development stages](docs/swarm/SWARM.md)
 - [Neovim LSP setup](docs/development/NEOVIM.md)

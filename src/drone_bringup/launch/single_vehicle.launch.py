@@ -11,6 +11,7 @@ def generate_launch_description() -> LaunchDescription:
     """Define vehicle and mission nodes with launch-time parameters."""
     namespace = LaunchConfiguration('namespace')
     px4_topic_prefix = LaunchConfiguration('px4_topic_prefix')
+    log_level = LaunchConfiguration('log_level')
 
     launch_arguments = [
         DeclareLaunchArgument(
@@ -18,6 +19,11 @@ def generate_launch_description() -> LaunchDescription:
         ),
         DeclareLaunchArgument(
             'px4_topic_prefix', default_value='/fmu', description='PX4 DDS topic prefix'
+        ),
+        DeclareLaunchArgument(
+            'log_level',
+            default_value='info',
+            description='Runtime ROS log threshold for both application nodes',
         ),
         DeclareLaunchArgument(
             'px4_system_id', default_value='1', description='PX4 MAVLink system ID'
@@ -31,6 +37,9 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument('telemetry_timeout_sec', default_value='1.0'),
         DeclareLaunchArgument('default_navigation_timeout_sec', default_value='30.0'),
         DeclareLaunchArgument('default_position_tolerance_m', default_value='0.5'),
+        DeclareLaunchArgument('max_orbit_radius_m', default_value='20.0'),
+        DeclareLaunchArgument('max_orbit_speed_mps', default_value='3.0'),
+        DeclareLaunchArgument('max_orbit_center_distance_m', default_value='100.0'),
         DeclareLaunchArgument('command_ack_timeout_sec', default_value='2.0'),
         DeclareLaunchArgument('transition_timeout_sec', default_value='5.0'),
         DeclareLaunchArgument('takeoff_timeout_sec', default_value='30.0'),
@@ -46,6 +55,7 @@ def generate_launch_description() -> LaunchDescription:
         name='vehicle_control',
         namespace=namespace,
         output='screen',
+        arguments=['--ros-args', '--log-level', log_level],
         parameters=[
             {
                 'px4_topic_prefix': px4_topic_prefix,
@@ -67,6 +77,15 @@ def generate_launch_description() -> LaunchDescription:
                 'default_position_tolerance_m': ParameterValue(
                     LaunchConfiguration('default_position_tolerance_m'), value_type=float
                 ),
+                'max_orbit_radius_m': ParameterValue(
+                    LaunchConfiguration('max_orbit_radius_m'), value_type=float
+                ),
+                'max_orbit_speed_mps': ParameterValue(
+                    LaunchConfiguration('max_orbit_speed_mps'), value_type=float
+                ),
+                'max_orbit_center_distance_m': ParameterValue(
+                    LaunchConfiguration('max_orbit_center_distance_m'), value_type=float
+                ),
                 'command_ack_timeout_sec': ParameterValue(
                     LaunchConfiguration('command_ack_timeout_sec'), value_type=float
                 ),
@@ -86,6 +105,7 @@ def generate_launch_description() -> LaunchDescription:
         name='mission_execution',
         namespace=namespace,
         output='screen',
+        arguments=['--ros-args', '--log-level', log_level],
         parameters=[
             {
                 'telemetry_timeout_sec': ParameterValue(

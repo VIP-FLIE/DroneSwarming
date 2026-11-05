@@ -22,10 +22,10 @@ vim.lsp.config("clangd", {
 vim.lsp.enable("clangd")
 ```
 
-Start Neovim from the repository root so the command resolves to the project wrapper:
+Open a terminal in the `DroneSwarming` repository root so the command resolves to the project
+wrapper. Start Neovim with:
 
 ```bash
-cd /path/to/DroneSwarming
 nvim .
 ```
 

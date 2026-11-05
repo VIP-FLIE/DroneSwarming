@@ -28,21 +28,47 @@ fi
 repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 session_name='drone-swarming'
 
-printf -v agent_command 'exec %q' "$repository_root/scripts/xrce-agent"
-printf -v px4_command 'exec %q' "$repository_root/scripts/px4-sitl"
-printf -v shell_command 'exec %q' "$repository_root/scripts/sim-shell"
-
 pane_titles=(
     'XRCE-DDS Agent'
     'PX4 SITL + Gazebo'
     'Application Launch'
     'ROS 2 CLI'
 )
+
+run_id=''
+session_exists=0
+if tmux has-session -t "$session_name" 2>/dev/null; then
+    session_exists=1
+    session_environment="$(tmux show-environment -t "$session_name" DRONE_RUN_ID 2>/dev/null || true)"
+    if [[ "$session_environment" == DRONE_RUN_ID=* ]]; then
+        run_id="${session_environment#DRONE_RUN_ID=}"
+    else
+        printf 'The existing tmux session has no DRONE_RUN_ID. Close it with `tmux kill-session -t %s` and start a new session.\n' "$session_name" >&2
+        exit 1
+    fi
+    if [[ ! "$run_id" =~ ^[0-9]{8}T[0-9]{6}Z(-[1-9][0-9]*)?$ ]] ||
+        [[ ! -d "$repository_root/run-logs/$run_id" ]]; then
+        printf 'The existing tmux session has an invalid or missing run directory: %s\n' "$run_id" >&2
+        exit 1
+    fi
+else
+    run_id="$("$repository_root/scripts/new-run")"
+fi
+
+printf -v agent_command 'exec env DRONE_RUN_ID=%q DRONE_LOG_ROLE=%q %q' \
+    "$run_id" 'xrce-agent' "$repository_root/scripts/xrce-agent"
+printf -v px4_command 'exec env DRONE_RUN_ID=%q DRONE_LOG_ROLE=%q %q' \
+    "$run_id" 'px4-sitl' "$repository_root/scripts/px4-sitl"
+printf -v application_command 'exec env DRONE_RUN_ID=%q DRONE_LOG_ROLE=%q %q' \
+    "$run_id" 'application' "$repository_root/scripts/sim-shell"
+printf -v cli_command 'exec env DRONE_RUN_ID=%q DRONE_LOG_ROLE=%q %q' \
+    "$run_id" 'ros-cli' "$repository_root/scripts/sim-shell"
+
 pane_commands=(
     "$agent_command"
     "$px4_command"
-    "$shell_command"
-    "$shell_command"
+    "$application_command"
+    "$cli_command"
 )
 
 session_created=0
@@ -57,10 +83,13 @@ cleanup_failed_session() {
 }
 trap cleanup_failed_session EXIT
 
-if ! tmux has-session -t "$session_name" 2>/dev/null; then
+if [[ "$session_exists" -eq 0 ]]; then
+    printf 'Run ID: %s\nLogs: %s\n' "$run_id" "$repository_root/run-logs/$run_id"
     "$repository_root/scripts/sim" up -d simulation
-    tmux new-session -d -s "$session_name" -c "$repository_root" "$agent_command"
+    tmux new-session -d -s "$session_name" -c "$repository_root" \
+        -e "DRONE_RUN_ID=$run_id" "$agent_command"
     session_created=1
+    tmux set-environment -t "$session_name" DRONE_RUN_ID "$run_id"
     tmux select-pane -t "$session_name:0.0" -T "${pane_titles[0]}"
 fi
 

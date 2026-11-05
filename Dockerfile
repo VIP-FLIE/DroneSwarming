@@ -8,6 +8,7 @@ ARG CXX=g++
 ARG PX4_VERSION
 ARG PX4_MSGS_VERSION
 ARG RUFF_VERSION
+ARG DRONE_LOG_MIN_SEVERITY=DEBUG
 
 ENV ROS_DISTRO=${ROS_DISTRO} \
     CC=${CC} \
@@ -22,7 +23,7 @@ ENV ROS_DISTRO=${ROS_DISTRO} \
 SHELL ["/bin/bash", "-o", "pipefail", "-x", "-c"]
 
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y clangd g++ \
+    && apt-get install --no-install-recommends -y clangd g++ util-linux \
     && rm -rf /var/lib/apt/lists/*
 
 RUN source /etc/os-release \
@@ -55,7 +56,9 @@ COPY src/ src/
 
 RUN source "/opt/ros/${ROS_DISTRO}/setup.bash" \
     && source /opt/px4_ros2/install/setup.bash \
-    && colcon build --symlink-install --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+    && colcon build --symlink-install --cmake-args \
+        -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+        "-DDRONE_LOG_MIN_SEVERITY=${DRONE_LOG_MIN_SEVERITY}"
 
 RUN chown -R ubuntu:ubuntu /workspace/build /workspace/install /workspace/log
 

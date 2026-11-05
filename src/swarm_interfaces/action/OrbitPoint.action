@@ -1,0 +1,20 @@
+# Absolute orbit center in local_enu meters from PX4's local origin.
+geometry_msgs/Point center_position
+string frame_id
+# Positive orbit radius in meters. PX4 requires at least 1 meter.
+float32 radius_m
+bool clockwise
+# Requested tangential speed in meters per second.
+float32 tangential_speed_mps
+# Positive number of complete revolutions to fly after reaching the circle.
+float32 revolutions
+# Positive deadline for orbit entry, circle approach, and requested revolutions.
+float32 timeout_sec
+---
+bool success
+string message
+float32 completed_revolutions
+---
+float32 completed_revolutions
+float32 radial_error_m
+string status

@@ -8,6 +8,7 @@ The native companion-computer workflow targets 64-bit Raspberry Pi systems runni
 
 - Ubuntu 24.04 desktop
 - Docker Engine and the Docker Compose plugin
+- The `script` command from `util-linux` for host terminal transcripts
 - NVIDIA Container Toolkit configured for Docker
 - QGroundControl
 - An X11 desktop session, or a Wayland session with XWayland enabled
@@ -22,6 +23,12 @@ sudo systemctl restart docker
 The NVIDIA display driver remains installed on the host; ROS 2, PX4, Gazebo, and the XRCE-DDS Agent run in the container.
 
 Install Docker Engine with the [Ubuntu instructions](https://docs.docker.com/engine/install/ubuntu/). The host does not need ROS 2 or PX4.
+
+Install `util-linux` if the `script` command is missing:
+
+```bash
+sudo apt install util-linux
+```
 
 ## Install QGroundControl
 

@@ -15,8 +15,20 @@ The Linux container builds PX4 SITL v1.17.0 and matching `px4_msgs` v1.17.0. The
 
 `drone_bringup` starts only the two ROS application nodes. Start the agent and PX4 SITL in separate terminals. The PX4 v1.17.0 SITL ROS 2 graph exposes versioned state topics `/fmu/out/vehicle_local_position_v1`, `/fmu/out/vehicle_status_v1`, and `/fmu/out/battery_status_v1`. It exposes `/fmu/out/vehicle_land_detected` and `/fmu/out/vehicle_command_ack` without a version suffix. PX4 receives Offboard control and trajectory setpoints under `/fmu/in/`.
 
+## Orbit action
+
+`vehicle_control` exposes `/orbit_point` for an airborne rotary-wing vehicle in Offboard. The action requires valid global-reference data from `VehicleLocalPosition`; it converts the requested absolute `local_enu` center to the WGS84 center used by PX4's `DO_ORBIT` command. PX4 controls approach, radius, tangential speed, and yaw toward the center. The action tracks completed revolutions from position samples, then restores and confirms Offboard hold. A missing or changed global reference rejects or aborts the action.
+
+For Orbit validation, run only in the controlled SITL procedure with flight commands enabled. Confirm that PX4 reports Orbit state, the requested direction and radius are visible in telemetry, progress advances only after reaching the circle, cancellation returns to a confirmed Offboard hold, and landing starts only after mission Orbit succeeds.
+
 ## Start
 
-Follow the [Linux setup](../setup/LINUX.md) and the root [simulation flight procedure](../../README.md#simulation-flight-procedure). Run `./scripts/xrce-agent` and `./scripts/px4-sitl` in separate native terminals. Each wrapper starts the simulation service and builds its image if it is missing, then runs its process inside the container with terminal input and output attached. Use `./scripts/sim-shell` to open a sourced interactive container shell for the application launch and ROS commands. QGroundControl runs separately on the host. Check that it shows the simulated vehicle and updating telemetry before starting the flight-enabled application.
+Follow the [Linux setup](../setup/LINUX.md) and the root [simulation flight procedure](../../README.md#simulation-flight-procedure). Run `./scripts/xrce-agent` and `./scripts/px4-sitl` in separate native terminals. Each wrapper starts the simulation service and builds its image if it is missing, then runs its process inside the container with terminal input and output attached. The wrappers save terminal output under `run-logs/<run-id>/console/` on the host. `scripts/sim-shell` points `ROS_LOG_DIR` at `run-logs/<run-id>/ros/` through the container mount. `scripts/px4-sitl` stores ULog files under `run-logs/<run-id>/px4/log/`. QGroundControl runs separately on the host. Check that it shows the simulated vehicle and updating telemetry before starting the flight-enabled application.
+
+`scripts/tmux-session` creates one run ID for its panes. Separate host terminals use one shared ID when each terminal exports the value printed by `./scripts/new-run`. `DRONE_RUN_ID`, `DRONE_RUN_LOG_ROOT`, `DRONE_RUN_DIR`, and `DRONE_RUN_METADATA` are available to processes launched inside the simulation container.
+
+PX4 SITL starts ULog recording at boot and stops it at shutdown through `SDLOG_MODE=2`. PX4 v1.17 accepts `PX4_PARAM_*` environment variables in its POSIX startup script. See the [PX4 v1.17 logging parameters](https://github.com/PX4/PX4-Autopilot/blob/v1.17.0/docs/en/dev_log/logging.md#configuration) and [PX4 v1.17 parameter environment overrides](https://github.com/PX4/PX4-Autopilot/blob/v1.17.0/ROMFS/px4fmu_common/init.d-posix/rcS#L1127-L1141).
+
+The PX4 log mount applies to SITL. Hardware PX4 logs remain on the flight controller's storage and require transfer to the host.
 
 The `vehicle_control` default keeps flight actions disabled. The example enables them only for the simulation procedure.

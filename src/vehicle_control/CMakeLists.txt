@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.8)
 project(vehicle_control)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/ProjectWarnings.cmake")
+include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/ProjectLogging.cmake")
 
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_gtest REQUIRED)
@@ -13,12 +14,15 @@ find_package(swarm_interfaces REQUIRED)
 
 add_library(vehicle_control_core
   src/coordinates.cpp
+  src/orbit_progress.cpp
   src/px4_adapter.cpp
+  src/trajectory.cpp
   src/vehicle_control_node.cpp
 )
 target_include_directories(vehicle_control_core PUBLIC include)
 target_compile_features(vehicle_control_core PUBLIC cxx_std_17)
 enable_project_cpp_diagnostics(vehicle_control_core)
+enable_project_cpp_logging(vehicle_control_core)
 ament_target_dependencies(vehicle_control_core SYSTEM
   geometry_msgs px4_msgs rclcpp rclcpp_action swarm_interfaces
 )
@@ -41,6 +45,17 @@ if(BUILD_TESTING)
   target_compile_features(test_coordinates PRIVATE cxx_std_17)
   enable_project_cpp_diagnostics(test_coordinates)
   target_link_libraries(test_coordinates vehicle_control_core)
+
+  ament_add_gtest(test_orbit_progress test/test_orbit_progress.cpp)
+  target_compile_features(test_orbit_progress PRIVATE cxx_std_17)
+  enable_project_cpp_diagnostics(test_orbit_progress)
+  target_link_libraries(test_orbit_progress vehicle_control_core)
+
+  ament_add_gtest(test_trajectory test/test_trajectory.cpp)
+  target_compile_features(test_trajectory PRIVATE cxx_std_17)
+  enable_project_cpp_diagnostics(test_trajectory)
+  ament_target_dependencies(test_trajectory SYSTEM swarm_interfaces)
+  target_link_libraries(test_trajectory vehicle_control_core)
 
   ament_add_gtest(test_px4_adapter test/test_px4_adapter.cpp)
   target_compile_features(test_px4_adapter PRIVATE cxx_std_17)
