@@ -1,0 +1,37 @@
+# Waypoint offsets use local_enu meters from the position at mission start.
+float32 takeoff_altitude_m
+geometry_msgs/Point[] waypoint_offsets
+float32 position_tolerance_m
+float32 waypoint_timeout_sec
+bool land_after_waypoints
+# When true, every waypoint faces one point of interest relative to the mission-start origin.
+bool look_at_point_of_interest
+# Point-of-interest offset in local_enu meters from the mission-start position.
+geometry_msgs/Point look_at_offset
+# Run an OrbitPoint action after the final waypoint.
+bool orbit_after_waypoints
+# Orbit center offset in local_enu meters from the mission-start position.
+geometry_msgs/Point orbit_center_offset
+# Positive orbit radius in meters. PX4 requires at least 1 meter.
+float32 orbit_radius_m
+# True selects clockwise travel as viewed from above.
+bool orbit_clockwise
+# Requested tangential speed in meters per second.
+float32 orbit_tangential_speed_mps
+# Positive number of complete revolutions to fly.
+float32 orbit_revolutions
+# Positive deadline for OrbitPoint entry, approach, and revolutions.
+float32 orbit_timeout_sec
+---
+bool success
+uint32 completed_waypoints
+# True only when the orbit and Offboard hold both completed successfully.
+bool orbit_completed
+string message
+---
+uint32 current_waypoint
+uint32 completed_waypoints
+float32 distance_to_target_m
+# Orbit progress in complete revolutions; zero when the mission is not orbiting.
+float32 orbit_completed_revolutions
+string status

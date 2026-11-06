@@ -1,6 +1,6 @@
 # DroneSwarming
 
-ROS 2 control software for PX4 search-and-rescue drones. The supported development environment is a Docker container with Ubuntu 24.04, ROS 2 Jazzy, PX4 SITL v1.17.0, Gazebo Harmonic, and matching `px4_msgs` v1.17.0. QGroundControl runs on the Linux host.
+ROS 2 control software for PX4 search-and-rescue drones. The project targets Ubuntu 24.04, ROS 2 Jazzy, PX4 v1.17.0, and matching `px4_msgs` v1.17.0. Use the Docker environment for SITL and Gazebo. Use the [native Raspberry Pi guide](docs/setup/HITL-PI-SETUP.md) to build the same application packages on a 64-bit Ubuntu 24.04 companion computer.
 
 > **Do not push directly to `main`.** Create feature branches from `dev`, validate the changes, and open pull requests into `dev`. Promote `dev` to `main` through a release pull request after required validation and approval by at least two team members. `main` must build, run the documented SITL mission without a vehicle crash, and remain ready for project demos. Read the [Repository Rules](docs/REPOSITORY_RULES.md) and [Contributing](CONTRIBUTING.md) before changing the repository.
 
@@ -15,6 +15,8 @@ ROS 2 control software for PX4 search-and-rescue drones. The supported developme
 | `drone_bringup` | Launches the application nodes with separate application namespace and PX4 topic-prefix settings. |
 
 PX4 retains low-level flight control, preflight checks, and failsafes. `vehicle_control` sends position setpoints in Offboard mode. `mission_execution` uses ROS 2 actions and does not depend on PX4 messages.
+
+Position actions leave yaw uncontrolled unless the caller requests `NavigateTo.look_at_target`, `FollowTrajectory.control_yaw`, or `OrbitPoint.face_center`. `vehicle_control` checks yaw telemetry and target error for requested yaw control. PX4 receives an unspecified yaw setpoint for ordinary Offboard position commands.
 
 The application frame is `local_enu`: X is east, Y is north, and Z is up, in meters from PX4's local-position origin. PX4 v1.17 local positions and trajectory setpoints use NED, so `vehicle_control` maps `(east, north, up)` to `(north, east, down)`. The PX4 topic prefix is the full path through `fmu`; `/fmu` addresses the default single-vehicle topics and `/uav_1/fmu` addresses a namespaced PX4 instance.
 
@@ -35,6 +37,8 @@ cd /workspace
 colcon build --symlink-install
 source /workspace/install/setup.bash
 ```
+
+Each newly created tmux session runs `colcon build --symlink-install` before opening its panes.
 
 With no command argument, `scripts/sim-shell` opens an interactive shell. With a command, it runs the command inside the sourced container and keeps the process attached to the native terminal. For example, `./scripts/sim-shell ros2 topic list` runs `ros2 topic list` in the container.
 
@@ -61,39 +65,26 @@ The single-vehicle simulation uses the default PX4 topic prefix `/fmu`. Use a di
 
 Complete the [Linux setup](docs/setup/LINUX.md), build the workspace, and install [QGroundControl](docs/setup/LINUX.md#install-qgroundcontrol) on the host. Start QGroundControl and leave it open. With its default UDP auto-connect enabled, it listens for PX4 on UDP port 14550. If no vehicle appears, check QGroundControl's [UDP auto-connect setting](https://docs.qgroundcontrol.com/master/en/qgc-user-guide/settings_view/comm_links.html). Confirm the simulated vehicle appears and its telemetry updates before starting the flight-enabled application.
 
-Use four native terminals. Run each wrapper from the repository root on the host. Each wrapper starts the simulation service and builds its image if it is missing. The XRCE-DDS and PX4 wrappers run their processes inside the container and attach them to the terminal; they do not require opening an interactive shell first.
-
-Container terminal 1 starts the XRCE-DDS Agent and remains occupied:
+Start the tmux simulation session from a host terminal:
 
 ```bash
-./scripts/xrce-agent
+./scripts/tmux-session start
 ```
 
-Container terminal 2 starts PX4 SITL and Gazebo Harmonic and remains occupied:
+The session starts the XRCE-DDS Agent and PX4 SITL with Gazebo Harmonic. It opens a sourced container shell for the application in pane 2 and a sourced ROS 2 CLI shell in pane 3. Confirm that the simulated vehicle and telemetry appear in QGroundControl before starting the flight-enabled application.
+PX4 uses the flat `lawn` world with a grid and sky by default. Set `PX4_GZ_WORLD` before launch
+to select another world; see [Gazebo worlds](worlds/README.md).
+Run `./scripts/tmux-session` to build the workspace and open sourced container Bash shells in all
+four panes. Start the Agent and PX4 manually with `./scripts/xrce-agent` and `./scripts/px4-sitl` in
+their respective panes. Pane 3 accepts ROS 2 CLI commands and `./scripts/test-flights` commands.
 
-```bash
-./scripts/px4-sitl
-```
-
-After the vehicle appears in QGroundControl, open a sourced container shell in terminal 3 and start the application with flight actions explicitly enabled for SITL:
-
-```bash
-./scripts/sim-shell
-```
-
-Run this inside that shell:
+In pane 2, start the application with flight actions enabled for SITL:
 
 ```bash
 ros2 launch drone_bringup single_vehicle.launch.py enable_flight_commands:=true
 ```
 
-Open another sourced shell for container terminal 4:
-
-```bash
-./scripts/sim-shell
-```
-
-Check one vehicle-state message, confirm the mission action is available, then send the mission:
+In pane 3, check one vehicle-state message and confirm the mission action is available, then send the mission:
 
 ```bash
 ros2 topic echo --once /vehicle_state
@@ -106,6 +97,25 @@ ros2 action send_goal /execute_waypoint_mission \
 
 The mission climbs 3 m, flies a 3 m square at 3 m relative to the position captured at mission start, then requests PX4 auto-land. Each waypoint offset is added to that same mission origin. The mission executor converts each offset to an absolute `local_enu` target, and `vehicle_control` converts it to PX4 NED setpoints.
 
+Press `Ctrl-b`, then `d` to detach from tmux. Run `tmux attach-session -t drone-swarming` to return to the session.
+
+## Run logs
+
+Each simulation run uses `run-logs/<UTC timestamp>/` on the host. The simulation container mounts this directory at `/workspace/run-logs`, so `scripts/sim down` and container recreation preserve the files.
+
+The run directory contains `run-info.txt`, host terminal transcripts in `console/`, ROS log files in `ros/`, PX4 ULog files in `px4/log/`, and per-case flight test artifacts in `flight-tests/`. The `scripts/tmux-session` panes share one run ID. `scripts/sim-shell` creates a new run ID when `DRONE_RUN_ID` is unset.
+
+To use one run ID across separate host terminals, create it once and copy the printed export command into each terminal:
+
+```bash
+export DRONE_RUN_ID="$(./scripts/new-run)"
+printf 'export DRONE_RUN_ID=%q\n' "$DRONE_RUN_ID"
+```
+
+Run `./scripts/xrce-agent`, `./scripts/px4-sitl`, and `./scripts/sim-shell` with the same exported value. Remove a run directory manually to reclaim host disk space.
+
+`ros2 launch drone_bringup single_vehicle.launch.py` defaults to runtime log threshold `info`. Use `log_level:=debug` to enable runtime debug messages when the build includes them. Set `DRONE_LOG_MIN_SEVERITY` in `.env` and rebuild the image with `./scripts/sim build simulation` to change the compile-time minimum. Valid values are `DEBUG`, `INFO`, `WARN`, `ERROR`, `FATAL`, and `NONE`.
+
 ## Scope and verification
 
 `swarm_coordination` defines no peer discovery, allocation, failure detection, or flight behavior. Perception, collision avoidance, multi-drone task allocation, and payload operations are outside the initial vertical slice.
@@ -114,13 +124,16 @@ The v1.17 Offboard topic and timestamp behavior follows the [PX4 v1.17 ROS 2 Off
 
 ## Project guides
 
+- [Native Raspberry Pi setup](docs/setup/HITL-PI-SETUP.md)
 - [Architecture diagrams](docs/architecture/README.md)
 - [Linux and Docker setup](docs/setup/LINUX.md)
 - [Simulation architecture](docs/simulation/HOW-IT-WORKS.md)
 - [Simulation fidelity](docs/simulation/SIMULATION-FIDELITY.md)
+- [Individual flight tests](docs/testing/README.md)
 - [Gazebo world resources](worlds/README.md)
 - [Swarm development stages](docs/swarm/SWARM.md)
 - [Neovim LSP setup](docs/development/NEOVIM.md)
+- [tmux simulation session](docs/development/TMUX.md)
 - [VS Code LSP setup](docs/development/VS-CODE.md)
 - [Zed LSP setup](docs/development/ZED.md)
 - [Repository rules](docs/REPOSITORY_RULES.md)

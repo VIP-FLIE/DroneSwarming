@@ -91,8 +91,9 @@ Minimality does not permit skipping validation, error handling, or required test
 
 ## Dependencies and development environment
 
-- Build and run ROS 2 project code in the project Docker environment.
-- Do not require host ROS 2 or PX4 installations for project builds or language-server behavior.
+- Use the project Docker environment for SITL and Gazebo workflows. Use [HITL-PI-SETUP.md](docs/setup/HITL-PI-SETUP.md) for native 64-bit Raspberry Pi builds on Ubuntu 24.04.
+- Keep the Ubuntu version, ROS distribution, PX4 release, `px4_msgs` release, XRCE-DDS Agent release, and Ruff version aligned with `.env` and the pinned Docker base image.
+- Build the same repository commit in Docker and on the Raspberry Pi. Do not add hardware-specific application behavior or interface definitions.
 - Add a dependency only when existing project libraries and platform APIs do not meet the requirement.
 - Keep Docker build dependencies pinned or otherwise reproducible through the existing Docker configuration.
 - Use the documented editor setup for language servers so they resolve headers and compilation commands from the container.

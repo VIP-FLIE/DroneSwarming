@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.8)
 project(mission_execution)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/ProjectWarnings.cmake")
+include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/ProjectLogging.cmake")
 
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_gtest REQUIRED)
@@ -18,6 +19,7 @@ add_executable(mission_execution_node
 target_include_directories(mission_execution_node PRIVATE include)
 target_compile_features(mission_execution_node PRIVATE cxx_std_17)
 enable_project_cpp_diagnostics(mission_execution_node)
+enable_project_cpp_logging(mission_execution_node)
 ament_target_dependencies(mission_execution_node SYSTEM
   geometry_msgs rclcpp rclcpp_action swarm_interfaces
 )

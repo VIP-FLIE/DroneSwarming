@@ -11,7 +11,9 @@ if(BUILD_TESTING)
   unset(RUFF_EXECUTABLE CACHE)
   find_program(RUFF_EXECUTABLE NAMES ruff)
   if(NOT RUFF_EXECUTABLE)
-    message(FATAL_ERROR "Ruff is required to lint ROS launch files; use the project Docker image")
+    message(FATAL_ERROR
+      "Ruff is required to lint ROS launch files when BUILD_TESTING is enabled; install the project-pinned version or set BUILD_TESTING=OFF"
+    )
   endif()
 
   add_test(

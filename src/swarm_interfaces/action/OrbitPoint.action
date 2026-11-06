@@ -1,0 +1,26 @@
+# Absolute orbit center in local_enu meters from PX4's local origin.
+geometry_msgs/Point center_position
+string frame_id
+# Positive orbit radius in meters. PX4 requires at least 1 meter.
+float32 radius_m
+bool clockwise
+# Requested tangential speed in meters per second.
+float32 tangential_speed_mps
+# Set true to face the orbit center. False leaves yaw control to PX4.
+bool face_center
+# Used when face_center is true. Zero selects the default. Units are radians.
+float32 yaw_tolerance_rad
+# Positive number of complete revolutions to fly after reaching the circle.
+float32 revolutions
+# Positive deadline for orbit entry, circle approach, and requested revolutions.
+float32 timeout_sec
+---
+bool success
+string message
+float32 completed_revolutions
+---
+float32 completed_revolutions
+float32 radial_error_m
+# NaN until center-facing yaw is checked on the orbit circle, or when face_center is false.
+float32 yaw_error_rad
+string status

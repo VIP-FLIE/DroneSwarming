@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+log_root="$repository_root/run-logs"
+
+if (($# != 0)); then
+    printf 'Usage: %s\n' "${0##*/}" >&2
+    exit 2
+fi
+
+umask 022
+mkdir -p -- "$log_root"
+timestamp="$(date -u +'%Y%m%dT%H%M%SZ')"
+run_id="$timestamp"
+collision_suffix=0
+
+while :; do
+    run_directory="$log_root/$run_id"
+    if mkdir -m 0755 -- "$run_directory" 2>/dev/null; then
+        break
+    fi
+    if [[ ! -e "$run_directory" && ! -L "$run_directory" ]]; then
+        printf 'Could not create run directory: %s\n' "$run_directory" >&2
+        exit 1
+    fi
+    collision_suffix=$((collision_suffix + 1))
+    run_id="$timestamp-$collision_suffix"
+done
+
+mkdir -p -- \
+    "$run_directory/console" \
+    "$run_directory/flight-tests" \
+    "$run_directory/ros" \
+    "$run_directory/px4/log"
+
+git_commit="$(git -C "$repository_root" rev-parse --short HEAD)"
+git_branch="$(git -C "$repository_root" branch --show-current)"
+git_worktree_dirty=false
+if [[ -n "$(git -C "$repository_root" status --porcelain)" ]]; then
+    git_worktree_dirty=true
+fi
+created_at_utc="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+
+cat > "$run_directory/run-info.txt" <<EOF
+run_id=$run_id
+created_at_utc=$created_at_utc
+git_commit=$git_commit
+git_branch=$git_branch
+git_worktree_dirty=$git_worktree_dirty
+EOF
+
+printf '%s\n' "$run_id"

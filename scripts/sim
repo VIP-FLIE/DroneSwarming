@@ -131,6 +131,12 @@ case "$action" in
     up|start|restart|stop|down)
         trap cleanup_display_access EXIT
         if [[ "$action" == up || "$action" == start || "$action" == restart ]]; then
+            run_log_root="$repository_root/run-logs"
+            mkdir -p -- "$run_log_root"
+            if [[ ! -w "$run_log_root" || ! -x "$run_log_root" ]]; then
+                printf 'Run log directory must be writable by the host user: %s\n' "$run_log_root" >&2
+                exit 1
+            fi
             grant_display_access
         fi
         compose "$action" "$@"

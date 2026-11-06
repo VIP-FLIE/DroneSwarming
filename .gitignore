@@ -2,6 +2,7 @@
 build/
 install/
 log/
+run-logs/
 
 *.png
 

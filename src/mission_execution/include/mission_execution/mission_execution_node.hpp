@@ -14,6 +14,7 @@
 #include <swarm_interfaces/action/execute_waypoint_mission.hpp>
 #include <swarm_interfaces/action/land.hpp>
 #include <swarm_interfaces/action/navigate_to.hpp>
+#include <swarm_interfaces/action/orbit_point.hpp>
 #include <swarm_interfaces/action/takeoff.hpp>
 #include <swarm_interfaces/msg/vehicle_state.hpp>
 
@@ -63,6 +64,7 @@ private:
   rclcpp_action::Server<Mission>::SharedPtr mission_server_;
   rclcpp_action::Client<swarm_interfaces::action::Takeoff>::SharedPtr takeoff_client_;
   rclcpp_action::Client<swarm_interfaces::action::NavigateTo>::SharedPtr navigation_client_;
+  rclcpp_action::Client<swarm_interfaces::action::OrbitPoint>::SharedPtr orbit_client_;
   rclcpp_action::Client<swarm_interfaces::action::Land>::SharedPtr land_client_;
   rclcpp::Subscription<swarm_interfaces::msg::VehicleState>::SharedPtr state_subscription_;
 };
