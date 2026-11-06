@@ -2,15 +2,14 @@
 set -Eeuo pipefail
 
 usage() {
-    printf 'Usage: %s [--help]\n' "${0##*/}"
+    printf 'Usage: %s [start|test]\n' "${0##*/}"
 }
 
-if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
-    usage
-    exit 0
-fi
-
-if (($# != 0)); then
+if (($# == 0)); then
+    requested_mode='shells'
+elif (($# == 1)) && [[ "$1" == start || "$1" == test ]]; then
+    requested_mode="$1"
+else
     usage >&2
     exit 2
 fi
@@ -37,8 +36,13 @@ pane_titles=(
 
 run_id=''
 session_exists=0
+session_mode="$requested_mode"
 if tmux has-session -t "$session_name" 2>/dev/null; then
     session_exists=1
+    if [[ "$requested_mode" != shells ]]; then
+        printf 'The session already exists. Reattach without an argument or close it before using %s.\n' "$requested_mode" >&2
+        exit 2
+    fi
     session_environment="$(tmux show-environment -t "$session_name" DRONE_RUN_ID 2>/dev/null || true)"
     if [[ "$session_environment" == DRONE_RUN_ID=* ]]; then
         run_id="${session_environment#DRONE_RUN_ID=}"
@@ -51,25 +55,41 @@ if tmux has-session -t "$session_name" 2>/dev/null; then
         printf 'The existing tmux session has an invalid or missing run directory: %s\n' "$run_id" >&2
         exit 1
     fi
+    mode_environment="$(tmux show-environment -t "$session_name" DRONE_TMUX_MODE 2>/dev/null || true)"
+    if [[ "$mode_environment" == DRONE_TMUX_MODE=test ]]; then
+        session_mode='test'
+    fi
 else
     run_id="$("$repository_root/scripts/new-run")"
 fi
 
+if [[ "$session_mode" == test ]]; then
+    pane_titles[3]='Flight Tests'
+fi
+
+printf -v agent_shell_command 'exec env DRONE_RUN_ID=%q DRONE_LOG_ROLE=%q %q' \
+    "$run_id" 'xrce-agent' "$repository_root/scripts/sim-shell"
+printf -v px4_shell_command 'exec env DRONE_RUN_ID=%q DRONE_LOG_ROLE=%q PX4_GZ_WORLD=%q %q' \
+    "$run_id" 'px4-sitl' "${PX4_GZ_WORLD:-lawn}" "$repository_root/scripts/sim-shell"
 printf -v agent_command 'exec env DRONE_RUN_ID=%q DRONE_LOG_ROLE=%q %q' \
     "$run_id" 'xrce-agent' "$repository_root/scripts/xrce-agent"
-printf -v px4_command 'exec env DRONE_RUN_ID=%q DRONE_LOG_ROLE=%q %q' \
-    "$run_id" 'px4-sitl' "$repository_root/scripts/px4-sitl"
+printf -v px4_command 'exec env DRONE_RUN_ID=%q DRONE_LOG_ROLE=%q PX4_GZ_WORLD=%q %q' \
+    "$run_id" 'px4-sitl' "${PX4_GZ_WORLD:-lawn}" "$repository_root/scripts/px4-sitl"
 printf -v application_command 'exec env DRONE_RUN_ID=%q DRONE_LOG_ROLE=%q %q' \
     "$run_id" 'application' "$repository_root/scripts/sim-shell"
 printf -v cli_command 'exec env DRONE_RUN_ID=%q DRONE_LOG_ROLE=%q %q' \
     "$run_id" 'ros-cli' "$repository_root/scripts/sim-shell"
+printf -v test_shell_command 'exec env DRONE_RUN_ID=%q DRONE_LOG_ROLE=%q %q' \
+    "$run_id" 'flight-test' "$repository_root/scripts/sim-shell"
 
-pane_commands=(
-    "$agent_command"
-    "$px4_command"
-    "$application_command"
-    "$cli_command"
-)
+if [[ "$requested_mode" == start ]]; then
+    pane_commands=("$agent_command" "$px4_command" "$application_command" "$cli_command")
+else
+    pane_commands=("$agent_shell_command" "$px4_shell_command" "$application_command" "$cli_command")
+fi
+if [[ "$session_mode" == test ]]; then
+    pane_commands[3]="$test_shell_command"
+fi
 
 session_created=0
 cleanup_failed_session() {
@@ -86,10 +106,16 @@ trap cleanup_failed_session EXIT
 if [[ "$session_exists" -eq 0 ]]; then
     printf 'Run ID: %s\nLogs: %s\n' "$run_id" "$repository_root/run-logs/$run_id"
     "$repository_root/scripts/sim" up -d simulation
+    if [[ "$requested_mode" == test ]]; then
+        DRONE_RUN_ID="$run_id" DRONE_LOG_ROLE=flight-build \
+            "$repository_root/scripts/sim-shell" colcon build --symlink-install \
+            --packages-up-to flight_test vehicle_control mission_execution drone_bringup
+    fi
     tmux new-session -d -s "$session_name" -c "$repository_root" \
-        -e "DRONE_RUN_ID=$run_id" "$agent_command"
+        -e "DRONE_RUN_ID=$run_id" "${pane_commands[0]}"
     session_created=1
     tmux set-environment -t "$session_name" DRONE_RUN_ID "$run_id"
+    tmux set-environment -t "$session_name" DRONE_TMUX_MODE "$requested_mode"
     tmux select-pane -t "$session_name:0.0" -T "${pane_titles[0]}"
 fi
 

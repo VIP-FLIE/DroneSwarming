@@ -5,14 +5,20 @@ from __future__ import annotations
 
 import argparse
 import csv
+import fcntl
 import json
 import math
+import os
+import sys
+import tempfile
 import time
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from itertools import pairwise
 from pathlib import Path
-from typing import Callable, Protocol, cast
+from typing import Protocol, TextIO, cast
 
 import rclpy
 from action_msgs.msg import GoalStatus
@@ -45,6 +51,7 @@ SAMPLE_GAP_LIMIT_SEC: float = 0.5
 STATE_FRESHNESS_LIMIT_SEC: float = 1.0
 TAKEOFF_ALTITUDE_M: float = 3.0
 DEFAULT_ACTION_TIMEOUT_SEC: float = 180.0
+AIRBORNE_YAW_TIMEOUT_SEC: float = 15.0
 MAX_RECORDED_SAMPLES: int = 12000
 
 
@@ -245,7 +252,7 @@ class FlightTestRunner(Node):
             raise FlightTestFailure(f'{operation} timed out after {timeout_sec:.1f} seconds')
 
     def _wait_for_ready(
-        self, timeout_sec: float, require_yaw: bool, required_clients: tuple[ActionClient, ...]
+        self, timeout_sec: float, required_clients: tuple[ActionClient, ...]
     ) -> None:
         """Require fresh landed telemetry and all vehicle actions used by a case."""
         required_node_names: tuple[str, ...] = (
@@ -265,7 +272,6 @@ class FlightTestRunner(Node):
                 and sample.frame_id == 'local_enu'
                 and sample.landed
                 and not sample.armed
-                and (sample.yaw_valid or not require_yaw)
             )
             graph_nodes: list[tuple[str, str]] = self.get_node_names_and_namespaces()
             has_expected_nodes: bool = all(
@@ -302,6 +308,17 @@ class FlightTestRunner(Node):
         if not sample.armed or sample.landed or (self.expect_offboard and not sample.offboard):
             raise FlightTestFailure('vehicle left its required armed flight mode unexpectedly')
         return sample
+
+    def _wait_for_airborne_yaw(self) -> None:
+        """Wait for PX4 yaw control readiness before commanding a heading."""
+        deadline: float = time.monotonic() + AIRBORNE_YAW_TIMEOUT_SEC
+        while time.monotonic() < deadline and rclpy.ok():
+            rclpy.spin_once(self, timeout_sec=0.05)
+            if self._require_airborne_sample().yaw_valid:
+                return
+        raise FlightTestFailure(
+            f'PX4 yaw remained invalid for {AIRBORNE_YAW_TIMEOUT_SEC:.1f} seconds after takeoff'
+        )
 
     def _wait_for_duration(self, duration_sec: float) -> list[FlightSample]:
         """Collect fresh state for a bounded duration and return new samples."""
@@ -370,7 +387,7 @@ class FlightTestRunner(Node):
         goal: Takeoff.Goal = Takeoff.Goal()
         goal.altitude_m = float(altitude_m)
         self._execute_action(self.takeoff_client, goal, 'takeoff', DEFAULT_ACTION_TIMEOUT_SEC)
-        self._require_airborne_sample(require_yaw=altitude_m != TAKEOFF_ALTITUDE_M)
+        self._require_airborne_sample()
         self.expect_airborne = True
 
     def _land(self) -> None:
@@ -617,6 +634,7 @@ class FlightTestRunner(Node):
     def _run_fast_stop_and_return(self) -> None:
         """Reach a commanded cruise speed, stop, turn, and return to the origin."""
         self._takeoff()
+        self._wait_for_airborne_yaw()
         start_index: int = len(self.samples)
         starting_sample: FlightSample = self._current_sample(require_yaw=True)
         start_position: tuple[float, float, float] = starting_sample.position_enu
@@ -720,7 +738,7 @@ class FlightTestRunner(Node):
             if 4.0 <= elapsed_from_trajectory_start(sample) <= stop_end_elapsed_sec
         ]
         deceleration_mps2: list[float] = []
-        for previous_sample, sample in zip(braking_profile[:-1], braking_profile[1:], strict=True):
+        for previous_sample, sample in pairwise(braking_profile):
             interval_sec: float = (
                 sample.received_monotonic_sec - previous_sample.received_monotonic_sec
             )
@@ -882,7 +900,7 @@ class FlightTestRunner(Node):
                         cancellation_future, 10.0, 'orbit cleanup cancellation response'
                     )
                     self._spin_until_future(result_future, 20.0, 'orbit cleanup result')
-                except Exception as exception:
+                except Exception as exception:  # noqa: BLE001
                     self.recovery_message = (
                         f'orbit cancellation cleanup failed: {type(exception).__name__}: '
                         f'{exception}'
@@ -948,6 +966,7 @@ class FlightTestRunner(Node):
     def _run_orbit(self) -> None:
         """Orbit a local ENU point and grade radial and heading tracking."""
         self._takeoff(8.0)
+        self._wait_for_airborne_yaw()
         origin: tuple[float, float, float] = self._current_sample().position_enu
         center_position: tuple[float, float, float] = (origin[0] + 12.0, origin[1], origin[2])
         orbit_radius_m: float = 6.0
@@ -1004,9 +1023,7 @@ class FlightTestRunner(Node):
         ]
         signed_angular_progress_rad: float = sum(
             wrapped_angle_error(current_angle_rad, previous_angle_rad)
-            for previous_angle_rad, current_angle_rad in zip(
-                angles_rad[:-1], angles_rad[1:], strict=True
-            )
+            for previous_angle_rad, current_angle_rad in pairwise(angles_rad)
         )
         self.measurements['orbit_signed_angular_progress_rad'] = signed_angular_progress_rad
         self._record_assertion(
@@ -1042,6 +1059,7 @@ class FlightTestRunner(Node):
     def _run_search_lanes(self) -> None:
         """Fly three timed lawnmower lanes at a fixed altitude."""
         self._takeoff()
+        self._wait_for_airborne_yaw()
         start_index: int = len(self.samples)
         initial_sample: FlightSample = self._current_sample(require_yaw=True)
         origin: tuple[float, float, float] = initial_sample.position_enu
@@ -1113,6 +1131,7 @@ class FlightTestRunner(Node):
     def _run_altitude_steps(self) -> None:
         """Climb, hold, descend, and measure vertical response and lateral drift."""
         self._takeoff()
+        self._wait_for_airborne_yaw()
         start_index: int = len(self.samples)
         starting_sample: FlightSample = self._current_sample(require_yaw=True)
         start_position: tuple[float, float, float] = starting_sample.position_enu
@@ -1338,7 +1357,6 @@ class FlightTestRunner(Node):
             'FT-05': (self.takeoff_client, self.land_client, self.trajectory_client),
             'FT-06': (self.takeoff_client, self.land_client, self.navigation_client),
         }
-        yaw_required: bool = self.case_id in {'FT-02', 'FT-03', 'FT-04', 'FT-05'}
         started_at_utc: str = datetime.now(UTC).isoformat()
         case_method_by_id: dict[str, Callable[[], None]] = {
             'FT-00': self._run_takeoff_hover_land,
@@ -1353,7 +1371,7 @@ class FlightTestRunner(Node):
         failure_message: str | None = None
         self.case_started_monotonic_sec = time.monotonic()
         try:
-            self._wait_for_ready(60.0, yaw_required, required_clients_by_case[self.case_id])
+            self._wait_for_ready(60.0, required_clients_by_case[self.case_id])
             self.case_start_sample_index = len(self.samples)
             self.case_active = True
             case_method_by_id[self.case_id]()
@@ -1361,7 +1379,7 @@ class FlightTestRunner(Node):
             if not final_sample.landed or final_sample.armed:
                 raise FlightTestFailure('case ended without landed and disarmed state')
             self.assertions.append({'name': 'landed and disarmed', 'passed': True})
-        except Exception as exception:
+        except Exception as exception:  # noqa: BLE001
             status = 'failed'
             failure_message = f'{type(exception).__name__}: {exception}'
             try:
@@ -1369,7 +1387,7 @@ class FlightTestRunner(Node):
                 if sample.armed or not sample.landed:
                     self._land()
                     self.recovery_message = 'landing action completed after case failure'
-            except Exception as recovery_exception:
+            except Exception as recovery_exception:  # noqa: BLE001
                 self.recovery_message = (
                     f'landing recovery failed: {type(recovery_exception).__name__}: '
                     f'{recovery_exception}'
@@ -1381,7 +1399,7 @@ class FlightTestRunner(Node):
         samples: list[FlightSample] = list(self.samples)[self.case_start_sample_index :]
         sample_gaps_sec: list[float] = [
             later.received_monotonic_sec - earlier.received_monotonic_sec
-            for earlier, later in zip(samples[:-1], samples[1:], strict=True)
+            for earlier, later in pairwise(samples)
         ]
         result: dict[str, object] = {
             'case_id': self.case_id,
@@ -1450,9 +1468,11 @@ class FlightTestRunner(Node):
             report_lines.extend(
                 [
                     '',
-                    'FT-03 orbits a virtual `local_enu` center. The Gazebo world has no '
-                    'building fixture or contact monitor, so this run makes no collision '
-                    'or building-clearance claim.',
+                    (
+                        'FT-03 orbits a virtual `local_enu` center. The Gazebo world has no '
+                        'building fixture or contact monitor, so this run makes no collision '
+                        'or building-clearance claim.'
+                    ),
                 ]
             )
         report_lines.extend(
@@ -1471,30 +1491,76 @@ class FlightTestRunner(Node):
 
 
 def parse_arguments(arguments: list[str] | None = None) -> argparse.Namespace:
-    """Parse a case ID and its run-scoped artifact destination."""
+    """Parse one standalone flight and an optional artifact destination."""
     parser = argparse.ArgumentParser(description='Execute one PX4 SITL flight test case.')
     parser.add_argument(
         '--case',
         choices=('FT-00', 'FT-01', 'FT-02', 'FT-03', 'FT-04', 'FT-05', 'FT-06'),
         required=True,
     )
-    parser.add_argument('--artifact-dir', type=Path, required=True)
+    parser.add_argument('--artifact-dir', type=Path)
     return parser.parse_args(arguments)
 
 
-def main(arguments: list[str] | None = None) -> int:
-    """Run one case and return nonzero unless every case gate passes."""
-    options: argparse.Namespace = parse_arguments(arguments)
-    artifact_directory: Path = options.artifact_dir.resolve()
-    artifact_directory.mkdir(parents=True, exist_ok=True)
-    runner: FlightTestRunner | None = None
+def resolve_artifact_directory(case_id: str, requested_directory: Path | None) -> Path:
+    """Create a unique artifact directory for one flight invocation."""
+    if requested_directory is not None:
+        artifact_directory: Path = requested_directory.resolve()
+        artifact_directory.mkdir(parents=True, exist_ok=False)
+    else:
+        run_directory_value: str | None = os.environ.get('DRONE_RUN_DIR')
+        if not run_directory_value:
+            raise ValueError('DRONE_RUN_DIR is required when --artifact-dir is omitted')
+        run_directory: Path = Path(run_directory_value).resolve()
+        if not run_directory.is_dir():
+            raise ValueError(f'run directory does not exist: {run_directory}')
+        artifact_root: Path = run_directory / 'flight-tests'
+        artifact_root.mkdir(exist_ok=True)
+        timestamp: str = datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')
+        # I am a silly clanker
+        artifact_directory = Path(
+            tempfile.mkdtemp(prefix=f'{case_id}-{timestamp}-', dir=artifact_root)
+        )
     try:
+        artifact_directory.chmod(0o755)
+    except OSError:
+        artifact_directory.rmdir()
+        raise
+    return artifact_directory
+
+
+def main(arguments: list[str] | None = None) -> int:
+    """Run one flight and return nonzero unless every case gate passes."""
+    options: argparse.Namespace = parse_arguments(arguments)
+    try:
+        artifact_directory: Path = resolve_artifact_directory(
+            str(options.case), options.artifact_dir
+        )
+    except (OSError, ValueError) as exception:
+        print(f'flight artifact setup failed: {exception}', file=sys.stderr)
+        return 2
+    print(f'Artifacts: {artifact_directory}', flush=True)
+    runner: FlightTestRunner | None = None
+    lock_stream: TextIO | None = None
+    try:
+        lock_directory: Path = artifact_directory.parent
+        run_directory_value: str | None = os.environ.get('DRONE_RUN_DIR')
+        if run_directory_value:
+            run_directory: Path = Path(run_directory_value).resolve()
+            if run_directory.is_dir():
+                lock_directory = run_directory / 'flight-tests'
+                lock_directory.mkdir(exist_ok=True)
+        lock_stream = (lock_directory / '.flight-case.lock').open('a', encoding='utf-8')
+        try:
+            fcntl.flock(lock_stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exception:
+            raise FlightTestFailure('another flight case is already running') from exception
         rclpy.init(args=None)
         runner = FlightTestRunner(str(options.case), artifact_directory)
         result: dict[str, object] = runner.run_case()
         print(f'{result["case_id"]}: {result["status"]}')
         return 0 if result['status'] == 'passed' else 1
-    except Exception as exception:
+    except Exception as exception:  # noqa: BLE001
         failure_result: dict[str, object] = {
             'case_id': str(options.case),
             'status': 'failed',
@@ -1514,8 +1580,12 @@ def main(arguments: list[str] | None = None) -> int:
         print(f'{failure_result["failure"]}')
         return 1
     finally:
-        if runner is not None:
-            runner.close()
-            runner.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
+        try:
+            if runner is not None:
+                runner.close()
+                runner.destroy_node()
+            if rclpy.ok():
+                rclpy.shutdown()
+        finally:
+            if lock_stream is not None:
+                lock_stream.close()

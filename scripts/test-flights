@@ -1,125 +1,62 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$repository_root"
-unset COMPOSE_FILE
-
-usage() {
-    printf 'Usage: %s (--profile smoke|stress | --case FT-00..FT-06)\n' "${0##*/}" >&2
-}
-
-profile=''
-case_id=''
-while (($# > 0)); do
-    case "$1" in
-        --profile)
-            if (($# < 2)) || [[ -n "$profile" || -n "$case_id" ]]; then
-                usage
-                exit 2
-            fi
-            profile="$2"
-            shift 2
-            ;;
-        --case)
-            if (($# < 2)) || [[ -n "$profile" || -n "$case_id" ]]; then
-                usage
-                exit 2
-            fi
-            case_id="$2"
-            shift 2
-            ;;
-        *)
-            usage
-            exit 2
-            ;;
-    esac
-done
-
-if [[ -n "$profile" && "$profile" != smoke && "$profile" != stress ]]; then
-    usage
+if (($# != 2)) || [[ "$1" != --case || ! "$2" =~ ^FT-0[0-6]$ ]]; then
+    printf 'Usage: %s --case FT-00..FT-06\n' "${0##*/}" >&2
     exit 2
 fi
-if [[ -n "$case_id" && ! "$case_id" =~ ^FT-0[0-6]$ ]]; then
-    usage
-    exit 2
+case_id="$2"
+
+if [[ ! -f /.dockerenv && ! -f /run/.containerenv && -z "${REMOTE_CONTAINERS:-}" ]]; then
+    printf 'Run this command in a sourced simulation container shell.\n' >&2
+    exit 1
 fi
-if [[ -z "$profile" && -z "$case_id" ]]; then
-    usage
-    exit 2
-fi
-
-commit="$(git -C "$repository_root" rev-parse --short HEAD)"
-dirty_tree=false
-if [[ -n "$(git -C "$repository_root" status --porcelain)" ]]; then
-    dirty_tree=true
-fi
-run_id="$("$repository_root/scripts/new-run")"
-export DRONE_RUN_ID="$run_id"
-artifact_directory="$repository_root/run-logs/$run_id/flight-tests"
-
-{
-    printf 'commit=%s\n' "$commit"
-    printf 'dirty_tree=%s\n' "$dirty_tree"
-    printf 'profile=%s\n' "${profile:-single-case}"
-    printf 'case=%s\n' "${case_id:-all-profile-cases}"
-} > "$artifact_directory/flight-test-run.txt"
-
-printf 'Flight test run: %s\n' "$run_id"
-printf 'Artifacts: %s\n' "$artifact_directory"
-
-container_run_directory="/workspace/run-logs/$run_id"
-compose_log="$repository_root/run-logs/$run_id/console/compose-up.log"
-if ! docker compose up -d simulation > "$compose_log" 2>&1; then
-    cat "$compose_log" >&2
+if ! command -v ros2 >/dev/null 2>&1; then
+    printf 'ROS 2 is not sourced. Use a shell from scripts/tmux-session.\n' >&2
     exit 1
 fi
 
-run_container_command() {
-    local log_role="$1"
-    shift
-    local timestamp
-    local console_log
-    local command_status
-    timestamp="$(date -u +'%Y%m%dT%H%M%S.%NZ')"
-    console_log="$repository_root/run-logs/$run_id/console/${log_role}-${timestamp}-$$.log"
-    printf 'Console log: %s\n' "$console_log"
-    set +e
-    docker compose exec -T \
-        --env "DRONE_RUN_ID=$run_id" \
-        --env DRONE_RUN_LOG_ROOT=/workspace/run-logs \
-        --env "DRONE_RUN_DIR=$container_run_directory" \
-        --env "DRONE_RUN_METADATA=$container_run_directory/run-info.txt" \
-        --env "ROS_LOG_DIR=$container_run_directory/ros" \
-        --env "DRONE_LOG_ROLE=$log_role" \
-        --env RCUTILS_COLORIZED_OUTPUT=0 \
-        --env HEADLESS=1 \
-        --env QT_QPA_PLATFORM=offscreen \
-        simulation bash -c '
-set -Ee -o pipefail
-cd /workspace
-source /opt/ros/jazzy/setup.bash
-source /opt/px4_ros2/install/setup.bash
-source /workspace/install/setup.bash
-set -u
-exec "$@"
-' flight-test-container "$@" 2>&1 | tee "$console_log"
-    command_status="${PIPESTATUS[0]}"
-    set -e
-    printf '%s\n' "$command_status" > "${console_log%.log}.status"
-    return "$command_status"
-}
-
-run_container_command flight-test-build \
-    colcon build --symlink-install \
-    --packages-up-to flight_test vehicle_control mission_execution drone_bringup \
-    --event-handlers console_direct+
-
-suite_arguments=(--commit "$commit" --dirty "$dirty_tree")
-if [[ -n "$profile" ]]; then
-    suite_arguments+=(--profile "$profile")
-else
-    suite_arguments+=(--case "$case_id")
+run_id="${DRONE_RUN_ID:-}"
+if [[ ! "$run_id" =~ ^[0-9]{8}T[0-9]{6}Z(-[1-9][0-9]*)?$ ]]; then
+    printf 'DRONE_RUN_ID is missing or invalid. Use a shell from scripts/tmux-session.\n' >&2
+    exit 2
 fi
-run_container_command flight-test-suite \
-    ros2 run flight_test flight_test_suite "${suite_arguments[@]}"
+run_directory="/workspace/run-logs/$run_id"
+if [[ -n "${DRONE_RUN_DIR:-}" && "$DRONE_RUN_DIR" != "$run_directory" ]]; then
+    printf 'DRONE_RUN_DIR does not match DRONE_RUN_ID.\n' >&2
+    exit 2
+fi
+if [[ ! -d "$run_directory" || ! -w "$run_directory" ]]; then
+    printf 'Run directory is missing or not writable: %s\n' "$run_directory" >&2
+    exit 2
+fi
+export DRONE_RUN_DIR="$run_directory"
+export ROS_LOG_DIR="$run_directory/ros"
+
+repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repository_root"
+timestamp="$(date -u +'%Y%m%dT%H%M%S.%NZ')"
+console_log="$run_directory/console/flight-${case_id}-${timestamp}-$$.log"
+printf 'Flight: %s\nRun ID: %s\nConsole log: %s\n' "$case_id" "$run_id" "$console_log"
+
+set +e
+(
+    set -Ee -o pipefail
+    if ! ros2 pkg prefix flight_test >/dev/null 2>&1 ||
+        ! python3 -c 'from flight_test.runner import main' >/dev/null 2>&1; then
+        printf 'Building flight_test and its dependencies in the simulation container.\n'
+        colcon build --symlink-install --packages-up-to flight_test
+        set +u
+        # shellcheck disable=SC1091
+        source /workspace/install/local_setup.bash
+        set -u
+    fi
+    exec ros2 run flight_test flight_test_case --case "$case_id"
+) 2>&1 | tee "$console_log"
+pipeline_status=("${PIPESTATUS[@]}")
+set -e
+printf '%s\n' "${pipeline_status[0]}" > "${console_log%.log}.status"
+if [[ "${pipeline_status[1]}" -ne 0 ]]; then
+    exit "${pipeline_status[1]}"
+fi
+exit "${pipeline_status[0]}"

@@ -23,9 +23,12 @@ For Orbit validation, run only in the controlled SITL procedure with flight comm
 
 ## Start
 
-Follow the [Linux setup](../setup/LINUX.md) and the root [simulation flight procedure](../../README.md#simulation-flight-procedure). Run `./scripts/xrce-agent` and `./scripts/px4-sitl` in separate native terminals. Each wrapper starts the simulation service and builds its image if it is missing, then runs its process inside the container with terminal input and output attached. The wrappers save terminal output under `run-logs/<run-id>/console/` on the host. `scripts/sim-shell` points `ROS_LOG_DIR` at `run-logs/<run-id>/ros/` through the container mount. `scripts/px4-sitl` stores ULog files under `run-logs/<run-id>/px4/log/`. QGroundControl runs separately on the host. Check that it shows the simulated vehicle and updating telemetry before starting the flight-enabled application.
+Follow the [Linux setup](../setup/LINUX.md) and the root [simulation flight procedure](../../README.md#simulation-flight-procedure). Run `./scripts/xrce-agent` and `./scripts/px4-sitl` in separate native terminals or in the sourced container shells opened by `./scripts/tmux-session`. From native terminals, each wrapper starts the simulation service and builds its image if it is missing, then runs its process inside the container with terminal input and output attached. The wrappers save terminal output under `run-logs/<run-id>/console/` on the host. `scripts/sim-shell` points `ROS_LOG_DIR` at `run-logs/<run-id>/ros/` through the container mount. `scripts/px4-sitl` stores ULog files under `run-logs/<run-id>/px4/log/`. QGroundControl runs separately on the host. Check that it shows the simulated vehicle and updating telemetry before starting the flight-enabled application.
 
 `scripts/tmux-session` creates one run ID for its panes. Separate host terminals use one shared ID when each terminal exports the value printed by `./scripts/new-run`. `DRONE_RUN_ID`, `DRONE_RUN_LOG_ROOT`, `DRONE_RUN_DIR`, and `DRONE_RUN_METADATA` are available to processes launched inside the simulation container.
+
+`scripts/px4-sitl` selects PX4's flat `lawn` world by default. Set `PX4_GZ_WORLD` before starting
+PX4 to use another stock world or a project world in `worlds/`. See [Gazebo worlds](../../worlds/README.md).
 
 PX4 SITL starts ULog recording at boot and stops it at shutdown through `SDLOG_MODE=2`. PX4 v1.17 accepts `PX4_PARAM_*` environment variables in its POSIX startup script. See the [PX4 v1.17 logging parameters](https://github.com/PX4/PX4-Autopilot/blob/v1.17.0/docs/en/dev_log/logging.md#configuration) and [PX4 v1.17 parameter environment overrides](https://github.com/PX4/PX4-Autopilot/blob/v1.17.0/ROMFS/px4fmu_common/init.d-posix/rcS#L1127-L1141).
 

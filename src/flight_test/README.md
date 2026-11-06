@@ -1,69 +1,46 @@
-# Flight test suite
+# Individual flight tests
 
-Use the [flight test guide](../../docs/testing/README.md) for run commands, prerequisites, and
-result locations.
+The [flight test guide](../../docs/testing/README.md) gives the setup, run, reset, and log
+inspection commands. Each case sends application ROS actions to an already running PX4 SITL
+simulation. The package does not start, stop, or reset PX4, Gazebo, or the application.
 
-`scripts/test-flights` builds the affected ROS packages and runs selected PX4 SITL cases in Gazebo.
-The command starts a host-persisted run, launches PX4 and the XRCE-DDS Agent in the simulation
-container, starts the application with flight actions enabled, and shuts down only processes it
-started. Gazebo runs in PX4 headless mode.
-
-## Commands
-
-Run the routine smoke cases:
+Run one case from pane 3 of `scripts/tmux-session test`, or from the sourced ROS CLI pane of
+`scripts/tmux-session start`:
 
 ```bash
-./scripts/test-flights --profile smoke
+./scripts/test-flights --case FT-00
 ```
 
-Run the stress cases:
+The script builds `flight_test` and its dependencies inside the simulation container if the
+package is missing or cannot import. Once it is installed, the ROS command also runs one case:
 
 ```bash
-./scripts/test-flights --profile stress
+ros2 run flight_test flight_test_case --case FT-00
 ```
 
-Run one case:
+Each invocation writes a separate directory under the active run's `flight-tests/` directory.
+The runner records `vehicle-state.csv`, `commanded-trajectory.csv`, `action-events.json`,
+`assertions.json`, `case-result.json`, and `case-report.md`. The `DRONE_RUN_DIR` environment
+variable selects the active run. A caller may provide `--artifact-dir` to the ROS command to
+create one explicitly named directory.
 
-```bash
-./scripts/test-flights --case FT-03
-```
-
-The wrapper creates a run directory through `scripts/new-run`. It records the active commit and
-dirty-tree state, builds `flight_test`, `vehicle_control`, `mission_execution`, and
-`drone_bringup`, and returns nonzero when a build, process, action, assertion, cleanup, or report
-step fails.
-
-## Profiles and cases
-
-| Profile | Cases |
+| Case | Flight sequence |
 | --- | --- |
-| `smoke` | FT-00 hover and land, FT-01 square mission, FT-06 navigation cancellation and hold |
-| `stress` | FT-02 fast stop and return, FT-03 orbit and yaw tracking, FT-04 search lanes, FT-05 altitude steps |
+| FT-00 | Take off, hover, land |
+| FT-01 | Fly the launch-relative square mission, land |
+| FT-02 | Fly a fast outbound leg, stop, turn, return, land |
+| FT-03 | Cancel an orbit, hold, complete an orbit, land |
+| FT-04 | Fly search lanes, land |
+| FT-05 | Fly altitude steps, land |
+| FT-06 | Cancel navigation, hold, land |
 
-FT-03 first cancels an orbit after measured angular progress and checks that PX4 restores Offboard
-hold with a continuing setpoint stream. It then completes a full virtual `local_enu` orbit and
-measures angular progress, radial tracking, and yaw toward the center. The stock Gazebo world has
-no building fixture or contact monitor, so FT-03 does not grade physical clearance or collision
-events.
+The runner waits for fresh landed `local_enu` telemetry and the required action servers before
+sending the first goal. Each case checks its own measured outcomes. A failed case attempts a
+landing action if the vehicle is airborne.
 
-## Run artifacts
+FT-02 through FT-05 wait for valid yaw after takeoff and before sending a heading command. The
+wait ends after 15 seconds if PX4 does not report yaw validity. Flight results are written to the
+host-mounted run directory with host-readable directory permissions.
 
-Each run is stored under `run-logs/<run-id>/`:
-
-- `run-info.txt` records the host commit, branch, and dirty-tree state.
-- `flight-tests/flight-test-run.txt` records the selected cases and grading commit.
-- `flight-tests/<case-id>/vehicle-state.csv` records timestamped ENU position, velocity, yaw,
-  arming, Offboard, landing, and setpoint publication state.
-- `flight-tests/<case-id>/commanded-trajectory.csv` records timed trajectory setpoints.
-- `flight-tests/<case-id>/action-events.json` records action goals and terminal results.
-- `flight-tests/<case-id>/assertions.json` and `case-report.md` record case metrics and outcomes.
-- `flight-tests/<case-id>/case-result.json` records the runner result.
-- `flight-tests/<case-id>/process-result.json` records process exit codes and run metadata.
-- `flight-tests/<profile>-profile.md` links the case reports and process results.
-- `console/` stores captured build and suite output. `px4/log/` stores PX4 ULog files.
-  Preexisting rootfs logs are preserved under `px4/preexisting-*` before log routing.
-
-The command requires Docker Compose, the project simulation image, and the PX4 v1.17.0/Gazebo
-Harmonic workspace. The suite uses ROS domain 77, PX4 topic prefix `/fmu`, and system ID 1. It
-refuses to start if the required PX4 UDP ports are occupied or another suite owns the PX4 rootfs
-lock. It does not run on connected hardware.
+FT-03 uses a virtual `local_enu` orbit center. The stock Gazebo world has no building fixture or
+contact monitor. The case makes no building-clearance or collision-safety claim.

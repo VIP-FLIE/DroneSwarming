@@ -2,5 +2,9 @@
 set -Eeuo pipefail
 
 repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ -f /.dockerenv || -f /run/.containerenv || -n "${REMOTE_CONTAINERS:-}" ]]; then
+    exec MicroXRCEAgent udp4 -p 8888
+fi
+
 export DRONE_LOG_ROLE=xrce-agent
-exec "$repository_root/scripts/sim-shell" MicroXRCEAgent udp4 -p 8888
+exec "$repository_root/scripts/sim-shell" /workspace/scripts/xrce-agent

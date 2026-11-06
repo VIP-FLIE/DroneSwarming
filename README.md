@@ -64,10 +64,17 @@ Complete the [Linux setup](docs/setup/LINUX.md), build the workspace, and instal
 Start the tmux simulation session from a host terminal:
 
 ```bash
-./scripts/tmux-session
+./scripts/tmux-session start
 ```
 
 The session starts the XRCE-DDS Agent and PX4 SITL with Gazebo Harmonic. It opens a sourced container shell for the application in pane 2 and a sourced ROS 2 CLI shell in pane 3. Confirm that the simulated vehicle and telemetry appear in QGroundControl before starting the flight-enabled application.
+PX4 uses the flat `lawn` world with a grid and sky by default. Set `PX4_GZ_WORLD` before launch
+to select another world; see [Gazebo worlds](worlds/README.md).
+Run `./scripts/tmux-session` without an argument to open sourced container Bash shells in all four
+panes. Start the Agent and PX4 manually with `./scripts/xrce-agent` and `./scripts/px4-sitl` in
+their respective panes.
+Run `./scripts/tmux-session test` to open four sourced container shells, with pane 3 for
+`./scripts/test-flights --case FT-00`. Start the Agent and PX4 manually in panes 0 and 1.
 
 In pane 2, start the application with flight actions enabled for SITL:
 
@@ -120,7 +127,7 @@ The v1.17 Offboard topic and timestamp behavior follows the [PX4 v1.17 ROS 2 Off
 - [Linux and Docker setup](docs/setup/LINUX.md)
 - [Simulation architecture](docs/simulation/HOW-IT-WORKS.md)
 - [Simulation fidelity](docs/simulation/SIMULATION-FIDELITY.md)
-- [Flight test suite usage](docs/testing/README.md)
+- [Individual flight tests](docs/testing/README.md)
 - [Gazebo world resources](worlds/README.md)
 - [Swarm development stages](docs/swarm/SWARM.md)
 - [Neovim LSP setup](docs/development/NEOVIM.md)

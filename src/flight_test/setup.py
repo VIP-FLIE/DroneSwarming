@@ -22,7 +22,6 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'flight_test_suite = flight_test.orchestrator:main',
             'flight_test_case = flight_test.runner:main',
         ],
     },
