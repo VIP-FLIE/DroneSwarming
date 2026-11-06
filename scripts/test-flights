@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+if (($# != 2)) || [[ "$1" != --case || ! "$2" =~ ^FT-0[0-6]$ ]]; then
+    printf 'Usage: %s --case FT-00..FT-06\n' "${0##*/}" >&2
+    exit 2
+fi
+case_id="$2"
+
+if [[ ! -f /.dockerenv && ! -f /run/.containerenv && -z "${REMOTE_CONTAINERS:-}" ]]; then
+    printf 'Run this command in a sourced simulation container shell.\n' >&2
+    exit 1
+fi
+if ! command -v ros2 >/dev/null 2>&1; then
+    printf 'ROS 2 is not sourced. Use a shell from scripts/tmux-session.\n' >&2
+    exit 1
+fi
+
+run_id="${DRONE_RUN_ID:-}"
+if [[ ! "$run_id" =~ ^[0-9]{8}T[0-9]{6}Z(-[1-9][0-9]*)?$ ]]; then
+    printf 'DRONE_RUN_ID is missing or invalid. Use a shell from scripts/tmux-session.\n' >&2
+    exit 2
+fi
+run_directory="/workspace/run-logs/$run_id"
+if [[ -n "${DRONE_RUN_DIR:-}" && "$DRONE_RUN_DIR" != "$run_directory" ]]; then
+    printf 'DRONE_RUN_DIR does not match DRONE_RUN_ID.\n' >&2
+    exit 2
+fi
+if [[ ! -d "$run_directory" || ! -w "$run_directory" ]]; then
+    printf 'Run directory is missing or not writable: %s\n' "$run_directory" >&2
+    exit 2
+fi
+export DRONE_RUN_DIR="$run_directory"
+export ROS_LOG_DIR="$run_directory/ros"
+
+repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repository_root"
+timestamp="$(date -u +'%Y%m%dT%H%M%S.%NZ')"
+console_log="$run_directory/console/flight-${case_id}-${timestamp}-$$.log"
+printf 'Flight: %s\nRun ID: %s\nConsole log: %s\n' "$case_id" "$run_id" "$console_log"
+
+set +e
+(
+    set -Ee -o pipefail
+    if ! ros2 pkg prefix flight_test >/dev/null 2>&1 ||
+        ! python3 -c 'from flight_test.runner import main' >/dev/null 2>&1; then
+        printf 'Building flight_test and its dependencies in the simulation container.\n'
+        colcon build --symlink-install --packages-up-to flight_test
+        set +u
+        # shellcheck disable=SC1091
+        source /workspace/install/local_setup.bash
+        set -u
+    fi
+    exec ros2 run flight_test flight_test_case --case "$case_id"
+) 2>&1 | tee "$console_log"
+pipeline_status=("${PIPESTATUS[@]}")
+set -e
+printf '%s\n' "${pipeline_status[0]}" > "${console_log%.log}.status"
+if [[ "${pipeline_status[1]}" -ne 0 ]]; then
+    exit "${pipeline_status[1]}"
+fi
+exit "${pipeline_status[0]}"

@@ -2,12 +2,65 @@
 set -Eeuo pipefail
 
 repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$repository_root"
+log_root="$repository_root/run-logs"
+run_id="${DRONE_RUN_ID:-}"
 
-# Compose builds the image when missing and starts or resumes the service.
-./scripts/sim up -d simulation
+if [[ -z "$run_id" ]]; then
+    run_id="$("$repository_root/scripts/new-run")"
+    export DRONE_RUN_ID="$run_id"
+else
+    if [[ ! "$run_id" =~ ^[0-9]{8}T[0-9]{6}Z(-[1-9][0-9]*)?$ ]]; then
+        printf 'Invalid DRONE_RUN_ID: %s\n' "$run_id" >&2
+        exit 2
+    fi
+    if [[ ! -d "$log_root/$run_id" ]]; then
+        printf 'Run directory does not exist: %s\n' "$log_root/$run_id" >&2
+        printf 'Create a run with scripts/new-run or use its existing ID.\n' >&2
+        exit 2
+    fi
+fi
 
-exec ./scripts/sim exec simulation bash -c '
+run_directory="$log_root/$run_id"
+mkdir -p -- \
+    "$run_directory/console" \
+    "$run_directory/flight-tests" \
+    "$run_directory/ros" \
+    "$run_directory/px4/log"
+log_role="${DRONE_LOG_ROLE:-shell}"
+if [[ ! "$log_role" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
+    printf 'Invalid DRONE_LOG_ROLE: %s\n' "$log_role" >&2
+    exit 2
+fi
+if ! command -v script >/dev/null 2>&1; then
+    printf 'The util-linux script command is required to capture terminal output.\n' >&2
+    exit 127
+fi
+
+console_timestamp="$(date -u +'%Y%m%dT%H%M%S.%NZ')"
+console_log="$run_directory/console/${log_role}-${console_timestamp}-$$.log"
+status_file="${console_log%.log}.status"
+container_run_directory="/workspace/run-logs/$run_id"
+
+host_command=(
+    bash -c '
+set -Eeuo pipefail
+repository_root="$1"
+shift
+"$repository_root/scripts/sim" up -d simulation
+exec "$@"
+' sim-shell
+    "$repository_root"
+    "$repository_root/scripts/sim" exec
+    --env "DRONE_RUN_ID=$run_id"
+    --env "DRONE_RUN_LOG_ROOT=/workspace/run-logs"
+    --env "DRONE_RUN_DIR=$container_run_directory"
+    --env "DRONE_RUN_METADATA=$container_run_directory/run-info.txt"
+    --env "ROS_LOG_DIR=$container_run_directory/ros"
+    --env "DRONE_LOG_ROLE=$log_role"
+    --env "PX4_GZ_WORLD=${PX4_GZ_WORLD:-lawn}"
+    --env RCUTILS_COLORIZED_OUTPUT=0
+    simulation
+    bash -c '
 set -Ee -o pipefail
 cd /workspace
 # ROS setup scripts inspect unset variables, so enable nounset only afterward.
@@ -22,4 +75,20 @@ if (($# > 0)); then
 fi
 
 exec bash -i
-' sim-shell "$@"
+' sim-shell
+    "$@"
+)
+
+command_string=''
+for command_argument in "${host_command[@]}"; do
+    printf -v quoted_argument '%q' "$command_argument"
+    command_string+="${command_string:+ }$quoted_argument"
+done
+
+printf 'Run ID: %s\nLogs: %s\n' "$run_id" "$run_directory"
+set +e
+SHELL=/bin/bash script -qefc "$command_string" "$console_log"
+command_status=$?
+set -e
+printf '%s\n' "$command_status" > "$status_file"
+exit "$command_status"

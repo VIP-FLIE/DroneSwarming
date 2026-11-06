@@ -12,11 +12,14 @@ services:
         PX4_VERSION: ${PX4_VERSION:?Set PX4_VERSION in .env}
         PX4_MSGS_VERSION: ${PX4_MSGS_VERSION:?Set PX4_MSGS_VERSION in .env}
         RUFF_VERSION: ${RUFF_VERSION:?Set RUFF_VERSION in .env}
+        DRONE_LOG_MIN_SEVERITY: ${DRONE_LOG_MIN_SEVERITY:-DEBUG}
     command: ["sleep", "infinity"]
     init: true
     network_mode: host
     stdin_open: true
     tty: true
+    environment:
+      PX4_GZ_WORLD: ${PX4_GZ_WORLD:-lawn}
     volumes:
       - .:/workspace:rw
       - development_build:/workspace/build
@@ -36,6 +39,7 @@ services:
         PX4_VERSION: ${PX4_VERSION:?Set PX4_VERSION in .env}
         PX4_MSGS_VERSION: ${PX4_MSGS_VERSION:?Set PX4_MSGS_VERSION in .env}
         RUFF_VERSION: ${RUFF_VERSION:?Set RUFF_VERSION in .env}
+        DRONE_LOG_MIN_SEVERITY: ${DRONE_LOG_MIN_SEVERITY:-DEBUG}
     image: drone-swarming:px4-${PX4_VERSION}
     command: ["sleep", "infinity"]
     init: true
@@ -53,10 +57,13 @@ services:
       DISPLAY: ${DISPLAY:-}
       XAUTHORITY: /dev/null
       NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics,display
+      PX4_GZ_WORLD: ${PX4_GZ_WORLD:-lawn}
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:ro
       - ./src:/workspace/src:rw
+      - ./scripts:/workspace/scripts:ro
       - ./worlds:/workspace/worlds:ro
+      - ./run-logs:/workspace/run-logs:rw
 
 volumes:
   development_build:

@@ -2,4 +2,101 @@
 set -Eeuo pipefail
 
 repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-exec "$repository_root/scripts/sim-shell" make -C /opt/PX4-Autopilot px4_sitl gz_x500
+if [[ ! -f /.dockerenv && ! -f /run/.containerenv && -z "${REMOTE_CONTAINERS:-}" ]]; then
+    export DRONE_LOG_ROLE=px4-sitl
+    exec "$repository_root/scripts/sim-shell" \
+        env "PX4_GZ_WORLD=${PX4_GZ_WORLD:-lawn}" /workspace/scripts/px4-sitl
+fi
+
+run_id="${DRONE_RUN_ID:-}"
+if [[ ! "$run_id" =~ ^[0-9]{8}T[0-9]{6}Z(-[1-9][0-9]*)?$ ]]; then
+    printf 'Invalid DRONE_RUN_ID: %s\n' "$run_id" >&2
+    exit 2
+fi
+
+px4_rootfs=/opt/PX4-Autopilot/build/px4_sitl_default/rootfs
+lock_file="$px4_rootfs/.drone-sitl.lock"
+exec flock -n -E 75 "$lock_file" bash -c '
+set -Eeuo pipefail
+run_id="$1"
+px4_rootfs="$2"
+run_directory="/workspace/run-logs/$run_id"
+run_log_directory="$run_directory/px4/log"
+# PX4 SITL uses rootfs/log; fs/microsd/log is the SD-card path used by other builds.
+px4_log_directories=(
+    "$px4_rootfs/log"
+    "$px4_rootfs/fs/microsd/log"
+)
+
+mkdir -p -- "$run_log_directory"
+for px4_log_directory in "${px4_log_directories[@]}"; do
+    mkdir -p -- "$(dirname -- "$px4_log_directory")"
+    if [[ -L "$px4_log_directory" ]]; then
+        existing_target="$(readlink -f -- "$px4_log_directory" 2>/dev/null || true)"
+        case "$existing_target" in
+            /workspace/run-logs/*)
+                rm -f -- "$px4_log_directory"
+                ;;
+            *)
+                printf "PX4 log path has an unrelated symlink; preserving it: %s\n" \
+                    "$px4_log_directory" >&2
+                exit 1
+                ;;
+        esac
+    elif [[ -e "$px4_log_directory" ]]; then
+        if [[ ! -d "$px4_log_directory" ]]; then
+            printf "PX4 log path exists and is not a directory: %s\n" \
+                "$px4_log_directory" >&2
+            exit 1
+        fi
+        if [[ -n "$(find "$px4_log_directory" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
+            case "$px4_log_directory" in
+                "$px4_rootfs/log")
+                    archive_name='preexisting-rootfs-log'
+                    ;;
+                "$px4_rootfs/fs/microsd/log")
+                    archive_name='preexisting-fs-microsd-log'
+                    ;;
+            esac
+            archive_directory="$run_directory/px4/$archive_name"
+            collision_suffix=0
+            while [[ -e "$archive_directory" || -L "$archive_directory" ]]; do
+                collision_suffix=$((collision_suffix + 1))
+                archive_directory="$run_directory/px4/$archive_name-$collision_suffix"
+            done
+            if ! mv -- "$px4_log_directory" "$archive_directory"; then
+                printf "Could not archive existing PX4 logs from %s\n" \
+                    "$px4_log_directory" >&2
+                exit 1
+            fi
+        else
+            rmdir -- "$px4_log_directory"
+        fi
+    fi
+    ln -s -- "$run_log_directory" "$px4_log_directory"
+done
+
+selected_world="${PX4_GZ_WORLD:-lawn}"
+if [[ ! "$selected_world" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]]; then
+    printf "Invalid PX4_GZ_WORLD: %s\n" "$selected_world" >&2
+    exit 2
+fi
+project_world="/workspace/worlds/$selected_world.sdf"
+px4_world="/opt/PX4-Autopilot/Tools/simulation/gz/worlds/$selected_world.sdf"
+if [[ -f "$project_world" ]]; then
+    if [[ -e "$px4_world" || -L "$px4_world" ]]; then
+        if [[ ! "$px4_world" -ef "$project_world" ]]; then
+            printf "World name conflicts with a PX4 world: %s\n" "$selected_world" >&2
+            exit 1
+        fi
+    else
+        ln -s -- "$project_world" "$px4_world"
+    fi
+elif [[ ! -f "$px4_world" ]]; then
+    printf "Gazebo world not found: %s\n" "$selected_world" >&2
+    exit 1
+fi
+printf "Gazebo world: %s\n" "$selected_world"
+exec env PX4_PARAM_SDLOG_MODE=2 PX4_GZ_WORLD="$selected_world" \
+    make -C /opt/PX4-Autopilot px4_sitl gz_x500
+' px4-sitl "$run_id" "$px4_rootfs"

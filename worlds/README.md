@@ -1,9 +1,23 @@
 # Gazebo worlds
 
-PX4 provides the stock Gazebo worlds in the simulation image. Both launch files use `default` unless `world:=<name>` selects another world.
+The Compose services set `PX4_GZ_WORLD=lawn` by default. The value is available in sourced tmux
+panes and interactive container shells before PX4 starts. PX4's stock `lawn` world has one flat
+green ground plane, a visible grid, and a sky with clouds. It has no obstacle models.
 
-Store project world files in this directory as `<name>.sdf`. Store local models referenced by those worlds in `models/<model-name>/`.
+Set `PX4_GZ_WORLD` to use another world. The override works with the host wrapper, a sourced
+container shell, and either tmux session command:
 
-Docker Compose mounts this directory at `/workspace/worlds`. The image adds `/workspace/worlds` and `/workspace/worlds/models` to `GZ_SIM_RESOURCE_PATH`, which Gazebo uses to find world and model resources. Select a project world with `world:=<name>`.
+```bash
+PX4_GZ_WORLD=default ./scripts/px4-sitl
+PX4_GZ_WORLD=default ./scripts/tmux-session
+PX4_GZ_WORLD=default ./scripts/tmux-session start
+```
 
-Gazebo documents `GZ_SIM_RESOURCE_PATH` in its [resource lookup guide](https://gazebosim.org/api/sim/8/resources.html). PX4 documents that worlds and models on this path do not need to be copied into PX4's own directories in its [Gazebo simulation guide](https://docs.px4.io/v1.18/en/sim_gazebo_gz/).
+Store project world files here as `<name>.sdf`. Use a name that does not match a stock PX4 world.
+The name must start with a letter or digit and contain only letters, digits, underscores, and
+hyphens. The PX4 wrapper links a selected project world into PX4's world directory inside the
+container. Store local models referenced by the world in `models/<model-name>/`.
+
+Docker Compose mounts this directory at `/workspace/worlds`. The image adds `/workspace/worlds`
+and `/workspace/worlds/models` to `GZ_SIM_RESOURCE_PATH` for Gazebo resource lookup. Restart PX4
+and Gazebo after changing the world selection.

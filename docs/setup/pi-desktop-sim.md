@@ -178,7 +178,7 @@ uxrce_dds_client start -t udp -h 192.168.50.2 -p 8888
 
 The `-h` option sets the Agent IP and `-p` sets the Agent UDP port. Keep `ROS_DOMAIN_ID` at `0` on the Pi and PX4 SITL unless both sides are configured with another matching domain ID. PX4 documents the client command and the default SITL address in the [PX4 v1.17 uXRCE-DDS guide](https://docs.px4.io/v1.17/en/middleware/uxrce_dds).
 
-Do not use `./scripts/tmux-session` unchanged for this layout. That script also starts a local Agent on the desktop.
+Do not use `./scripts/tmux-session start` for this layout. It starts a local Agent on the desktop.
 
 ## Verify ROS 2 topics
 

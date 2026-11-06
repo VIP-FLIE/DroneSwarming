@@ -8,6 +8,7 @@ The native companion-computer workflow targets 64-bit Raspberry Pi systems runni
 
 - Ubuntu 24.04 desktop
 - Docker Engine and the Docker Compose plugin
+- The `script` command from `util-linux` for host terminal transcripts
 - NVIDIA Container Toolkit configured for Docker
 - QGroundControl
 - An X11 desktop session, or a Wayland session with XWayland enabled
@@ -22,6 +23,12 @@ sudo systemctl restart docker
 The NVIDIA display driver remains installed on the host; ROS 2, PX4, Gazebo, and the XRCE-DDS Agent run in the container.
 
 Install Docker Engine with the [Ubuntu instructions](https://docs.docker.com/engine/install/ubuntu/). The host does not need ROS 2 or PX4.
+
+Install `util-linux` if the `script` command is missing:
+
+```bash
+sudo apt install util-linux
+```
 
 ## Install QGroundControl
 
@@ -92,7 +99,7 @@ Run these commands from the repository root.
 
 Start QGroundControl on the host and leave it open. PX4 sends its ground-station link on UDP port 14550, and QGroundControl listens on that port by default when UDP auto-connect is enabled. If no vehicle appears, check QGroundControl's [UDP auto-connect setting](https://docs.qgroundcontrol.com/master/en/qgc-user-guide/settings_view/comm_links.html). After PX4 starts, confirm that QGroundControl shows the simulated vehicle and updating telemetry.
 
-Run `./scripts/tmux-session` from a host terminal to start the simulation service and open the four-pane session. The session starts the XRCE-DDS Agent and PX4 SITL with Gazebo. It opens sourced container shells for the application and ROS 2 CLI. Follow the [tmux simulation session guide](../development/TMUX.md) for pane controls and the [simulation flight procedure](../../README.md#simulation-flight-procedure) for launch and mission commands. The container uses host networking for the PX4 MAVLink connection to QGroundControl.
+Run `./scripts/tmux-session start` from a host terminal to build the workspace and start the simulation service, XRCE-DDS Agent, and PX4 SITL with Gazebo in the four-pane session. Run `./scripts/tmux-session` to build the workspace and open four sourced container Bash shells for manual startup. Pane 3 accepts ROS 2 CLI and flight-test commands. Each new session builds every workspace package, including `flight_test`. Follow the [tmux simulation session guide](../development/TMUX.md) for pane controls and the [simulation flight procedure](../../README.md#simulation-flight-procedure) for launch and mission commands. The container uses host networking for the PX4 MAVLink connection to QGroundControl.
 
 ## Stop a flight
 

@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cmath>
 #include <future>
+#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <utility>
@@ -173,6 +174,8 @@ MissionExecutionNode::MissionExecutionNode()
     this, "takeoff");
   navigation_client_ = rclcpp_action::create_client<swarm_interfaces::action::NavigateTo>(
     this, "navigate_to");
+  orbit_client_ = rclcpp_action::create_client<swarm_interfaces::action::OrbitPoint>(
+    this, "orbit_point");
   land_client_ = rclcpp_action::create_client<swarm_interfaces::action::Land>(this, "land");
   state_subscription_ = create_subscription<swarm_interfaces::msg::VehicleState>(
     "vehicle_state", 10,
@@ -192,6 +195,21 @@ MissionExecutionNode::MissionExecutionNode()
       bool is_valid = std::isfinite(goal->takeoff_altitude_m) && goal->takeoff_altitude_m > 0.0F &&
         std::isfinite(goal->position_tolerance_m) && goal->position_tolerance_m >= 0.0F &&
         std::isfinite(goal->waypoint_timeout_sec) && goal->waypoint_timeout_sec >= 0.0F;
+      if (goal->look_at_point_of_interest) {
+        is_valid = is_valid && !goal->waypoint_offsets.empty() &&
+          std::isfinite(goal->look_at_offset.x) && std::isfinite(goal->look_at_offset.y) &&
+          std::isfinite(goal->look_at_offset.z);
+      }
+      if (goal->orbit_after_waypoints) {
+        is_valid = is_valid && std::isfinite(goal->orbit_center_offset.x) &&
+          std::isfinite(goal->orbit_center_offset.y) &&
+          std::isfinite(goal->orbit_center_offset.z) &&
+          std::isfinite(goal->orbit_radius_m) && goal->orbit_radius_m >= 1.0F &&
+          std::isfinite(goal->orbit_tangential_speed_mps) &&
+          goal->orbit_tangential_speed_mps > 0.0F &&
+          std::isfinite(goal->orbit_revolutions) && goal->orbit_revolutions > 0.0F &&
+          std::isfinite(goal->orbit_timeout_sec) && goal->orbit_timeout_sec > 0.0F;
+      }
       for (const geometry_msgs::msg::Point & waypoint : goal->waypoint_offsets) {
         is_valid = is_valid && std::isfinite(waypoint.x) && std::isfinite(waypoint.y) &&
           std::isfinite(waypoint.z);
@@ -223,10 +241,12 @@ MissionExecutionNode::~MissionExecutionNode()
 bool MissionExecutionNode::reserve_mission(const bool is_goal_valid)
 {
   if (!is_goal_valid) {
+    RCLCPP_WARN(get_logger(), "Rejecting waypoint mission: goal fields are invalid");
     return false;
   }
   std::lock_guard<std::mutex> lock(mission_mutex_);
   if (mission_active_) {
+    RCLCPP_WARN(get_logger(), "Rejecting waypoint mission: another mission is active");
     return false;
   }
   mission_active_ = true;
@@ -269,6 +289,7 @@ void MissionExecutionNode::execute_mission(const std::shared_ptr<MissionHandle> 
 {
   std::shared_ptr<Mission::Result> result = std::make_shared<Mission::Result>();
   result->completed_waypoints = 0;
+  result->orbit_completed = false;
   const std::shared_ptr<const Mission::Goal> goal = goal_handle->get_goal();
   const std::function<bool()> parent_is_canceling = [goal_handle]() {
       return goal_handle->is_canceling() || !rclcpp::ok();
@@ -286,6 +307,22 @@ void MissionExecutionNode::execute_mission(const std::shared_ptr<MissionHandle> 
       feedback->status = status;
       goal_handle->publish_feedback(feedback);
     };
+  const std::function<void(float, const std::string &)> publish_orbit_feedback =
+    [goal_handle, completed_waypoints](const float completed_revolutions,
+      const std::string & status) {
+      std::shared_ptr<Mission::Feedback> feedback = std::make_shared<Mission::Feedback>();
+      feedback->current_waypoint = 0;
+      feedback->completed_waypoints = completed_waypoints->load();
+      feedback->distance_to_target_m = std::numeric_limits<float>::quiet_NaN();
+      feedback->orbit_completed_revolutions = completed_revolutions;
+      feedback->status = status;
+      goal_handle->publish_feedback(feedback);
+    };
+
+  RCLCPP_INFO(
+    get_logger(), "Starting waypoint mission (waypoints=%zu, orbit=%s, land=%s)",
+    goal->waypoint_offsets.size(), goal->orbit_after_waypoints ? "enabled" : "disabled",
+    goal->land_after_waypoints ? "enabled" : "disabled");
 
   try {
     swarm_interfaces::msg::VehicleState starting_state;
@@ -356,6 +393,11 @@ void MissionExecutionNode::execute_mission(const std::shared_ptr<MissionHandle> 
       swarm_interfaces::action::NavigateTo::Goal navigation_goal;
       navigation_goal.target_position = add_waypoint_offset(mission_origin, offset);
       navigation_goal.frame_id = "local_enu";
+      navigation_goal.look_at_target = goal->look_at_point_of_interest;
+      if (goal->look_at_point_of_interest) {
+        navigation_goal.look_at_position = add_waypoint_offset(
+          mission_origin, goal->look_at_offset);
+      }
       navigation_goal.position_tolerance_m = goal->position_tolerance_m;
       navigation_goal.timeout_sec = static_cast<float>(waypoint_timeout);
       const std::uint32_t current_waypoint = static_cast<std::uint32_t>(index + 1);
@@ -387,6 +429,43 @@ void MissionExecutionNode::execute_mission(const std::shared_ptr<MissionHandle> 
       result->completed_waypoints = completed_waypoints->load();
     }
 
+    if (goal->orbit_after_waypoints) {
+      RCLCPP_INFO(get_logger(), "Starting mission OrbitPoint child action");
+      publish_feedback(0, 0.0F, "Orbiting point of interest");
+      swarm_interfaces::action::OrbitPoint::Goal orbit_goal;
+      orbit_goal.center_position = add_waypoint_offset(mission_origin, goal->orbit_center_offset);
+      orbit_goal.frame_id = "local_enu";
+      orbit_goal.radius_m = goal->orbit_radius_m;
+      orbit_goal.clockwise = goal->orbit_clockwise;
+      orbit_goal.tangential_speed_mps = goal->orbit_tangential_speed_mps;
+      orbit_goal.revolutions = goal->orbit_revolutions;
+      orbit_goal.timeout_sec = goal->orbit_timeout_sec;
+      const double orbit_result_timeout = std::max(
+        child_result_timeout_sec_, static_cast<double>(goal->orbit_timeout_sec) + 30.0);
+      ChildActionOutcome orbit_outcome = run_child_action<swarm_interfaces::action::OrbitPoint>(
+        orbit_client_, orbit_goal,
+        deadline_after(action_server_timeout_sec_), deadline_after(orbit_result_timeout),
+        parent_is_canceling,
+        [publish_orbit_feedback](const swarm_interfaces::action::OrbitPoint::Feedback & feedback) {
+          publish_orbit_feedback(
+            feedback.completed_revolutions, feedback.status);
+        });
+      if (!orbit_outcome.succeeded) {
+        result->message = "Orbit failed: " + orbit_outcome.message;
+        RCLCPP_ERROR(get_logger(), "%s", result->message.c_str());
+        if (orbit_outcome.canceled || parent_is_canceling()) {
+          goal_handle->canceled(result);
+        } else {
+          goal_handle->abort(result);
+        }
+        std::lock_guard<std::mutex> lock(mission_mutex_);
+        mission_active_ = false;
+        return;
+      }
+      result->orbit_completed = true;
+      RCLCPP_INFO(get_logger(), "Mission OrbitPoint child action completed");
+    }
+
     if (goal->land_after_waypoints) {
       publish_feedback(0, 0.0F, "Landing");
       swarm_interfaces::action::Land::Goal land_goal;
@@ -411,12 +490,24 @@ void MissionExecutionNode::execute_mission(const std::shared_ptr<MissionHandle> 
       }
     }
 
+    if (parent_is_canceling()) {
+      result->success = false;
+      result->message = "Mission canceled before completion";
+      goal_handle->canceled(result);
+      std::lock_guard<std::mutex> lock(mission_mutex_);
+      mission_active_ = false;
+      return;
+    }
+
     result->success = true;
-    result->message = "Waypoint mission completed";
+    result->message = result->orbit_completed ?
+      "Waypoint mission and orbit completed" : "Waypoint mission completed";
+    RCLCPP_INFO(get_logger(), "%s", result->message.c_str());
     goal_handle->succeed(result);
   } catch (const std::exception & exception) {
     result->success = false;
     result->message = exception.what();
+    RCLCPP_ERROR(get_logger(), "Waypoint mission failed: %s", exception.what());
     if (parent_is_canceling()) {
       goal_handle->canceled(result);
     } else {
