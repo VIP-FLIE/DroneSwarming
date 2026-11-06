@@ -15,9 +15,11 @@ The Linux container builds PX4 SITL v1.17.0 and matching `px4_msgs` v1.17.0. The
 
 `drone_bringup` starts only the two ROS application nodes. Start the agent and PX4 SITL in separate terminals. The PX4 v1.17.0 SITL ROS 2 graph exposes versioned state topics `/fmu/out/vehicle_local_position_v1`, `/fmu/out/vehicle_status_v1`, and `/fmu/out/battery_status_v1`. It exposes `/fmu/out/vehicle_land_detected` and `/fmu/out/vehicle_command_ack` without a version suffix. PX4 receives Offboard control and trajectory setpoints under `/fmu/in/`.
 
+The `land` action requests PX4 Auto Land and waits for the land detector. It disarms the vehicle if needed, selects Auto Loiter, and succeeds after PX4 reports landed, disarmed, and outside Offboard. Position setpoints stop after touchdown and disarming. A later `takeoff` action streams setpoints for one second, enters Offboard when needed, confirms the mode, and arms.
+
 ## Orbit action
 
-`vehicle_control` exposes `/orbit_point` for an airborne rotary-wing vehicle in Offboard. The action requires valid global-reference data from `VehicleLocalPosition`; it converts the requested absolute `local_enu` center to the WGS84 center used by PX4's `DO_ORBIT` command. PX4 controls approach, radius, tangential speed, and yaw toward the center. The action tracks completed revolutions from position samples, then restores and confirms Offboard hold. A missing or changed global reference rejects or aborts the action.
+`vehicle_control` exposes `/orbit_point` for an airborne rotary-wing vehicle in Offboard. The action requires valid global-reference data from `VehicleLocalPosition`; it converts the requested absolute `local_enu` center to the WGS84 center used by PX4's `DO_ORBIT` command. PX4 controls approach, radius, and tangential speed. The caller sets `face_center` to request center-facing yaw; the action checks yaw telemetry and heading error when enabled. The action tracks completed revolutions from position samples, then restores and confirms Offboard hold. A missing or changed global reference rejects or aborts the action.
 
 For Orbit validation, run only in the controlled SITL procedure with flight commands enabled. Confirm that PX4 reports Orbit state, the requested direction and radius are visible in telemetry, progress advances only after reaching the circle, cancellation returns to a confirmed Offboard hold, and landing starts only after mission Orbit succeeds.
 

@@ -5,12 +5,12 @@ panes and interactive container shells before PX4 starts. PX4's stock `lawn` wor
 green ground plane, a visible grid, and a sky with clouds. It has no obstacle models.
 
 Set `PX4_GZ_WORLD` to use another world. The override works with the host wrapper, a sourced
-container shell, and every tmux mode:
+container shell, and either tmux session command:
 
 ```bash
 PX4_GZ_WORLD=default ./scripts/px4-sitl
+PX4_GZ_WORLD=default ./scripts/tmux-session
 PX4_GZ_WORLD=default ./scripts/tmux-session start
-PX4_GZ_WORLD=default ./scripts/tmux-session test
 ```
 
 Store project world files here as `<name>.sdf`. Use a name that does not match a stock PX4 world.

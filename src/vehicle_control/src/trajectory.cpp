@@ -46,7 +46,7 @@ Position segment_velocity(
 
 bool validate_trajectory(
   const std::vector<swarm_interfaces::msg::TrajectoryPoint> & points,
-  std::string & failure_message)
+  const bool control_yaw, std::string & failure_message)
 {
   if (points.size() < 2) {
     failure_message = "trajectory requires at least two points";
@@ -65,7 +65,8 @@ bool validate_trajectory(
 
   const Position start_position = point_position(points.front());
   if (!std::isfinite(start_position[0]) || !std::isfinite(start_position[1]) ||
-    !std::isfinite(start_position[2]) || !std::isfinite(points.front().yaw_rad))
+    !std::isfinite(start_position[2]) ||
+    (control_yaw && !std::isfinite(points.front().yaw_rad)))
   {
     failure_message = "trajectory contains a non-finite first point";
     return false;
@@ -87,7 +88,7 @@ bool validate_trajectory(
     const double time = static_cast<double>(point.time_from_start_sec);
     const Position position = point_position(point);
     if (!std::isfinite(time) || !std::isfinite(position[0]) || !std::isfinite(position[1]) ||
-      !std::isfinite(position[2]) || !std::isfinite(point.yaw_rad))
+      !std::isfinite(position[2]) || (control_yaw && !std::isfinite(point.yaw_rad)))
     {
       failure_message = "trajectory contains a non-finite point";
       return false;
@@ -105,13 +106,15 @@ bool validate_trajectory(
       failure_message = "trajectory point exceeds the 20 m horizontal or 8 m vertical envelope";
       return false;
     }
-    const double yaw_rate_radps =
-      std::abs(wrap_angle(
-        static_cast<double>(point.yaw_rad) - static_cast<double>(previous.yaw_rad))) /
-      duration_sec;
-    if (yaw_rate_radps > maximum_yaw_rate_radps) {
-      failure_message = "trajectory exceeds the 2 rad/s yaw-rate limit";
-      return false;
+    if (control_yaw) {
+      const double yaw_rate_radps =
+        std::abs(wrap_angle(
+          static_cast<double>(point.yaw_rad) - static_cast<double>(previous.yaw_rad))) /
+        duration_sec;
+      if (yaw_rate_radps > maximum_yaw_rate_radps) {
+        failure_message = "trajectory exceeds the 2 rad/s yaw-rate limit";
+        return false;
+      }
     }
     const Position velocity = segment_velocity(previous, point);
     const double speed_mps = std::hypot(

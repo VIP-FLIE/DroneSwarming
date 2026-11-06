@@ -175,7 +175,17 @@ struct Px4Adapter::Implementation
     const std::int64_t timestamp)
   {
     return publish_vehicle_command(
-      command, parameter_1, parameter_2, 0.0F, 0.0F, 0.0, 0.0, 0.0F, timestamp);
+      command, parameter_1, parameter_2, 0.0F, timestamp);
+  }
+
+  /// Publishes a PX4 command with a custom sub-mode and returns its prior acknowledgment
+  /// generation.
+  std::uint64_t publish_vehicle_command(
+    const std::uint32_t command, const float parameter_1, const float parameter_2,
+    const float parameter_3, const std::int64_t timestamp)
+  {
+    return publish_vehicle_command(
+      command, parameter_1, parameter_2, parameter_3, 0.0F, 0.0, 0.0, 0.0F, timestamp);
   }
 
   /// Publishes a full PX4 command and returns the preceding acknowledgment generation.
@@ -262,6 +272,14 @@ std::uint64_t Px4Adapter::publish_vehicle_command(
   const std::int64_t timestamp_us)
 {
   return implementation_->publish_vehicle_command(command, parameter_1, parameter_2, timestamp_us);
+}
+
+std::uint64_t Px4Adapter::publish_vehicle_command(
+  const std::uint32_t command, const float parameter_1, const float parameter_2,
+  const float parameter_3, const std::int64_t timestamp_us)
+{
+  return implementation_->publish_vehicle_command(
+    command, parameter_1, parameter_2, parameter_3, timestamp_us);
 }
 
 std::optional<CommandAcknowledgement> Px4Adapter::acknowledgement_after(

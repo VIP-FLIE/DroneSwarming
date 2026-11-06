@@ -79,6 +79,11 @@ public:
   /// Publishes a PX4 command and returns the preceding acknowledgment generation.
   std::uint64_t publish_vehicle_command(
     std::uint32_t command, float parameter_1, float parameter_2, std::int64_t timestamp_us);
+  /// Publishes a PX4 command with a custom sub-mode and returns its prior acknowledgment
+  /// generation.
+  std::uint64_t publish_vehicle_command(
+    std::uint32_t command, float parameter_1, float parameter_2, float parameter_3,
+    std::int64_t timestamp_us);
   /// Returns a matching acknowledgment received after generation, if available.
   std::optional<CommandAcknowledgement> acknowledgement_after(
     std::uint32_t command, std::uint64_t generation) const;

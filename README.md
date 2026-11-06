@@ -16,6 +16,8 @@ ROS 2 control software for PX4 search-and-rescue drones. The project targets Ubu
 
 PX4 retains low-level flight control, preflight checks, and failsafes. `vehicle_control` sends position setpoints in Offboard mode. `mission_execution` uses ROS 2 actions and does not depend on PX4 messages.
 
+Position actions leave yaw uncontrolled unless the caller requests `NavigateTo.look_at_target`, `FollowTrajectory.control_yaw`, or `OrbitPoint.face_center`. `vehicle_control` checks yaw telemetry and target error for requested yaw control. PX4 receives an unspecified yaw setpoint for ordinary Offboard position commands.
+
 The application frame is `local_enu`: X is east, Y is north, and Z is up, in meters from PX4's local-position origin. PX4 v1.17 local positions and trajectory setpoints use NED, so `vehicle_control` maps `(east, north, up)` to `(north, east, down)`. The PX4 topic prefix is the full path through `fmu`; `/fmu` addresses the default single-vehicle topics and `/uav_1/fmu` addresses a namespaced PX4 instance.
 
 ## Container setup and build
@@ -35,6 +37,8 @@ cd /workspace
 colcon build --symlink-install
 source /workspace/install/setup.bash
 ```
+
+Each newly created tmux session runs `colcon build --symlink-install` before opening its panes.
 
 With no command argument, `scripts/sim-shell` opens an interactive shell. With a command, it runs the command inside the sourced container and keeps the process attached to the native terminal. For example, `./scripts/sim-shell ros2 topic list` runs `ros2 topic list` in the container.
 
@@ -70,11 +74,9 @@ Start the tmux simulation session from a host terminal:
 The session starts the XRCE-DDS Agent and PX4 SITL with Gazebo Harmonic. It opens a sourced container shell for the application in pane 2 and a sourced ROS 2 CLI shell in pane 3. Confirm that the simulated vehicle and telemetry appear in QGroundControl before starting the flight-enabled application.
 PX4 uses the flat `lawn` world with a grid and sky by default. Set `PX4_GZ_WORLD` before launch
 to select another world; see [Gazebo worlds](worlds/README.md).
-Run `./scripts/tmux-session` without an argument to open sourced container Bash shells in all four
-panes. Start the Agent and PX4 manually with `./scripts/xrce-agent` and `./scripts/px4-sitl` in
-their respective panes.
-Run `./scripts/tmux-session test` to open four sourced container shells, with pane 3 for
-`./scripts/test-flights --case FT-00`. Start the Agent and PX4 manually in panes 0 and 1.
+Run `./scripts/tmux-session` to build the workspace and open sourced container Bash shells in all
+four panes. Start the Agent and PX4 manually with `./scripts/xrce-agent` and `./scripts/px4-sitl` in
+their respective panes. Pane 3 accepts ROS 2 CLI commands and `./scripts/test-flights` commands.
 
 In pane 2, start the application with flight actions enabled for SITL:
 

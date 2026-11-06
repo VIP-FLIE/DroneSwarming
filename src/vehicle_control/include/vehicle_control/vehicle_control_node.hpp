@@ -58,8 +58,8 @@ private:
     Land
   };
 
-  /// Reserves a valid flight goal and optionally requires valid yaw telemetry.
-  bool reserve_goal(GoalKind kind, bool is_goal_valid, bool require_yaw = false);
+  /// Reserves a validated flight goal and optionally requires valid yaw telemetry.
+  bool reserve_goal(GoalKind kind, bool require_yaw = false);
   /// Checks whether position telemetry is valid, finite, and recent.
   bool has_fresh_position(const VehicleTelemetry & telemetry) const;
   /// Checks fresh control telemetry and optional landing-state telemetry.
@@ -75,7 +75,7 @@ private:
   /// Retries a PX4 command until its telemetry transition predicate succeeds.
   bool request_transition(
     const std::string & transition_name, std::uint32_t command,
-    float parameter_1, float parameter_2,
+    float parameter_1, float parameter_2, float parameter_3,
     const std::function<bool(const VehicleTelemetry &)> & predicate,
     const std::function<bool()> & is_cancelled,
     std::string & failure_message);
@@ -94,7 +94,7 @@ private:
   void hold_current_position();
   /// Publishes vehicle state with local ENU coordinates and freshness flags.
   void publish_state();
-  /// Publishes position setpoints while requested or while PX4 reports Offboard.
+  /// Publishes requested Offboard prestream and active airborne Offboard setpoints.
   void publish_control_setpoint();
   /// Releases the active goal and clears stream state after PX4 exits Offboard.
   void finish_goal();
@@ -109,7 +109,7 @@ private:
   /// Interpolates timed ENU position and yaw setpoints while monitoring telemetry.
   void execute_follow_trajectory(
     const std::shared_ptr<FollowTrajectoryHandle> & goal_handle);
-  /// Requests PX4 landing and waits for its land detector confirmation.
+  /// Lands through PX4 Auto Land, disarms, and confirms Auto Loiter hold.
   void execute_land(const std::shared_ptr<LandHandle> & goal_handle);
   /// Commands PX4 Orbit, measures completed revolutions, and restores Offboard hold.
   void execute_orbit(const std::shared_ptr<OrbitHandle> & goal_handle);

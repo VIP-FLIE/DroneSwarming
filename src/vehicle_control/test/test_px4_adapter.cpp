@@ -185,6 +185,18 @@ TEST(Px4Adapter, ConvertsOptionalEnuYawToNedSetpointYaw)
     EXPECT_FLOAT_EQ(2.0F, published_setpoints.front().position[1]);
     EXPECT_FLOAT_EQ(-4.0F, published_setpoints.front().position[2]);
     EXPECT_NEAR(1.57079632679, published_setpoints.front().yaw, 1.0e-6);
+
+    adapter.publish_position_setpoint({2.0, 3.0, 4.0}, 2000, std::nullopt);
+    const std::chrono::steady_clock::time_point uncontrolled_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (published_setpoints.size() < 2U &&
+      std::chrono::steady_clock::now() < uncontrolled_deadline)
+    {
+      executor.spin_some();
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_EQ(2U, published_setpoints.size());
+    EXPECT_TRUE(std::isnan(published_setpoints.back().yaw));
     executor.remove_node(node);
   }
   rclcpp::shutdown();

@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <limits>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <utility>
 
@@ -32,6 +33,8 @@ constexpr double minimum_navigation_yaw_settle_duration_sec = 0.5;
 constexpr double minimum_look_at_distance_m = 0.1;
 constexpr double maximum_look_at_yaw_rate_radps = 2.0;
 constexpr double maximum_trajectory_yaw_tolerance_rad = 1.0;
+constexpr double default_orbit_yaw_tolerance_rad = 0.5235987755982988;
+constexpr std::chrono::seconds orbit_yaw_error_duration(2);
 constexpr double maximum_trajectory_position_tolerance_m = 2.0;
 constexpr double maximum_trajectory_goal_timeout_sec = 240.0;
 constexpr double max_orbit_centripetal_acceleration_mps2 = 2.0;
@@ -42,11 +45,17 @@ constexpr double orbit_hold_velocity_tolerance_mps = 0.3;
 constexpr double orbit_maximum_sample_angle_rad = 1.57079632679489661923;
 constexpr std::uint8_t orbit_yaw_face_center =
   px4_msgs::msg::VehicleCommand::ORBIT_YAW_BEHAVIOUR_HOLD_FRONT_TO_CIRCLE_CENTER;
+constexpr std::uint8_t orbit_yaw_uncontrolled =
+  px4_msgs::msg::VehicleCommand::ORBIT_YAW_BEHAVIOUR_UNCONTROLLED;
 constexpr std::chrono::milliseconds orbit_mode_confirmation_duration(500);
 constexpr std::chrono::milliseconds orbit_hold_settle_duration(500);
 constexpr float offboard_custom_mode = 6.0F;
+constexpr float auto_custom_mode = 4.0F;
+constexpr float auto_loiter_sub_mode = 3.0F;
 constexpr float custom_mode_enabled = 1.0F;
 constexpr float arm_command_value = 1.0F;
+constexpr float disarm_command_value = 0.0F;
+//PX4 Auto Loiter uses the AUTO main mode and LOITER sub-mode.
 
 /// Checks that all three position coordinates are finite.
 bool is_finite_position(const Position & position)
@@ -169,8 +178,13 @@ VehicleControlNode::VehicleControlNode()
   takeoff_server_ = rclcpp_action::create_server<Takeoff>(
     this, "takeoff",
     [this](const rclcpp_action::GoalUUID &, std::shared_ptr<const Takeoff::Goal> goal) {
-      return reserve_goal(
-        GoalKind::Takeoff, std::isfinite(goal->altitude_m) && goal->altitude_m > 0.0F) ?
+      if (!std::isfinite(goal->altitude_m) || goal->altitude_m <= 0.0F) {
+        RCLCPP_WARN(
+          get_logger(), "Rejecting takeoff: altitude must be finite and positive "
+          "(requested_altitude=%.2f m)", static_cast<double>(goal->altitude_m));
+        return rclcpp_action::GoalResponse::REJECT;
+      }
+      return reserve_goal(GoalKind::Takeoff) ?
         rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE : rclcpp_action::GoalResponse::REJECT;
     },
     [](const std::shared_ptr<TakeoffHandle>) {return rclcpp_action::CancelResponse::ACCEPT;},
@@ -199,7 +213,19 @@ VehicleControlNode::VehicleControlNode()
         std::isfinite(goal->target_position.z) && std::isfinite(goal->position_tolerance_m) &&
         goal->position_tolerance_m >= 0.0F && std::isfinite(goal->timeout_sec) &&
         goal->timeout_sec >= 0.0F && has_valid_look_at_position;
-      return reserve_goal(GoalKind::Navigate, is_valid, goal->look_at_target) ?
+      if (!is_valid) {
+        RCLCPP_WARN(
+          get_logger(), "Rejecting navigation: invalid goal (frame=%s, target=[%.2f, %.2f, "
+          "%.2f] m, position_tolerance=%.2f m, look_at=%s, look_at_position=[%.2f, %.2f, "
+          "%.2f] m, horizontal_look_at_distance=%.2f m, timeout=%.2f s)",
+          goal->frame_id.c_str(), target_position[0], target_position[1], target_position[2],
+          static_cast<double>(goal->position_tolerance_m),
+          goal->look_at_target ? "true" : "false", look_at_position[0], look_at_position[1],
+          look_at_position[2], std::hypot(look_at_position[0] - target_position[0],
+          look_at_position[1] - target_position[1]), static_cast<double>(goal->timeout_sec));
+        return rclcpp_action::GoalResponse::REJECT;
+      }
+      return reserve_goal(GoalKind::Navigate, goal->look_at_target) ?
         rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE : rclcpp_action::GoalResponse::REJECT;
     },
     [](const std::shared_ptr<NavigateHandle>) {return rclcpp_action::CancelResponse::ACCEPT;},
@@ -226,17 +252,20 @@ VehicleControlNode::VehicleControlNode()
       std::string validation_error;
       const double timeout_sec = goal->timeout_sec == 0.0F ? default_navigation_timeout_sec_ :
         static_cast<double>(goal->timeout_sec);
-      const bool is_trajectory_valid = validate_trajectory(goal->points, validation_error);
-      const bool is_goal_valid = is_trajectory_valid &&
+      const bool is_trajectory_valid = validate_trajectory(
+        goal->points, goal->control_yaw, validation_error);
+      const bool has_valid_parameters =
         std::isfinite(goal->position_tolerance_m) && goal->position_tolerance_m >= 0.0F &&
         static_cast<double>(goal->position_tolerance_m) <=
         maximum_trajectory_position_tolerance_m &&
         std::isfinite(goal->yaw_tolerance_rad) && goal->yaw_tolerance_rad >= 0.0F &&
+        (goal->control_yaw || goal->yaw_tolerance_rad == 0.0F) &&
         static_cast<double>(goal->yaw_tolerance_rad) <= maximum_trajectory_yaw_tolerance_rad &&
         std::isfinite(goal->timeout_sec) && goal->timeout_sec >= 0.0F &&
         timeout_sec <= maximum_trajectory_goal_timeout_sec &&
+        (goal->points.empty() ||
         timeout_sec >= static_cast<double>(goal->points.back().time_from_start_sec) +
-        minimum_trajectory_settle_duration_sec;
+        minimum_trajectory_settle_duration_sec);
       const VehicleTelemetry telemetry = px4_adapter_->telemetry();
       const Position first_position{
         goal->points.empty() ? 0.0 : goal->points.front().position.x,
@@ -246,14 +275,29 @@ VehicleControlNode::VehicleControlNode()
         (has_fresh_position(telemetry) &&
         distance(telemetry.position_enu, first_position) <= 1.0);
       const bool has_valid_yaw = telemetry.yaw_valid && std::isfinite(telemetry.yaw_enu_rad);
-      if (!is_goal_valid || !starts_at_vehicle || !has_valid_yaw) {
+      if (!is_trajectory_valid || !has_valid_parameters || !starts_at_vehicle ||
+        (goal->control_yaw && !has_valid_yaw))
+      {
         const std::string reason = !is_trajectory_valid ? validation_error :
+          (!has_valid_parameters ? "goal parameters are out of bounds" :
           (!starts_at_vehicle ? "first trajectory point must match current position within 1 m" :
-          "trajectory requires valid current yaw and bounded goal parameters");
-        RCLCPP_WARN(get_logger(), "Rejecting FollowTrajectory goal: %s", reason.c_str());
+          "requested yaw telemetry is invalid"));
+        const double start_distance_m = goal->points.empty() || !has_fresh_position(telemetry) ?
+          std::numeric_limits<double>::quiet_NaN() :
+          distance(telemetry.position_enu, first_position);
+        RCLCPP_WARN(
+          get_logger(), "Rejecting FollowTrajectory: %s (points=%zu, start_distance=%.2f m, "
+          "position_tolerance=%.2f m, control_yaw=%s, yaw_tolerance=%.3f rad, "
+          "yaw_valid=%s, measured_yaw=%.3f rad, duration=%.2f s, timeout=%.2f s)",
+          reason.c_str(), goal->points.size(), start_distance_m,
+          static_cast<double>(goal->position_tolerance_m), goal->control_yaw ? "true" : "false",
+          static_cast<double>(goal->yaw_tolerance_rad), telemetry.yaw_valid ? "true" : "false",
+          telemetry.yaw_enu_rad,
+          goal->points.empty() ? std::numeric_limits<double>::quiet_NaN() :
+          static_cast<double>(goal->points.back().time_from_start_sec), timeout_sec);
         return rclcpp_action::GoalResponse::REJECT;
       }
-      return reserve_goal(GoalKind::FollowTrajectory, true) ?
+      return reserve_goal(GoalKind::FollowTrajectory, goal->control_yaw) ?
         rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE : rclcpp_action::GoalResponse::REJECT;
     },
     [](const std::shared_ptr<FollowTrajectoryHandle>) {
@@ -263,7 +307,9 @@ VehicleControlNode::VehicleControlNode()
       {
         std::lock_guard<std::mutex> lock(control_mutex_);
         target_position_ = reserved_start_position_;
-        target_yaw_rad_ = reserved_start_yaw_rad_;
+        if (handle->get_goal()->control_yaw) {
+          target_yaw_rad_ = reserved_start_yaw_rad_;
+        }
       }
       enqueue([this, handle]() {execute_follow_trajectory(handle);});
     });
@@ -282,9 +328,27 @@ VehicleControlNode::VehicleControlNode()
         std::isfinite(radius_m) && radius_m >= 1.0 && radius_m <= max_orbit_radius_m_ &&
         std::isfinite(speed_mps) && speed_mps > 0.0 && speed_mps <= max_orbit_speed_mps_ &&
         speed_mps * speed_mps / radius_m < max_orbit_centripetal_acceleration_mps2 &&
+        std::isfinite(goal->yaw_tolerance_rad) && goal->yaw_tolerance_rad >= 0.0F &&
+        static_cast<double>(goal->yaw_tolerance_rad) <= maximum_trajectory_yaw_tolerance_rad &&
+        (goal->face_center || goal->yaw_tolerance_rad == 0.0F) &&
         std::isfinite(goal->revolutions) && goal->revolutions > 0.0F &&
         std::isfinite(goal->timeout_sec) && goal->timeout_sec > 0.0F;
-      return reserve_goal(GoalKind::Orbit, is_valid) ?
+      if (!is_valid) {
+        RCLCPP_WARN(
+          get_logger(), "Rejecting OrbitPoint: invalid goal (frame=%s, center=[%.2f, %.2f, "
+          "%.2f] m, center_distance=%.2f m, radius=%.2f m, speed=%.2f m/s, "
+          "centripetal_acceleration=%.2f m/s^2, face_center=%s, yaw_tolerance=%.3f rad, "
+          "revolutions=%.2f, timeout=%.2f s)",
+          goal->frame_id.c_str(), goal->center_position.x, goal->center_position.y,
+          goal->center_position.z, center_distance_m, radius_m, speed_mps,
+          radius_m > 0.0 ? speed_mps * speed_mps / radius_m :
+          std::numeric_limits<double>::quiet_NaN(),
+          goal->face_center ? "true" : "false",
+          static_cast<double>(goal->yaw_tolerance_rad), static_cast<double>(goal->revolutions),
+          static_cast<double>(goal->timeout_sec));
+        return rclcpp_action::GoalResponse::REJECT;
+      }
+      return reserve_goal(GoalKind::Orbit, goal->face_center) ?
         rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE : rclcpp_action::GoalResponse::REJECT;
     },
     [](const std::shared_ptr<OrbitHandle>) {return rclcpp_action::CancelResponse::ACCEPT;},
@@ -295,8 +359,13 @@ VehicleControlNode::VehicleControlNode()
   land_server_ = rclcpp_action::create_server<Land>(
     this, "land",
     [this](const rclcpp_action::GoalUUID &, std::shared_ptr<const Land::Goal> goal) {
-      const bool is_valid = std::isfinite(goal->timeout_sec) && goal->timeout_sec >= 0.0F;
-      return reserve_goal(GoalKind::Land, is_valid) ?
+      if (!std::isfinite(goal->timeout_sec) || goal->timeout_sec < 0.0F) {
+        RCLCPP_WARN(
+          get_logger(), "Rejecting landing: timeout must be finite and nonnegative "
+          "(timeout=%.2f s)", static_cast<double>(goal->timeout_sec));
+        return rclcpp_action::GoalResponse::REJECT;
+      }
+      return reserve_goal(GoalKind::Land) ?
         rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE : rclcpp_action::GoalResponse::REJECT;
     },
     [this](const std::shared_ptr<LandHandle>) {
@@ -328,7 +397,7 @@ VehicleControlNode::~VehicleControlNode()
 }
 
 bool VehicleControlNode::reserve_goal(
-  const GoalKind kind, const bool is_goal_valid, const bool require_yaw)
+  const GoalKind kind, const bool require_yaw)
 {
   [[maybe_unused]] const char * goal_name = "flight";
   switch (kind) {
@@ -355,20 +424,32 @@ bool VehicleControlNode::reserve_goal(
     RCLCPP_WARN(get_logger(), "Rejecting %s goal: flight commands are disabled", goal_name);
     return false;
   }
-  if (!is_goal_valid) {
-    RCLCPP_WARN(get_logger(), "Rejecting %s goal: goal values are invalid", goal_name);
-    return false;
-  }
-
   const VehicleTelemetry telemetry = px4_adapter_->telemetry();
   if (!has_fresh_control_telemetry(telemetry, true)) {
+    const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+    const double position_age_sec = telemetry.has_position ?
+      std::chrono::duration<double>(now - telemetry.position_received).count() :
+      std::numeric_limits<double>::quiet_NaN();
+    const double status_age_sec = telemetry.has_status ?
+      std::chrono::duration<double>(now - telemetry.status_received).count() :
+      std::numeric_limits<double>::quiet_NaN();
+    const double land_age_sec = telemetry.has_land_state ?
+      std::chrono::duration<double>(now - telemetry.land_state_received).count() :
+      std::numeric_limits<double>::quiet_NaN();
     RCLCPP_WARN(
-      get_logger(), "Rejecting %s goal: PX4 position, status, or land telemetry is stale",
-      goal_name);
+      get_logger(), "Rejecting %s: telemetry unavailable or stale (position_valid=%s, "
+      "position_age=%.2f s, status_age=%.2f s, land_age=%.2f s, limit=%.2f s)",
+      goal_name, telemetry.position_valid ? "true" : "false", position_age_sec,
+      status_age_sec, land_age_sec, telemetry_timeout_sec_);
     return false;
   }
   if (require_yaw && (!telemetry.yaw_valid || !std::isfinite(telemetry.yaw_enu_rad))) {
-    RCLCPP_WARN(get_logger(), "Rejecting navigation goal: look-at requires valid yaw telemetry");
+    RCLCPP_WARN(
+      get_logger(), "Rejecting %s: requested yaw requires valid telemetry "
+      "(yaw_valid=%s, measured_yaw=%.3f rad, position=[%.2f, %.2f, %.2f] m, landed=%s)",
+      goal_name, telemetry.yaw_valid ? "true" : "false", telemetry.yaw_enu_rad,
+      telemetry.position_enu[0], telemetry.position_enu[1], telemetry.position_enu[2],
+      telemetry.landed ? "true" : "false");
     return false;
   }
   if (kind == GoalKind::Orbit &&
@@ -385,19 +466,12 @@ bool VehicleControlNode::reserve_goal(
     return false;
   }
 
-  if (kind == GoalKind::FollowTrajectory &&
-    (!telemetry.yaw_valid || !std::isfinite(telemetry.yaw_enu_rad)))
-  {
-    RCLCPP_WARN(get_logger(), "Rejecting trajectory goal: PX4 yaw telemetry is invalid");
-    return false;
-  }
-
   std::lock_guard<std::mutex> lock(control_mutex_);
   if (goal_active_) {
     RCLCPP_WARN(get_logger(), "Rejecting %s goal: another flight goal is active", goal_name);
     return false;
   }
-  if ((kind == GoalKind::Takeoff && (telemetry.armed || !telemetry.landed || telemetry.offboard)) ||
+  if ((kind == GoalKind::Takeoff && (telemetry.armed || !telemetry.landed)) ||
     (kind == GoalKind::Navigate && (!telemetry.armed || !telemetry.offboard)) ||
     (kind == GoalKind::FollowTrajectory &&
     (!telemetry.armed || !telemetry.offboard || telemetry.landed)) ||
@@ -420,16 +494,17 @@ bool VehicleControlNode::reserve_goal(
   reserved_start_yaw_rad_ = telemetry.yaw_enu_rad;
   look_at_position_enu_.reset();
   look_at_setpoint_updated_at_ = std::chrono::steady_clock::time_point{};
-  if (kind != GoalKind::FollowTrajectory) {
-    target_yaw_rad_.reset();
-  }
+  target_yaw_rad_.reset();
   if (telemetry.offboard) {
     stream_mode_established_ = true;
   }
   RCLCPP_INFO(
-    get_logger(), "Accepted ROS %s goal; PX4 state: armed=%s, offboard=%s, landed=%s",
+    get_logger(), "Accepted ROS %s goal; PX4 state: armed=%s, offboard=%s, landed=%s, "
+    "yaw_valid=%s, yaw=%.3f rad, position=[%.2f, %.2f, %.2f] m",
     goal_name, telemetry.armed ? "true" : "false", telemetry.offboard ? "true" : "false",
-    telemetry.landed ? "true" : "false");
+    telemetry.landed ? "true" : "false", telemetry.yaw_valid ? "true" : "false",
+    telemetry.yaw_enu_rad, telemetry.position_enu[0], telemetry.position_enu[1],
+    telemetry.position_enu[2]);
   return true;
 }
 
@@ -535,7 +610,7 @@ bool VehicleControlNode::wait_for_command_acknowledgement(
 
 bool VehicleControlNode::request_transition(
   const std::string & transition_name, const std::uint32_t command,
-  const float parameter_1, const float parameter_2,
+  const float parameter_1, const float parameter_2, const float parameter_3,
   const std::function<bool(const VehicleTelemetry &)> & predicate,
   const std::function<bool()> & is_cancelled, std::string & failure_message)
 {
@@ -552,7 +627,7 @@ bool VehicleControlNode::request_transition(
       attempt + 1, maximum_command_attempts);
     const std::int64_t timestamp_us = get_clock()->now().nanoseconds() / 1000;
     const std::uint64_t generation = px4_adapter_->publish_vehicle_command(
-      command, parameter_1, parameter_2, timestamp_us);
+      command, parameter_1, parameter_2, parameter_3, timestamp_us);
     const std::chrono::steady_clock::time_point acknowledgement_deadline =
       deadline_after(command_ack_timeout_sec_);
     if (!wait_for_command_acknowledgement(
@@ -647,9 +722,7 @@ void VehicleControlNode::hold_current_position()
   {
     target_position_ = telemetry.position_enu;
   }
-  if (telemetry.yaw_valid && std::isfinite(telemetry.yaw_enu_rad)) {
-    target_yaw_rad_ = telemetry.yaw_enu_rad;
-  }
+  target_yaw_rad_.reset();
   look_at_position_enu_.reset();
   look_at_setpoint_updated_at_ = std::chrono::steady_clock::time_point{};
 }
@@ -686,6 +759,8 @@ void VehicleControlNode::publish_state()
 void VehicleControlNode::publish_control_setpoint()
 {
   const VehicleTelemetry telemetry = px4_adapter_->telemetry();
+  const bool landed_and_disarmed = telemetry.has_land_state && telemetry.landed &&
+    telemetry.has_status && !telemetry.armed;
   Position position{};
   std::optional<double> yaw_enu_rad;
   bool should_publish = false;
@@ -694,13 +769,17 @@ void VehicleControlNode::publish_control_setpoint()
     if (stream_requested_ && telemetry.offboard) {
       stream_mode_established_ = true;
     }
+    if (landing_command_started_ && landed_and_disarmed) {
+      stream_requested_ = false;
+      stream_mode_established_ = false;
+    }
     if (stream_requested_ && stream_mode_established_ && telemetry.has_status &&
       telemetry.offboard == false && has_fresh_control_telemetry(telemetry, false))
     {
       stream_requested_ = false;
       stream_mode_established_ = false;
     }
-    should_publish = stream_requested_ || telemetry.offboard;
+    should_publish = stream_requested_ || (telemetry.offboard && !landed_and_disarmed);
     position = target_position_;
     if (look_at_position_enu_.has_value() && has_fresh_position(telemetry) &&
       is_finite_position(telemetry.position_enu))
@@ -736,6 +815,8 @@ void VehicleControlNode::finish_goal()
   std::lock_guard<std::mutex> lock(control_mutex_);
   goal_active_ = false;
   landing_command_started_ = false;
+  target_yaw_rad_.reset();
+  look_at_position_enu_.reset();
   if (telemetry.has_status && telemetry.offboard == false &&
     has_fresh_control_telemetry(telemetry, false))
   {
@@ -783,11 +864,11 @@ void VehicleControlNode::execute_takeoff(const std::shared_ptr<TakeoffHandle> & 
     [goal_handle]() {return goal_handle->is_canceling() || !rclcpp::ok();};
   const std::chrono::steady_clock::time_point goal_deadline = deadline_after(takeoff_timeout_sec_);
   std::string failure_message;
+  Position start_position{};
   RCLCPP_INFO(
     get_logger(), "Starting takeoff execution (target_altitude=%.2f m)",
     static_cast<double>(goal->altitude_m));
   try {
-    Position start_position{};
     {
       std::lock_guard<std::mutex> lock(control_mutex_);
       start_position = reserved_start_position_;
@@ -798,11 +879,23 @@ void VehicleControlNode::execute_takeoff(const std::shared_ptr<TakeoffHandle> & 
       throw std::runtime_error(failure_message);
     }
 
-    if (!request_transition(
+    VehicleTelemetry mode_telemetry = px4_adapter_->telemetry();
+    if (!has_fresh_control_telemetry(mode_telemetry, false)) {
+      throw std::runtime_error("PX4 telemetry became stale after Offboard prestream");
+    }
+    if (mode_telemetry.offboard) {
+      RCLCPP_INFO(get_logger(), "PX4 is already in Offboard after the one-second prestream");
+      if (!wait_until(
+          [](const VehicleTelemetry & current) {return current.offboard;},
+          deadline_after(transition_timeout_sec_), is_cancelled, false, failure_message))
+      {
+        throw std::runtime_error("Offboard confirmation failed: " + failure_message);
+      }
+    } else if (!request_transition(
         "Offboard mode",
         px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE,
-        custom_mode_enabled, offboard_custom_mode,
-        [](const VehicleTelemetry & telemetry) {return telemetry.offboard;},
+        custom_mode_enabled, offboard_custom_mode, 0.0F,
+        [](const VehicleTelemetry & current) {return current.offboard;},
         is_cancelled, failure_message))
     {
       throw std::runtime_error(failure_message);
@@ -815,7 +908,7 @@ void VehicleControlNode::execute_takeoff(const std::shared_ptr<TakeoffHandle> & 
     if (!request_transition(
         "arming",
         px4_msgs::msg::VehicleCommand::VEHICLE_CMD_COMPONENT_ARM_DISARM,
-        arm_command_value, 0.0F,
+        arm_command_value, 0.0F, 0.0F,
         [](const VehicleTelemetry & telemetry) {return telemetry.armed;},
         is_cancelled, failure_message))
     {
@@ -865,13 +958,27 @@ void VehicleControlNode::execute_takeoff(const std::shared_ptr<TakeoffHandle> & 
   } catch (const std::exception & exception) {
     hold_current_position();
     result->success = false;
-    result->message = exception.what();
+    const VehicleTelemetry telemetry = px4_adapter_->telemetry();
+    const double climbed_m = telemetry.position_valid &&
+      is_finite_position(telemetry.position_enu) ?
+      telemetry.position_enu[2] - start_position[2] :
+      std::numeric_limits<double>::quiet_NaN();
+    std::ostringstream diagnostic;
+    diagnostic << exception.what() << " (climbed=" << climbed_m
+               << " m, requested_altitude=" << goal->altitude_m
+               << " m, position_tolerance=" << default_position_tolerance_m_
+               << " m, armed=" << (telemetry.armed ? "true" : "false")
+               << ", offboard=" << (telemetry.offboard ? "true" : "false")
+               << ", landed=" << (telemetry.landed ? "true" : "false")
+               << ", nav_state=" << static_cast<unsigned int>(telemetry.navigation_state)
+               << ')';
+    result->message = diagnostic.str();
     const bool was_cancelled = is_cancelled();
     if (was_cancelled) {
-      RCLCPP_WARN(get_logger(), "Takeoff canceled: %s", exception.what());
+      RCLCPP_WARN(get_logger(), "Takeoff canceled: %s", result->message.c_str());
       goal_handle->canceled(result);
     } else {
-      RCLCPP_ERROR(get_logger(), "Takeoff failed: %s", exception.what());
+      RCLCPP_ERROR(get_logger(), "Takeoff failed: %s", result->message.c_str());
       goal_handle->abort(result);
     }
     finish_goal();
@@ -998,8 +1105,8 @@ void VehicleControlNode::execute_navigation(const std::shared_ptr<NavigateHandle
     throw std::runtime_error(failure_message);
   } catch (const std::exception & exception) {
     result->success = false;
-    result->message = exception.what();
     const VehicleTelemetry telemetry = px4_adapter_->telemetry();
+    double expected_yaw_rad = std::numeric_limits<double>::quiet_NaN();
     if (telemetry.position_valid && is_finite_position(telemetry.position_enu)) {
       result->final_distance_m = static_cast<float>(
         distance(telemetry.position_enu, target_position));
@@ -1007,20 +1114,34 @@ void VehicleControlNode::execute_navigation(const std::shared_ptr<NavigateHandle
     if (goal->look_at_target && telemetry.yaw_valid && std::isfinite(telemetry.yaw_enu_rad) &&
       telemetry.position_valid && is_finite_position(telemetry.position_enu))
     {
-      const std::optional<double> expected_yaw_rad = yaw_toward_position(
+      const std::optional<double> target_yaw_rad = yaw_toward_position(
         telemetry.position_enu, look_at_position);
-      if (expected_yaw_rad.has_value()) {
+      if (target_yaw_rad.has_value()) {
+        expected_yaw_rad = *target_yaw_rad;
         result->final_yaw_error_rad = static_cast<float>(std::abs(angular_error(
-            *expected_yaw_rad, telemetry.yaw_enu_rad)));
+            *target_yaw_rad, telemetry.yaw_enu_rad)));
       }
     }
+    std::ostringstream diagnostic;
+    diagnostic << exception.what() << " (distance=" << result->final_distance_m
+               << " m, position_tolerance=" << tolerance << " m, look_at="
+               << (goal->look_at_target ? "true" : "false");
+    if (goal->look_at_target) {
+      diagnostic << ", yaw_valid=" << (telemetry.yaw_valid ? "true" : "false")
+                 << ", target_yaw=" << expected_yaw_rad << " rad"
+                 << ", measured_yaw=" << telemetry.yaw_enu_rad
+                 << " rad, yaw_error=" << result->final_yaw_error_rad
+                 << " rad, yaw_tolerance=" << default_yaw_tolerance_rad_ << " rad";
+    }
+    diagnostic << ')';
+    result->message = diagnostic.str();
     hold_current_position();
     const bool was_cancelled = is_cancelled();
     if (was_cancelled) {
-      RCLCPP_WARN(get_logger(), "Navigation canceled: %s", exception.what());
+      RCLCPP_WARN(get_logger(), "Navigation canceled: %s", result->message.c_str());
       goal_handle->canceled(result);
     } else {
-      RCLCPP_ERROR(get_logger(), "Navigation failed: %s", exception.what());
+      RCLCPP_ERROR(get_logger(), "Navigation failed: %s", result->message.c_str());
       goal_handle->abort(result);
     }
     finish_goal();
@@ -1053,15 +1174,16 @@ void VehicleControlNode::execute_follow_trajectory(
 
   RCLCPP_INFO(
     get_logger(), "Starting FollowTrajectory (points=%zu, duration=%.1f s, "
-    "position_tolerance=%.2f m, yaw_tolerance=%.2f rad, timeout=%.1f s)",
+    "position_tolerance=%.2f m, control_yaw=%s, yaw_tolerance=%.2f rad, timeout=%.1f s)",
     goal->points.size(), trajectory_duration_sec, position_tolerance_m,
-    yaw_tolerance_rad, timeout_sec);
+    goal->control_yaw ? "true" : "false", yaw_tolerance_rad, timeout_sec);
 
   try {
     VehicleTelemetry telemetry = px4_adapter_->telemetry();
     if (!has_fresh_control_telemetry(telemetry, false) || !telemetry.armed ||
-      !telemetry.offboard || telemetry.landed || !telemetry.yaw_valid ||
-      !std::isfinite(telemetry.yaw_enu_rad))
+      !telemetry.offboard || telemetry.landed ||
+      (goal->control_yaw && (!telemetry.yaw_valid ||
+      !std::isfinite(telemetry.yaw_enu_rad))))
     {
       throw std::runtime_error(
               "PX4 state changed before FollowTrajectory execution");
@@ -1079,7 +1201,7 @@ void VehicleControlNode::execute_follow_trajectory(
       if (is_cancelled()) {
         hold_current_position();
         result->success = false;
-        result->message = "Trajectory canceled; holding current position and yaw";
+        result->message = "Trajectory canceled; holding current position";
         telemetry = px4_adapter_->telemetry();
         if (telemetry.position_valid && is_finite_position(telemetry.position_enu)) {
           const Position final_position{
@@ -1089,7 +1211,7 @@ void VehicleControlNode::execute_follow_trajectory(
           result->final_distance_m = static_cast<float>(
             distance(telemetry.position_enu, final_position));
         }
-        if (telemetry.yaw_valid && std::isfinite(telemetry.yaw_enu_rad)) {
+        if (goal->control_yaw && telemetry.yaw_valid && std::isfinite(telemetry.yaw_enu_rad)) {
           const TrajectorySample last_target =
             interpolate_trajectory(goal->points, trajectory_duration_sec);
           result->final_yaw_error_rad = static_cast<float>(
@@ -1102,8 +1224,9 @@ void VehicleControlNode::execute_follow_trajectory(
 
       telemetry = px4_adapter_->telemetry();
       if (!has_fresh_control_telemetry(telemetry, false) || !telemetry.armed ||
-        !telemetry.offboard || telemetry.landed || !telemetry.yaw_valid ||
-        !std::isfinite(telemetry.yaw_enu_rad))
+        !telemetry.offboard || telemetry.landed ||
+        (goal->control_yaw && (!telemetry.yaw_valid ||
+        !std::isfinite(telemetry.yaw_enu_rad))))
       {
         throw std::runtime_error(
                 "PX4 left armed Offboard flight or telemetry became invalid during FollowTrajectory");
@@ -1116,15 +1239,18 @@ void VehicleControlNode::execute_follow_trajectory(
       {
         std::lock_guard<std::mutex> lock(control_mutex_);
         target_position_ = target.position_enu;
-        target_yaw_rad_ = target.yaw_enu_rad;
+        if (goal->control_yaw) {
+          target_yaw_rad_ = target.yaw_enu_rad;
+        }
       }
 
       const double position_error_m = distance(telemetry.position_enu, target.position_enu);
-      const double yaw_error_rad = std::abs(angular_error(
-          target.yaw_enu_rad, telemetry.yaw_enu_rad));
+      const double yaw_error_rad = goal->control_yaw ?
+        std::abs(angular_error(target.yaw_enu_rad, telemetry.yaw_enu_rad)) :
+        std::numeric_limits<double>::quiet_NaN();
       const bool at_final_point = elapsed_sec >= trajectory_duration_sec;
       if (at_final_point && position_error_m <= position_tolerance_m &&
-        yaw_error_rad <= yaw_tolerance_rad)
+        (!goal->control_yaw || yaw_error_rad <= yaw_tolerance_rad))
       {
         if (stable_since == std::chrono::steady_clock::time_point{}) {
           stable_since = current_time;
@@ -1133,11 +1259,15 @@ void VehicleControlNode::execute_follow_trajectory(
         {
           result->success = true;
           result->final_distance_m = static_cast<float>(position_error_m);
-          result->final_yaw_error_rad = static_cast<float>(yaw_error_rad);
-          result->message = "Timed trajectory completed and final position and yaw settled";
+          if (goal->control_yaw) {
+            result->final_yaw_error_rad = static_cast<float>(yaw_error_rad);
+          }
+          result->message = goal->control_yaw ?
+            "Timed trajectory completed and final position and yaw settled" :
+            "Timed trajectory completed and final position settled";
           RCLCPP_INFO(
-            get_logger(), "FollowTrajectory succeeded (distance=%.2f m, yaw_error=%.2f rad)",
-            position_error_m, yaw_error_rad);
+            get_logger(), "FollowTrajectory succeeded (distance=%.2f m, yaw_controlled=%s)",
+            position_error_m, goal->control_yaw ? "true" : "false");
           goal_handle->succeed(result);
           finish_goal();
           return;
@@ -1158,12 +1288,13 @@ void VehicleControlNode::execute_follow_trajectory(
       }
       std::this_thread::sleep_for(worker_poll_interval);
     }
-    failure_message = "trajectory timed out before final position and yaw settled";
+    failure_message = goal->control_yaw ?
+      "trajectory timed out before final position and yaw settled" :
+      "trajectory timed out before final position settled";
     throw std::runtime_error(failure_message);
   } catch (const std::exception & exception) {
     hold_current_position();
     result->success = false;
-    result->message = exception.what();
     const VehicleTelemetry telemetry = px4_adapter_->telemetry();
     if (telemetry.position_valid && is_finite_position(telemetry.position_enu)) {
       const Position final_position{
@@ -1173,16 +1304,29 @@ void VehicleControlNode::execute_follow_trajectory(
       result->final_distance_m = static_cast<float>(
         distance(telemetry.position_enu, final_position));
     }
-    if (telemetry.yaw_valid && std::isfinite(telemetry.yaw_enu_rad)) {
+    if (goal->control_yaw && telemetry.yaw_valid && std::isfinite(telemetry.yaw_enu_rad)) {
       const double final_yaw_rad = static_cast<double>(goal->points.back().yaw_rad);
       result->final_yaw_error_rad = static_cast<float>(
         std::abs(angular_error(final_yaw_rad, telemetry.yaw_enu_rad)));
     }
+    std::ostringstream diagnostic;
+    diagnostic << exception.what() << " (final_distance=" << result->final_distance_m
+               << " m, position_tolerance=" << position_tolerance_m
+               << " m, control_yaw=" << (goal->control_yaw ? "true" : "false");
+    if (goal->control_yaw) {
+      diagnostic << ", yaw_valid=" << (telemetry.yaw_valid ? "true" : "false")
+                 << ", target_yaw=" << goal->points.back().yaw_rad
+                 << " rad, measured_yaw=" << telemetry.yaw_enu_rad
+                 << " rad, yaw_error=" << result->final_yaw_error_rad
+                 << " rad, yaw_tolerance=" << yaw_tolerance_rad << " rad";
+    }
+    diagnostic << ')';
+    result->message = diagnostic.str();
     if (is_cancelled()) {
-      RCLCPP_WARN(get_logger(), "FollowTrajectory canceled: %s", exception.what());
+      RCLCPP_WARN(get_logger(), "FollowTrajectory canceled: %s", result->message.c_str());
       goal_handle->canceled(result);
     } else {
-      RCLCPP_ERROR(get_logger(), "FollowTrajectory failed: %s", exception.what());
+      RCLCPP_ERROR(get_logger(), "FollowTrajectory failed: %s", result->message.c_str());
       goal_handle->abort(result);
     }
     finish_goal();
@@ -1199,20 +1343,12 @@ void VehicleControlNode::execute_land(const std::shared_ptr<LandHandle> & goal_h
   const std::chrono::steady_clock::time_point deadline = deadline_after(timeout);
   const std::function<bool()> is_cancelled =
     [goal_handle]() {return goal_handle->is_canceling() || !rclcpp::ok();};
+  const std::function<bool()> is_shutdown = []() {return !rclcpp::ok();};
   std::string failure_message;
   RCLCPP_INFO(get_logger(), "Starting landing action (timeout=%.1f s)", timeout);
 
   try {
     VehicleTelemetry telemetry = px4_adapter_->telemetry();
-    if (telemetry.landed) {
-      result->success = true;
-      result->landed = true;
-      result->message = "Vehicle is already landed";
-      RCLCPP_INFO(get_logger(), "Landing succeeded: PX4 already reports landed");
-      goal_handle->succeed(result);
-      finish_goal();
-      return;
-    }
     if (is_cancelled()) {
       failure_message = "goal canceled";
       throw std::runtime_error(failure_message);
@@ -1221,55 +1357,113 @@ void VehicleControlNode::execute_land(const std::shared_ptr<LandHandle> & goal_h
       std::lock_guard<std::mutex> lock(control_mutex_);
       landing_command_started_ = true;
     }
-    const bool already_in_auto_land =
-      telemetry.navigation_state == px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_AUTO_LAND;
-    if (!already_in_auto_land && !request_transition(
-        "Auto Land mode",
-        px4_msgs::msg::VehicleCommand::VEHICLE_CMD_NAV_LAND, 0.0F, 0.0F,
-        [](const VehicleTelemetry & current) {
-          return current.navigation_state ==
-                 px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_AUTO_LAND;
-        }, is_cancelled, failure_message))
+    if (!telemetry.landed) {
+      const bool already_in_auto_land =
+        telemetry.navigation_state == px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_AUTO_LAND;
+      if (!already_in_auto_land && !request_transition(
+          "Auto Land mode",
+          px4_msgs::msg::VehicleCommand::VEHICLE_CMD_NAV_LAND, 0.0F, 0.0F, 0.0F,
+          [](const VehicleTelemetry & current) {
+            return current.navigation_state ==
+                   px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_AUTO_LAND;
+          }, is_cancelled, failure_message))
+      {
+        throw std::runtime_error(failure_message);
+      }
+
+      while (std::chrono::steady_clock::now() < deadline) {
+        if (is_cancelled()) {
+          failure_message = "goal canceled during landing";
+          throw std::runtime_error(failure_message);
+        }
+        telemetry = px4_adapter_->telemetry();
+        if (!has_fresh_control_telemetry(telemetry, true)) {
+          failure_message = "PX4 telemetry became stale or invalid during landing";
+          throw std::runtime_error(failure_message);
+        }
+        std::shared_ptr<Land::Feedback> feedback = std::make_shared<Land::Feedback>();
+        feedback->status = telemetry.landed ? "landed" : "PX4 landing in progress";
+        goal_handle->publish_feedback(feedback);
+        if (telemetry.landed) {
+          break;
+        }
+        std::this_thread::sleep_for(feedback_interval);
+      }
+      if (!telemetry.landed) {
+        failure_message = "landing timed out before PX4 reported landed";
+        throw std::runtime_error(failure_message);
+      }
+    }
+
+    telemetry = px4_adapter_->telemetry();
+    if (!has_fresh_control_telemetry(telemetry, true) || !telemetry.landed) {
+      throw std::runtime_error("PX4 landing confirmation became stale");
+    }
+    if (telemetry.armed && !request_transition(
+        "disarming after landing",
+        px4_msgs::msg::VehicleCommand::VEHICLE_CMD_COMPONENT_ARM_DISARM,
+        disarm_command_value, 0.0F, 0.0F,
+        [](const VehicleTelemetry & current) {return !current.armed;},
+        is_shutdown, failure_message))
     {
       throw std::runtime_error(failure_message);
     }
 
-    while (std::chrono::steady_clock::now() < deadline) {
-      if (is_cancelled()) {
-        failure_message = "goal canceled before PX4 accepted the landing transition";
-        throw std::runtime_error(failure_message);
-      }
-      telemetry = px4_adapter_->telemetry();
-      if (!has_fresh_control_telemetry(telemetry, true)) {
-        failure_message = "PX4 telemetry became stale or invalid during landing";
-        throw std::runtime_error(failure_message);
-      }
-      std::shared_ptr<Land::Feedback> feedback = std::make_shared<Land::Feedback>();
-      feedback->status = telemetry.landed ? "landed" : "PX4 landing in progress";
-      goal_handle->publish_feedback(feedback);
-      if (telemetry.landed) {
-        result->success = true;
-        result->landed = true;
-        result->message = "PX4 reported the vehicle landed";
-        RCLCPP_INFO(get_logger(), "Landing succeeded: PX4 land detector reports landed");
-        goal_handle->succeed(result);
-        finish_goal();
-        return;
-      }
-      std::this_thread::sleep_for(feedback_interval);
+    telemetry = px4_adapter_->telemetry();
+    const bool already_in_auto_loiter = telemetry.navigation_state ==
+      px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_AUTO_LOITER;
+    if (!already_in_auto_loiter && !request_transition(
+        "Auto Loiter hold",
+        px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE,
+        custom_mode_enabled, auto_custom_mode, auto_loiter_sub_mode,
+        [](const VehicleTelemetry & current) {
+          return current.navigation_state ==
+                 px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_AUTO_LOITER;
+        }, is_shutdown, failure_message))
+    {
+      throw std::runtime_error(failure_message);
     }
-    failure_message = "landing timed out before PX4 reported landed";
-    throw std::runtime_error(failure_message);
+
+    if (!wait_until(
+        [](const VehicleTelemetry & current) {
+          return current.landed && !current.armed && !current.offboard &&
+                 current.navigation_state ==
+                 px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_AUTO_LOITER;
+        }, deadline_after(transition_timeout_sec_), is_shutdown, true, failure_message))
+    {
+      throw std::runtime_error("PX4 did not confirm landed, disarmed Auto Loiter: " +
+        failure_message);
+    }
+    result->success = true;
+    result->landed = true;
+    result->message = "PX4 reported landed, disarmed, and in Auto Loiter";
+    RCLCPP_INFO(get_logger(), "Landing succeeded: landed, disarmed, and in Auto Loiter");
+    goal_handle->succeed(result);
+    finish_goal();
   } catch (const std::exception & exception) {
     result->success = false;
-    result->landed = false;
-    result->message = exception.what();
+    const VehicleTelemetry telemetry = px4_adapter_->telemetry();
+    result->landed = telemetry.landed;
+    const double altitude_m = telemetry.position_valid &&
+      is_finite_position(telemetry.position_enu) ? telemetry.position_enu[2] :
+      std::numeric_limits<double>::quiet_NaN();
+    std::ostringstream diagnostic;
+    diagnostic << exception.what() << " (armed=" << (telemetry.armed ? "true" : "false")
+               << ", offboard=" << (telemetry.offboard ? "true" : "false")
+               << ", landed=" << (telemetry.landed ? "true" : "false")
+               << ", auto_loiter=" << (telemetry.navigation_state ==
+      px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_AUTO_LOITER ? "true" : "false")
+               << ", altitude=" << altitude_m
+               << " m, position_valid=" << (telemetry.position_valid ? "true" : "false")
+               << ", nav_state=" << static_cast<unsigned int>(telemetry.navigation_state)
+               << ", timeout=" << timeout << " s)";
+    result->message = diagnostic.str();
     const bool was_cancelled = is_cancelled();
     if (was_cancelled) {
-      RCLCPP_WARN(get_logger(), "Landing canceled: %s", exception.what());
+      RCLCPP_WARN(get_logger(), "Landing canceled: %s", result->message.c_str());
       goal_handle->canceled(result);
     } else {
-      RCLCPP_ERROR(get_logger(), "Landing failed: %s", exception.what());
+      RCLCPP_ERROR(get_logger(), "Landing failed: %s", result->message.c_str());
       goal_handle->abort(result);
     }
     finish_goal();
@@ -1311,7 +1505,7 @@ bool VehicleControlNode::restore_offboard_after_orbit(std::string & failure_mess
     }
     if (!request_transition(
         "Offboard recovery", px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE,
-        custom_mode_enabled, offboard_custom_mode,
+        custom_mode_enabled, offboard_custom_mode, 0.0F,
         [](const VehicleTelemetry & current) {return current.offboard;},
         is_shutdown, failure_message))
     {
@@ -1369,6 +1563,8 @@ void VehicleControlNode::execute_orbit(const std::shared_ptr<OrbitHandle> & goal
     goal->center_position.x, goal->center_position.y, goal->center_position.z};
   const double radius_m = static_cast<double>(goal->radius_m);
   const double timeout_sec = static_cast<double>(goal->timeout_sec);
+  const double yaw_tolerance_rad = goal->yaw_tolerance_rad == 0.0F ?
+    default_orbit_yaw_tolerance_rad : static_cast<double>(goal->yaw_tolerance_rad);
   const double radial_tolerance_m = std::max(
     orbit_radial_tolerance_floor_m, radius_m * orbit_relative_radial_tolerance);
   OrbitProgress orbit_progress(
@@ -1382,6 +1578,8 @@ void VehicleControlNode::execute_orbit(const std::shared_ptr<OrbitHandle> & goal
   bool recovery_confirmed = false;
   double completed_revolutions = 0.0;
   double radial_error_m = std::numeric_limits<double>::quiet_NaN();
+  double yaw_error_rad = std::numeric_limits<double>::quiet_NaN();
+  std::chrono::steady_clock::time_point yaw_outside_tolerance_since{};
   std::string feedback_status = "entering_orbit";
 
   RCLCPP_INFO(
@@ -1395,6 +1593,7 @@ void VehicleControlNode::execute_orbit(const std::shared_ptr<OrbitHandle> & goal
     std::make_shared<OrbitPoint::Feedback>();
   initial_feedback->completed_revolutions = 0.0F;
   initial_feedback->radial_error_m = std::numeric_limits<float>::quiet_NaN();
+  initial_feedback->yaw_error_rad = std::numeric_limits<float>::quiet_NaN();
   initial_feedback->status = feedback_status;
   goal_handle->publish_feedback(initial_feedback);
 
@@ -1403,6 +1602,8 @@ void VehicleControlNode::execute_orbit(const std::shared_ptr<OrbitHandle> & goal
     if (!has_fresh_control_telemetry(reference_telemetry, true) ||
       !reference_telemetry.armed || !reference_telemetry.offboard ||
       reference_telemetry.landed || reference_telemetry.in_transition_mode ||
+      (goal->face_center && (!reference_telemetry.yaw_valid ||
+      !std::isfinite(reference_telemetry.yaw_enu_rad))) ||
       reference_telemetry.vehicle_type !=
       px4_msgs::msg::VehicleStatus::VEHICLE_TYPE_ROTARY_WING ||
       !reference_telemetry.velocity_valid || !reference_telemetry.xy_global ||
@@ -1429,8 +1630,10 @@ void VehicleControlNode::execute_orbit(const std::shared_ptr<OrbitHandle> & goal
       throw std::runtime_error("goal canceled before publishing the Orbit command");
     }
     const double signed_radius_m = goal->clockwise ? radius_m : -radius_m;
+    const std::uint8_t yaw_behavior = goal->face_center ?
+      orbit_yaw_face_center : orbit_yaw_uncontrolled;
     const std::uint64_t command_generation = px4_adapter_->publish_orbit_command(
-      signed_radius_m, goal->tangential_speed_mps, orbit_yaw_face_center, *global_center,
+      signed_radius_m, goal->tangential_speed_mps, yaw_behavior, *global_center,
       get_clock()->now().nanoseconds() / 1000);
     RCLCPP_INFO(
       get_logger(), "Published PX4 DO_ORBIT command (radius=%.2f m, center=[%.7f, %.7f, "
@@ -1496,6 +1699,7 @@ void VehicleControlNode::execute_orbit(const std::shared_ptr<OrbitHandle> & goal
       std::make_shared<OrbitPoint::Feedback>();
     approach_feedback->completed_revolutions = 0.0F;
     approach_feedback->radial_error_m = std::numeric_limits<float>::quiet_NaN();
+    approach_feedback->yaw_error_rad = std::numeric_limits<float>::quiet_NaN();
     approach_feedback->status = feedback_status;
     goal_handle->publish_feedback(approach_feedback);
     std::chrono::steady_clock::time_point last_feedback = std::chrono::steady_clock::now();
@@ -1511,7 +1715,8 @@ void VehicleControlNode::execute_orbit(const std::shared_ptr<OrbitHandle> & goal
       const VehicleTelemetry current = px4_adapter_->telemetry();
       if (!has_fresh_control_telemetry(current, false) || !current.armed || current.landed ||
         current.navigation_state != px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_ORBIT ||
-        current.in_transition_mode || !current.velocity_valid)
+        current.in_transition_mode || !current.velocity_valid ||
+        (goal->face_center && (!current.yaw_valid || !std::isfinite(current.yaw_enu_rad))))
       {
         throw std::runtime_error("PX4 Orbit mode was interrupted or telemetry became invalid");
       }
@@ -1527,6 +1732,35 @@ void VehicleControlNode::execute_orbit(const std::shared_ptr<OrbitHandle> & goal
         if (std::abs(sample.angular_step_rad) > orbit_maximum_sample_angle_rad) {
           throw std::runtime_error("PX4 position samples were discontinuous during Orbit");
         }
+        if (goal->face_center && sample.in_orbit_band) {
+          const std::optional<double> expected_yaw_rad = yaw_toward_position(
+            current.position_enu, center_position);
+          if (!expected_yaw_rad.has_value()) {
+            throw std::runtime_error("Orbit center has no horizontal yaw bearing");
+          }
+          yaw_error_rad = std::abs(angular_error(
+            *expected_yaw_rad, current.yaw_enu_rad));
+          if (yaw_error_rad > yaw_tolerance_rad) {
+            if (yaw_outside_tolerance_since == std::chrono::steady_clock::time_point{}) {
+              yaw_outside_tolerance_since = std::chrono::steady_clock::now();
+            } else if (std::chrono::steady_clock::now() - yaw_outside_tolerance_since >=
+              orbit_yaw_error_duration)
+            {
+              std::ostringstream diagnostic;
+              diagnostic << "Orbit yaw remained outside tolerance (target_yaw="
+                         << *expected_yaw_rad << " rad, measured_yaw="
+                         << current.yaw_enu_rad << " rad, error=" << yaw_error_rad
+                         << " rad, tolerance=" << yaw_tolerance_rad << " rad, duration="
+                         << orbit_yaw_error_duration.count() << " s)";
+              throw std::runtime_error(diagnostic.str());
+            }
+          } else {
+            yaw_outside_tolerance_since = std::chrono::steady_clock::time_point{};
+          }
+        } else {
+          yaw_error_rad = std::numeric_limits<double>::quiet_NaN();
+          yaw_outside_tolerance_since = std::chrono::steady_clock::time_point{};
+        }
       }
       if (std::chrono::steady_clock::now() - last_feedback >= feedback_interval) {
         std::shared_ptr<OrbitPoint::Feedback> feedback =
@@ -1534,11 +1768,14 @@ void VehicleControlNode::execute_orbit(const std::shared_ptr<OrbitHandle> & goal
         feedback->completed_revolutions = static_cast<float>(completed_revolutions);
         feedback->radial_error_m = std::isfinite(radial_error_m) ?
           static_cast<float>(radial_error_m) : std::numeric_limits<float>::quiet_NaN();
+        feedback->yaw_error_rad = static_cast<float>(yaw_error_rad);
         feedback->status = feedback_status;
         goal_handle->publish_feedback(feedback);
         last_feedback = std::chrono::steady_clock::now();
       }
-      if (completed_revolutions >= static_cast<double>(goal->revolutions)) {
+      if (completed_revolutions >= static_cast<double>(goal->revolutions) &&
+        yaw_outside_tolerance_since == std::chrono::steady_clock::time_point{})
+      {
         recovery_attempted = true;
         feedback_status = "restoring_hold";
         RCLCPP_INFO(
@@ -1548,6 +1785,7 @@ void VehicleControlNode::execute_orbit(const std::shared_ptr<OrbitHandle> & goal
           std::make_shared<OrbitPoint::Feedback>();
         feedback->completed_revolutions = static_cast<float>(completed_revolutions);
         feedback->radial_error_m = static_cast<float>(radial_error_m);
+        feedback->yaw_error_rad = static_cast<float>(yaw_error_rad);
         feedback->status = feedback_status;
         goal_handle->publish_feedback(feedback);
         if (!restore_offboard_after_orbit(failure_message)) {
@@ -1593,16 +1831,25 @@ void VehicleControlNode::execute_orbit(const std::shared_ptr<OrbitHandle> & goal
     cancellation_requested = cancellation_requested || is_cancelled();
     result->success = false;
     result->completed_revolutions = static_cast<float>(completed_revolutions);
-    result->message = failure_message;
+    const VehicleTelemetry telemetry = px4_adapter_->telemetry();
+    std::ostringstream diagnostic;
+    diagnostic << failure_message << " (completed_revolutions=" << completed_revolutions
+               << ", radial_error=" << radial_error_m << " m, face_center="
+               << (goal->face_center ? "true" : "false")
+               << ", yaw_valid=" << (telemetry.yaw_valid ? "true" : "false")
+               << ", measured_yaw=" << telemetry.yaw_enu_rad
+               << " rad, nav_state=" << static_cast<unsigned int>(telemetry.navigation_state)
+               << ')';
+    result->message = diagnostic.str();
     if (cancellation_requested && recovery_confirmed) {
       RCLCPP_WARN(
         get_logger(), "OrbitPoint canceled after hold recovery (completed_revolutions=%.2f): %s",
-        completed_revolutions, failure_message.c_str());
+        completed_revolutions, result->message.c_str());
       goal_handle->canceled(result);
     } else {
       RCLCPP_ERROR(
         get_logger(), "OrbitPoint failed (completed_revolutions=%.2f): %s",
-        completed_revolutions, failure_message.c_str());
+        completed_revolutions, result->message.c_str());
       goal_handle->abort(result);
     }
     finish_goal();

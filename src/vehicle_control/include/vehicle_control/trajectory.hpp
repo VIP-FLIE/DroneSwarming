@@ -18,10 +18,10 @@ struct TrajectorySample
   double yaw_enu_rad{0.0};
 };
 
-/// Checks trajectory timing, bounds, speed, acceleration, and yaw rate.
+/// Checks trajectory timing, bounds, speed, acceleration, and requested yaw rate.
 bool validate_trajectory(
   const std::vector<swarm_interfaces::msg::TrajectoryPoint> & points,
-  std::string & failure_message);
+  bool control_yaw, std::string & failure_message);
 
 /// Interpolates position and shortest-path yaw at elapsed seconds.
 TrajectorySample interpolate_trajectory(

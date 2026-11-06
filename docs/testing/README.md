@@ -11,11 +11,11 @@ Start QGroundControl on the host with UDP auto-connect enabled. Start the normal
 session:
 
 ```bash
-./scripts/tmux-session test
+./scripts/tmux-session
 ```
 
-The `test` command builds the flight and application packages inside the simulation container
-before opening the four sourced container shells.
+Creating the session builds every workspace package, including `flight_test`, before opening the
+four sourced container shells.
 
 In pane 0, start the XRCE-DDS Agent:
 
@@ -51,8 +51,7 @@ container's ROS install or cannot import its dependencies, the script builds the
 dependencies from the mounted source before running the case. The script leaves the simulation
 and QGroundControl running after the flight.
 
-In a session started with `start`, run the same script in the sourced ROS CLI pane. After
-`flight_test` is installed, the ROS command also runs the case:
+The full workspace build installs `flight_test`. The ROS command also runs one case:
 
 ```bash
 ros2 run flight_test flight_test_case --case FT-00
@@ -65,7 +64,7 @@ Both commands use `DRONE_RUN_DIR` supplied by `scripts/sim-shell` and create a n
 | --- | --- |
 | FT-00 | Take off, hold position, land |
 | FT-01 | Execute the four-waypoint square mission and land |
-| FT-02 | Fly a fast outbound leg, stop, turn, return, land |
+| FT-02 | Visit an outbound point, hold it, turn, return, land |
 | FT-03 | Cancel an orbit, hold, complete an orbit, land |
 | FT-04 | Fly search lanes and land |
 | FT-05 | Fly altitude steps and land |
@@ -75,9 +74,30 @@ The routine smoke flights are FT-00, FT-01, and FT-06. The stress flights are FT
 Run each case with its own command. A failed case reports a nonzero exit status and attempts to
 land when the vehicle is airborne.
 
-FT-02 through FT-05 require valid yaw before sending a heading command. PX4 can report yaw invalid
-while the vehicle is landed. These cases take off using valid position telemetry, then wait up to
-15 seconds for airborne yaw validity. They attempt to land if yaw remains invalid.
+FT-02 commands a heading change through `FollowTrajectory.control_yaw`. FT-03 requests
+center-facing yaw through `OrbitPoint.face_center`. Both cases wait up to 15 seconds after takeoff
+for valid yaw telemetry before sending the heading command. FT-04 and FT-05 command position
+trajectories with yaw control disabled. A case attempts to land if a required yaw estimate remains
+invalid.
+
+FT-02 passes when the trajectory action succeeds, the vehicle visits the outbound and return
+positions in order within 0.75 meters, stays within 1.5 meters of the three-dimensional path,
+remains below 5 meters per second horizontal speed, and lands. The speed ceiling detects gross
+overspeed relative to the 12-meter, 4-second outbound position schedule. Stopping time and
+deceleration are not pass or fail criteria. The case records horizontal landing offset from its
+starting position. `Land` has no target position, so this offset is diagnostic.
+
+FT-03 records observed radial and heading errors. The orbit action enforces its requested yaw
+tolerance and completes only after the requested orbit progress. FT-05 records climb and descent
+settling durations; the case checks that the commanded altitudes were reached in order.
+
+After editing flight control or ROS interfaces, stop the application, rebuild the affected
+packages, source the install, and restart the application before the next case:
+
+```bash
+colcon build --symlink-install --packages-up-to flight_test vehicle_control mission_execution drone_bringup
+source /workspace/install/setup.bash
+```
 
 ## Reset before the next flight
 
@@ -88,7 +108,7 @@ start a new one:
 ```bash
 tmux kill-session -t drone-swarming
 ./scripts/sim stop
-./scripts/tmux-session test
+./scripts/tmux-session
 ```
 
 QGroundControl stays open. Stopping the simulation container ends its PX4 and Gazebo processes.
@@ -107,6 +127,10 @@ have mode `0755` so the host user can read their files.
   assertions.
 - `flight-tests/FT-XX-<UTC timestamp>-<suffix>/case-result.json` records the action outcomes,
   measurements, and recovery status.
+- `flight-tests/FT-XX-<UTC timestamp>-<suffix>/action-events.json` records complete action
+  results, including measured position and yaw errors when the action provides them.
+- `flight-tests/FT-XX-<UTC timestamp>-<suffix>/action-feedback.jsonl` records timestamped
+  action feedback, including trajectory tracking error and orbit radial and yaw error.
 - `flight-tests/FT-XX-<UTC timestamp>-<suffix>/vehicle-state.csv` records position, velocity,
   yaw, armed state, Offboard state, and landed state.
 - `flight-tests/FT-XX-<UTC timestamp>-<suffix>/commanded-trajectory.csv` records trajectory
@@ -114,6 +138,9 @@ have mode `0755` so the host user can read their files.
 - `console/` stores terminal output. `scripts/test-flights` saves a flight console log and exit
   status file.
 - `ros/` stores ROS node logs. `px4/log/` stores PX4 ULogs.
+
+The `vehicle_control` node logs rejected goal values and telemetry freshness. Failed action
+results include measured progress, PX4 state, and applicable tolerances.
 
 PX4 may reject arming when a preflight check fails. Check the PX4 console log and QGroundControl's
 vehicle status. QGroundControl uses host UDP port `14550`; the flight command does not reserve

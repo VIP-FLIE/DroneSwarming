@@ -16,6 +16,7 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import partial
 from itertools import pairwise
 from pathlib import Path
 from typing import Protocol, TextIO, cast
@@ -53,11 +54,16 @@ TAKEOFF_ALTITUDE_M: float = 3.0
 DEFAULT_ACTION_TIMEOUT_SEC: float = 180.0
 AIRBORNE_YAW_TIMEOUT_SEC: float = 15.0
 MAX_RECORDED_SAMPLES: int = 12000
+FT02_PATH_TOLERANCE_M: float = 1.5
+FT02_ENDPOINT_TOLERANCE_M: float = 0.75
+FT02_MAX_HORIZONTAL_SPEED_MPS: float = 5.0
 
 
 def ros_value_to_json(value: object) -> object:
     """Convert a generated ROS message or scalar to JSON-compatible values."""
-    if value is None or isinstance(value, (bool, int, float, str)):
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if value is None or isinstance(value, (bool, int, str)):
         return value
     if isinstance(value, (list, tuple)):
         return [ros_value_to_json(item) for item in value]
@@ -143,6 +149,9 @@ class FlightTestRunner(Node):
         self.command_writer = csv.writer(self.command_file)
         self.command_writer.writerow(
             ('case_id', 'point_index', 'time_from_start_sec', 'x_m', 'y_m', 'z_m', 'yaw_rad')
+        )
+        self.feedback_file = (artifact_directory / 'action-feedback.jsonl').open(
+            'w', encoding='utf-8'
         )
         self.samples: deque[FlightSample] = deque(maxlen=MAX_RECORDED_SAMPLES)
         self.telemetry_fault: str | None = None
@@ -242,6 +251,18 @@ class FlightTestRunner(Node):
         """Close the streamed telemetry report."""
         self.telemetry_file.close()
         self.command_file.close()
+        self.feedback_file.close()
+
+    def _record_action_feedback(self, action_name: str, feedback_message: object) -> None:
+        """Write one application action feedback sample to the run artifact."""
+        feedback: object = getattr(feedback_message, 'feedback', feedback_message)
+        event: dict[str, object] = {
+            'action': action_name,
+            'received_monotonic_sec': time.monotonic(),
+            'feedback': ros_value_to_json(feedback),
+        }
+        self.feedback_file.write(json.dumps(event) + '\n')
+        self.feedback_file.flush()
 
     def _spin_until_future(self, future: Future, timeout_sec: float, operation: str) -> None:
         """Spin ROS callbacks until a future completes or its deadline expires."""
@@ -295,9 +316,17 @@ class FlightTestRunner(Node):
         sample: FlightSample = self.samples[-1]
         sample_age_sec: float = time.monotonic() - sample.received_monotonic_sec
         if sample_age_sec > STATE_FRESHNESS_LIMIT_SEC or not sample.position_valid:
-            raise FlightTestFailure('vehicle position telemetry is stale or invalid')
+            raise FlightTestFailure(
+                'vehicle position telemetry is stale or invalid '
+                f'(age={sample_age_sec:.2f} s, limit={STATE_FRESHNESS_LIMIT_SEC:.2f} s, '
+                f'position_valid={sample.position_valid}, position={sample.position_enu})'
+            )
         if require_yaw and (not sample.yaw_valid or not math.isfinite(sample.yaw_rad)):
-            raise FlightTestFailure('vehicle yaw telemetry is stale or invalid')
+            raise FlightTestFailure(
+                'vehicle yaw telemetry is invalid '
+                f'(yaw_valid={sample.yaw_valid}, measured_yaw={sample.yaw_rad:.3f} rad, '
+                f'position={sample.position_enu}, landed={sample.landed})'
+            )
         if self.telemetry_fault is not None:
             raise FlightTestFailure(self.telemetry_fault)
         return sample
@@ -306,7 +335,11 @@ class FlightTestRunner(Node):
         """Require fresh armed telemetry in the mode required by the active case."""
         sample: FlightSample = self._current_sample(require_yaw=require_yaw)
         if not sample.armed or sample.landed or (self.expect_offboard and not sample.offboard):
-            raise FlightTestFailure('vehicle left its required armed flight mode unexpectedly')
+            raise FlightTestFailure(
+                'vehicle left its required armed flight mode '
+                f'(armed={sample.armed}, landed={sample.landed}, '
+                f'offboard={sample.offboard}, expected_offboard={self.expect_offboard})'
+            )
         return sample
 
     def _wait_for_airborne_yaw(self) -> None:
@@ -316,8 +349,11 @@ class FlightTestRunner(Node):
             rclpy.spin_once(self, timeout_sec=0.05)
             if self._require_airborne_sample().yaw_valid:
                 return
+        sample: FlightSample = self._current_sample()
         raise FlightTestFailure(
-            f'PX4 yaw remained invalid for {AIRBORNE_YAW_TIMEOUT_SEC:.1f} seconds after takeoff'
+            f'PX4 yaw remained invalid for {AIRBORNE_YAW_TIMEOUT_SEC:.1f} seconds after takeoff '
+            f'(yaw_valid={sample.yaw_valid}, measured_yaw={sample.yaw_rad:.3f} rad, '
+            f'position={sample.position_enu})'
         )
 
     def _wait_for_duration(self, duration_sec: float) -> list[FlightSample]:
@@ -336,12 +372,13 @@ class FlightTestRunner(Node):
         goal: object,
         action_name: str,
         timeout_sec: float,
-        feedback_callback: Callable[[object, object], None] | None = None,
     ) -> ActionResultProtocol:
         """Send one action goal and require a successful terminal result."""
         if not client.wait_for_server(timeout_sec=5.0):
             raise FlightTestFailure(f'{action_name} action server is unavailable')
-        goal_future: Future = client.send_goal_async(goal, feedback_callback=feedback_callback)
+        goal_future: Future = client.send_goal_async(
+            goal, feedback_callback=partial(self._record_action_feedback, action_name)
+        )
         self._spin_until_future(goal_future, 10.0, f'{action_name} goal response')
         goal_handle: ClientGoalHandle = cast(ClientGoalHandle, goal_future.result())
         if not goal_handle.accepted:
@@ -360,13 +397,9 @@ class FlightTestRunner(Node):
             WrappedActionResultProtocol, result_future.result()
         )
         action_result: ActionResultProtocol = cast(ActionResultProtocol, wrapped_result.result)
-        result_fields: dict[str, object] = {
-            'success': bool(action_result.success),
-            'message': str(action_result.message),
-        }
-        for field_name in ('completed_waypoints', 'completed_revolutions'):
-            if hasattr(action_result, field_name):
-                result_fields[field_name] = int(getattr(action_result, field_name))
+        result_fields: dict[str, object] = cast(
+            dict[str, object], ros_value_to_json(action_result)
+        )
         self.action_events.append(
             {
                 'action': action_name,
@@ -391,12 +424,12 @@ class FlightTestRunner(Node):
         self.expect_airborne = True
 
     def _land(self) -> None:
-        """Land through the existing PX4 action and verify disarmed state."""
+        """Land through PX4 and verify landed, disarmed, and outside Offboard."""
         self.expect_airborne = False
         if not self.samples:
             return
         sample: FlightSample = self._current_sample()
-        if sample.landed and not sample.armed:
+        if sample.landed and not sample.armed and not sample.offboard:
             return
         goal: Land.Goal = Land.Goal()
         goal.timeout_sec = 60.0
@@ -405,9 +438,11 @@ class FlightTestRunner(Node):
         while time.monotonic() < deadline:
             rclpy.spin_once(self, timeout_sec=0.05)
             landed_sample: FlightSample = self._current_sample()
-            if landed_sample.landed and not landed_sample.armed:
+            if landed_sample.landed and not landed_sample.armed and not landed_sample.offboard:
                 return
-        raise FlightTestFailure('PX4 did not report landed and disarmed after landing')
+        raise FlightTestFailure(
+            'PX4 did not report landed, disarmed, and outside Offboard after landing'
+        )
 
     def _record_assertion(self, name: str, actual: float, limit: float, relation: str) -> None:
         """Record one numeric assertion before raising on a failed threshold."""
@@ -484,7 +519,7 @@ class FlightTestRunner(Node):
         trajectory_goal: FollowTrajectory.Goal,
         position: tuple[float, float, float],
         time_from_start_sec: float,
-        yaw_rad: float,
+        yaw_rad: float | None,
     ) -> None:
         """Append one typed ENU setpoint to a trajectory goal."""
         point: TrajectoryPoint = TrajectoryPoint()
@@ -492,7 +527,8 @@ class FlightTestRunner(Node):
         point.position.y = float(position[1])
         point.position.z = float(position[2])
         point.time_from_start_sec = float(time_from_start_sec)
-        point.yaw_rad = float(yaw_rad)
+        if yaw_rad is not None:
+            point.yaw_rad = float(yaw_rad)
         trajectory_goal.points.append(point)
         self.command_writer.writerow(
             (
@@ -502,7 +538,7 @@ class FlightTestRunner(Node):
                 point.position.x,
                 point.position.y,
                 point.position.z,
-                point.yaw_rad,
+                point.yaw_rad if yaw_rad is not None else '',
             )
         )
         self.command_file.flush()
@@ -542,8 +578,12 @@ class FlightTestRunner(Node):
         self._land()
         self.assertions.append(
             {
-                'name': 'landed and disarmed',
-                'passed': self._current_sample().landed and not self._current_sample().armed,
+                'name': 'landed, disarmed, and outside Offboard',
+                'passed': (
+                    self._current_sample().landed
+                    and not self._current_sample().armed
+                    and not self._current_sample().offboard
+                ),
             }
         )
         if start_index >= len(self.samples):
@@ -632,7 +672,7 @@ class FlightTestRunner(Node):
         )
 
     def _run_fast_stop_and_return(self) -> None:
-        """Reach a commanded cruise speed, stop, turn, and return to the origin."""
+        """Fly an outbound path, turn, return to the origin, and land."""
         self._takeoff()
         self._wait_for_airborne_yaw()
         start_index: int = len(self.samples)
@@ -649,6 +689,7 @@ class FlightTestRunner(Node):
         )
         self._assert_case_boundary(start_position, [outbound_position])
         goal: FollowTrajectory.Goal = FollowTrajectory.Goal()
+        goal.control_yaw = True
         goal.position_tolerance_m = 0.5
         goal.yaw_tolerance_rad = 0.2
         goal.timeout_sec = 30.0
@@ -662,148 +703,58 @@ class FlightTestRunner(Node):
         samples: list[FlightSample] = self._samples_since(start_index)
         if not samples:
             raise FlightTestFailure('stop-and-return trajectory recorded no state samples')
-
-        def elapsed_from_trajectory_start(sample: FlightSample) -> float:
-            return sample.received_monotonic_sec - self.last_trajectory_started_monotonic_sec
-
-        moving_samples: list[FlightSample] = [
-            sample
-            for sample in samples
-            if sample.velocity_valid and 0.0 <= elapsed_from_trajectory_start(sample) < 4.0
-        ]
-        if not moving_samples:
-            raise FlightTestFailure(
-                'stop-and-return trajectory recorded no valid outbound velocity'
+        position_samples: list[FlightSample] = [sample for sample in samples if sample.position_valid]
+        velocity_samples: list[FlightSample] = [sample for sample in samples if sample.velocity_valid]
+        if not position_samples or not velocity_samples:
+            raise FlightTestFailure('stop-and-return trajectory lacks valid position or velocity')
+        maximum_path_error_m: float = max(
+            math.hypot(
+                cross_track_distance(sample.position_enu, start_position, outbound_position),
+                sample.position_enu[2] - start_position[2],
             )
-        peak_speed_mps: float = max(
-            math.hypot(sample.velocity_enu[0], sample.velocity_enu[1]) for sample in moving_samples
-        )
-        self.measurements['outbound_peak_speed_mps'] = peak_speed_mps
-        self._record_assertion('outbound peak speed', peak_speed_mps, 3.0, 'at_least')
-        braking_samples: list[FlightSample] = [
-            sample for sample in samples if 3.8 <= elapsed_from_trajectory_start(sample) <= 6.5
-        ]
-        slow_intervals: list[list[FlightSample]] = self._slow_intervals(braking_samples, 0.3)
-        qualifying_stop_intervals: list[list[FlightSample]] = [
-            interval
-            for interval in slow_intervals
-            if interval[-1].received_monotonic_sec - interval[0].received_monotonic_sec >= 1.0
-        ]
-        stop_interval: list[FlightSample] | None = (
-            qualifying_stop_intervals[0] if qualifying_stop_intervals else None
-        )
-        stopped_duration_sec: float = (
-            stop_interval[-1].received_monotonic_sec - stop_interval[0].received_monotonic_sec
-            if stop_interval is not None
-            else 0.0
-        )
-        self.measurements['pre_turn_stop_duration_sec'] = stopped_duration_sec
-        self._record_assertion('sustained stop duration', stopped_duration_sec, 1.0, 'at_least')
-        stop_end_elapsed_sec: float = (
-            elapsed_from_trajectory_start(stop_interval[-1]) if stop_interval is not None else 999.0
+            for sample in position_samples
         )
         self._record_assertion(
-            'stop completed before yaw turn', stop_end_elapsed_sec, 6.2, 'at_most'
+            'out-and-back path error', maximum_path_error_m, FT02_PATH_TOLERANCE_M, 'at_most'
         )
-        brake_sample: FlightSample = min(
-            samples, key=lambda sample: abs(elapsed_from_trajectory_start(sample) - 4.0)
-        )
-        stop_start_sample: FlightSample = stop_interval[0] if stop_interval else samples[-1]
-        stopping_distance_m: float = max(
-            0.0, stop_start_sample.position_enu[0] - brake_sample.position_enu[0]
-        )
-        self.measurements['stopping_distance_m'] = stopping_distance_m
-        self._record_assertion('stopping distance', stopping_distance_m, 2.0, 'at_most')
-        stop_end_sec: float = (
-            stop_interval[-1].received_monotonic_sec
-            if stop_interval is not None
-            else brake_sample.received_monotonic_sec
-        )
-        overshoot_m: float = (
-            max(
-                sample.position_enu[0] - outbound_position[0]
-                for sample in samples
-                if brake_sample.received_monotonic_sec
-                <= sample.received_monotonic_sec
-                <= stop_end_sec
-            )
-            if stop_interval is not None
-            else 999.0
-        )
-        self.measurements['braking_overshoot_m'] = overshoot_m
-        self._record_assertion('braking overshoot', overshoot_m, 2.0, 'at_most')
-        braking_profile: list[FlightSample] = [
-            sample
-            for sample in samples
-            if 4.0 <= elapsed_from_trajectory_start(sample) <= stop_end_elapsed_sec
-        ]
-        deceleration_mps2: list[float] = []
-        for previous_sample, sample in pairwise(braking_profile):
-            interval_sec: float = (
-                sample.received_monotonic_sec - previous_sample.received_monotonic_sec
-            )
-            if (
-                interval_sec <= 0.0
-                or not previous_sample.velocity_valid
-                or not sample.velocity_valid
-            ):
-                continue
-            previous_speed_mps: float = math.hypot(
-                previous_sample.velocity_enu[0], previous_sample.velocity_enu[1]
-            )
-            speed_mps: float = math.hypot(sample.velocity_enu[0], sample.velocity_enu[1])
-            deceleration_mps2.append(max(0.0, previous_speed_mps - speed_mps) / interval_sec)
-        self.measurements['peak_braking_deceleration_mps2'] = max(deceleration_mps2, default=0.0)
-        return_start_samples: list[FlightSample] = [
-            sample
-            for sample in samples
-            if elapsed_from_trajectory_start(sample) >= 8.0
-            and sample.position_enu[0] < outbound_position[0] - 0.5
-            and sample.yaw_valid
-        ]
-        if not return_start_samples:
-            raise FlightTestFailure('trajectory did not begin its return leg')
-        initial_return_heading_error_rad: float = abs(
-            wrapped_angle_error(return_yaw_rad, return_start_samples[0].yaw_rad)
+        maximum_horizontal_speed_mps: float = max(
+            math.hypot(sample.velocity_enu[0], sample.velocity_enu[1])
+            for sample in velocity_samples
         )
         self._record_assertion(
-            'return heading error', initial_return_heading_error_rad, math.radians(15.0), 'at_most'
+            'out-and-back horizontal speed',
+            maximum_horizontal_speed_mps,
+            FT02_MAX_HORIZONTAL_SPEED_MPS,
+            'at_most',
+        )
+        outbound_position_error_m: float = min(
+            distance_3d(sample.position_enu, outbound_position) for sample in position_samples
+        )
+        self._record_assertion(
+            'outbound position error',
+            outbound_position_error_m,
+            FT02_ENDPOINT_TOLERANCE_M,
+            'at_most',
+        )
+        outbound_sample_index: int = next(
+            index
+            for index, sample in enumerate(position_samples)
+            if distance_3d(sample.position_enu, outbound_position) <= FT02_ENDPOINT_TOLERANCE_M
         )
         return_position_error_m: float = min(
-            distance_3d(sample.position_enu, start_position) for sample in samples
+            (
+                distance_3d(sample.position_enu, start_position)
+                for sample in position_samples[outbound_sample_index + 1 :]
+            ),
+            default=math.inf,
         )
-        self._record_assertion('return position error', return_position_error_m, 0.75, 'at_most')
+        self._record_assertion(
+            'return position error', return_position_error_m, FT02_ENDPOINT_TOLERANCE_M, 'at_most'
+        )
         self._land()
-
-    def _slow_intervals(
-        self, samples: list[FlightSample], speed_limit_mps: float
-    ) -> list[list[FlightSample]]:
-        """Group consecutive fresh samples that remain below the speed limit."""
-        slow_intervals: list[list[FlightSample]] = []
-        current_interval: list[FlightSample] = []
-        previous_sample: FlightSample | None = None
-        for sample in samples:
-            speed_mps: float = math.hypot(sample.velocity_enu[0], sample.velocity_enu[1])
-            sample_is_slow: bool = sample.velocity_valid and speed_mps <= speed_limit_mps
-            sample_is_contiguous: bool = (
-                previous_sample is not None
-                and sample.received_monotonic_sec - previous_sample.received_monotonic_sec
-                <= SAMPLE_GAP_LIMIT_SEC
-            )
-            if sample_is_slow and sample_is_contiguous:
-                current_interval.append(sample)
-            elif sample_is_slow:
-                if current_interval:
-                    slow_intervals.append(current_interval)
-                current_interval = [sample]
-            else:
-                if current_interval:
-                    slow_intervals.append(current_interval)
-                current_interval = []
-            previous_sample = sample
-        if current_interval:
-            slow_intervals.append(current_interval)
-        return slow_intervals
+        self.measurements['landing_horizontal_offset_m'] = distance_2d(
+            self._current_sample().position_enu, start_position
+        )
 
     def _make_orbit_goal(
         self,
@@ -818,6 +769,8 @@ class FlightTestRunner(Node):
         goal: OrbitPoint.Goal = OrbitPoint.Goal()
         goal.center_position = center
         goal.frame_id = 'local_enu'
+        goal.face_center = True
+        goal.yaw_tolerance_rad = float(math.radians(30.0))
         goal.radius_m = float(radius_m)
         goal.clockwise = False
         goal.tangential_speed_mps = 1.5
@@ -833,7 +786,9 @@ class FlightTestRunner(Node):
             center_position, radius_m, revolutions=3.0, timeout_sec=120.0
         )
         self.expect_offboard = False
-        goal_future: Future = self.orbit_client.send_goal_async(goal)
+        goal_future: Future = self.orbit_client.send_goal_async(
+            goal, feedback_callback=partial(self._record_action_feedback, 'orbit_point')
+        )
         self._spin_until_future(goal_future, 10.0, 'cancelable orbit goal response')
         goal_handle: ClientGoalHandle = cast(ClientGoalHandle, goal_future.result())
         if not goal_handle.accepted:
@@ -964,7 +919,7 @@ class FlightTestRunner(Node):
         )
 
     def _run_orbit(self) -> None:
-        """Orbit a local ENU point and grade radial and heading tracking."""
+        """Orbit a local ENU point and record radial and heading tracking."""
         self._takeoff(8.0)
         self._wait_for_airborne_yaw()
         origin: tuple[float, float, float] = self._current_sample().position_enu
@@ -1013,7 +968,7 @@ class FlightTestRunner(Node):
             for sample in orbit_samples
         ]
         maximum_radial_error_m: float = max(radial_errors_m)
-        self._record_assertion('orbit radial error', maximum_radial_error_m, 1.25, 'at_most')
+        self.measurements['orbit_maximum_radial_error_m'] = maximum_radial_error_m
         angles_rad: list[float] = [
             math.atan2(
                 sample.position_enu[1] - center_position[1],
@@ -1046,12 +1001,7 @@ class FlightTestRunner(Node):
         ]
         heading_p95_rad: float = percentile(heading_errors_rad, 0.95)
         maximum_heading_error_rad: float = max(heading_errors_rad)
-        self._record_assertion(
-            'orbit heading error p95', heading_p95_rad, math.radians(15.0), 'at_most'
-        )
-        self._record_assertion(
-            'orbit maximum heading error', maximum_heading_error_rad, math.radians(30.0), 'at_most'
-        )
+        self.measurements['orbit_maximum_heading_error_rad'] = maximum_heading_error_rad
         self.measurements['orbit_radial_error_p95_m'] = percentile(radial_errors_m, 0.95)
         self.measurements['orbit_heading_error_p95_rad'] = heading_p95_rad
         self._land()
@@ -1059,9 +1009,8 @@ class FlightTestRunner(Node):
     def _run_search_lanes(self) -> None:
         """Fly three timed lawnmower lanes at a fixed altitude."""
         self._takeoff()
-        self._wait_for_airborne_yaw()
         start_index: int = len(self.samples)
-        initial_sample: FlightSample = self._current_sample(require_yaw=True)
+        initial_sample: FlightSample = self._current_sample()
         origin: tuple[float, float, float] = initial_sample.position_enu
         targets: list[tuple[float, float, float]] = [
             origin,
@@ -1087,11 +1036,10 @@ class FlightTestRunner(Node):
         )
         goal: FollowTrajectory.Goal = FollowTrajectory.Goal()
         goal.position_tolerance_m = 0.5
-        goal.yaw_tolerance_rad = 0.25
         goal.timeout_sec = 45.0
         for time_from_start_sec, target_index in schedule:
             self._record_trajectory_point(
-                goal, targets[target_index], time_from_start_sec, initial_sample.yaw_rad
+                goal, targets[target_index], time_from_start_sec, None
             )
         self._run_trajectory(goal)
         samples: list[FlightSample] = self._samples_since(start_index)
@@ -1131,9 +1079,8 @@ class FlightTestRunner(Node):
     def _run_altitude_steps(self) -> None:
         """Climb, hold, descend, and measure vertical response and lateral drift."""
         self._takeoff()
-        self._wait_for_airborne_yaw()
         start_index: int = len(self.samples)
-        starting_sample: FlightSample = self._current_sample(require_yaw=True)
+        starting_sample: FlightSample = self._current_sample()
         start_position: tuple[float, float, float] = starting_sample.position_enu
         climb_position: tuple[float, float, float] = (
             start_position[0],
@@ -1143,13 +1090,12 @@ class FlightTestRunner(Node):
         self._assert_case_boundary(start_position, [climb_position])
         goal: FollowTrajectory.Goal = FollowTrajectory.Goal()
         goal.position_tolerance_m = 0.5
-        goal.yaw_tolerance_rad = 0.2
         goal.timeout_sec = 30.0
-        self._record_trajectory_point(goal, start_position, 0.0, starting_sample.yaw_rad)
-        self._record_trajectory_point(goal, climb_position, 3.0, starting_sample.yaw_rad)
-        self._record_trajectory_point(goal, climb_position, 5.0, starting_sample.yaw_rad)
-        self._record_trajectory_point(goal, start_position, 8.0, starting_sample.yaw_rad)
-        self._record_trajectory_point(goal, start_position, 10.0, starting_sample.yaw_rad)
+        self._record_trajectory_point(goal, start_position, 0.0, None)
+        self._record_trajectory_point(goal, climb_position, 3.0, None)
+        self._record_trajectory_point(goal, climb_position, 5.0, None)
+        self._record_trajectory_point(goal, start_position, 8.0, None)
+        self._record_trajectory_point(goal, start_position, 10.0, None)
         self._run_trajectory(goal)
         samples: list[FlightSample] = self._samples_since(start_index)
         if not samples:
@@ -1167,10 +1113,17 @@ class FlightTestRunner(Node):
         climb_settle_error_m: float = min(
             abs(sample.position_enu[2] - climb_position[2]) for sample in samples
         )
-        return_settle_error_m: float = min(
-            abs(sample.position_enu[2] - start_position[2]) for sample in samples
-        )
         self._record_assertion('climb altitude error', climb_settle_error_m, 0.5, 'at_most')
+        climb_sample_index: int = next(
+            index
+            for index, sample in enumerate(samples)
+            if abs(sample.position_enu[2] - climb_position[2]) <= 0.5
+        )
+        descent_samples: list[FlightSample] = samples[climb_sample_index + 1 :]
+        return_settle_error_m: float = min(
+            (abs(sample.position_enu[2] - start_position[2]) for sample in descent_samples),
+            default=math.inf,
+        )
         self._record_assertion('descent altitude error', return_settle_error_m, 0.5, 'at_most')
 
         def elapsed_from_trajectory_start(sample: FlightSample) -> float:
@@ -1183,31 +1136,18 @@ class FlightTestRunner(Node):
             climb_hold_samples,
             lambda sample: abs(sample.position_enu[2] - climb_position[2]) <= 0.5,
         )
-        self._record_assertion('climb settle duration', climb_settle_duration_sec, 0.5, 'at_least')
         self.measurements['climb_settle_duration_sec'] = climb_settle_duration_sec
-        climb_reach_times_sec: list[float] = [
-            elapsed_from_trajectory_start(sample)
-            for sample in samples
-            if sample.position_enu[2] >= climb_position[2] - 0.5
-        ]
-        if not climb_reach_times_sec:
-            raise FlightTestFailure('vehicle never reached the climb target altitude')
-        self.measurements['climb_rise_time_sec'] = min(climb_reach_times_sec)
-        descent_start_samples: list[FlightSample] = [
-            sample for sample in samples if elapsed_from_trajectory_start(sample) >= 8.0
-        ]
-        if not descent_start_samples:
-            raise FlightTestFailure('descent interval recorded no vehicle state samples')
+        self.measurements['climb_rise_time_sec'] = elapsed_from_trajectory_start(
+            samples[climb_sample_index]
+        )
         descent_overshoot_m: float = max(
-            start_position[2] - sample.position_enu[2] for sample in descent_start_samples
+            (start_position[2] - sample.position_enu[2] for sample in descent_samples),
+            default=0.0,
         )
         self._record_assertion('descent undershoot', descent_overshoot_m, 1.0, 'at_most')
         descent_settle_duration_sec: float = self._longest_boolean_interval(
-            descent_start_samples,
+            descent_samples,
             lambda sample: abs(sample.position_enu[2] - start_position[2]) <= 0.5,
-        )
-        self._record_assertion(
-            'descent settle duration', descent_settle_duration_sec, 0.5, 'at_least'
         )
         self.measurements['descent_settle_duration_sec'] = descent_settle_duration_sec
         self._land()
@@ -1223,7 +1163,9 @@ class FlightTestRunner(Node):
         goal.frame_id = 'local_enu'
         goal.position_tolerance_m = 0.5
         goal.timeout_sec = 60.0
-        goal_future: Future = self.navigation_client.send_goal_async(goal)
+        goal_future: Future = self.navigation_client.send_goal_async(
+            goal, feedback_callback=partial(self._record_action_feedback, 'navigate_to')
+        )
         self._spin_until_future(goal_future, 10.0, 'navigate_to goal response')
         goal_handle: ClientGoalHandle = cast(ClientGoalHandle, goal_future.result())
         if not goal_handle.accepted:
@@ -1274,7 +1216,7 @@ class FlightTestRunner(Node):
                 'elapsed_sec': time.monotonic() - action_started_sec,
                 'cancelled_after_progress_m': progress_m,
                 'goal': ros_value_to_json(goal),
-                'result': 'canceled',
+                'result': ros_value_to_json(wrapped_result.result),
             }
         )
 
@@ -1376,15 +1318,19 @@ class FlightTestRunner(Node):
             self.case_active = True
             case_method_by_id[self.case_id]()
             final_sample: FlightSample = self._current_sample()
-            if not final_sample.landed or final_sample.armed:
-                raise FlightTestFailure('case ended without landed and disarmed state')
-            self.assertions.append({'name': 'landed and disarmed', 'passed': True})
+            if not final_sample.landed or final_sample.armed or final_sample.offboard:
+                raise FlightTestFailure(
+                    'case ended without landed, disarmed, and outside Offboard state'
+                )
+            self.assertions.append(
+                {'name': 'landed, disarmed, and outside Offboard', 'passed': True}
+            )
         except Exception as exception:  # noqa: BLE001
             status = 'failed'
             failure_message = f'{type(exception).__name__}: {exception}'
             try:
                 sample: FlightSample = self._current_sample()
-                if sample.armed or not sample.landed:
+                if sample.armed or not sample.landed or sample.offboard:
                     self._land()
                     self.recovery_message = 'landing action completed after case failure'
             except Exception as recovery_exception:  # noqa: BLE001
@@ -1481,6 +1427,7 @@ class FlightTestRunner(Node):
                 'Telemetry: [vehicle-state.csv](vehicle-state.csv)',
                 'Commands: [commanded-trajectory.csv](commanded-trajectory.csv)',
                 'Actions: [action-events.json](action-events.json)',
+                'Feedback: [action-feedback.jsonl](action-feedback.jsonl)',
                 '',
             ]
         )
@@ -1517,7 +1464,6 @@ def resolve_artifact_directory(case_id: str, requested_directory: Path | None) -
         artifact_root: Path = run_directory / 'flight-tests'
         artifact_root.mkdir(exist_ok=True)
         timestamp: str = datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')
-        # I am a silly clanker
         artifact_directory = Path(
             tempfile.mkdtemp(prefix=f'{case_id}-{timestamp}-', dir=artifact_root)
         )

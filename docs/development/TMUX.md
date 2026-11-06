@@ -8,7 +8,6 @@ The `scripts/tmux-session` command starts the simulation container and opens fou
 - NVIDIA Container Toolkit configured for Docker.
 - X11 or XWayland display access for Gazebo.
 - QGroundControl running on the host before the flight-enabled application starts.
-- Workspace built in the container before launching the ROS application.
 
 Install tmux on Ubuntu with:
 
@@ -16,17 +15,10 @@ Install tmux on Ubuntu with:
 sudo apt install tmux util-linux
 ```
 
-For the default and `start` modes, build the workspace from the repository root before starting
-the ROS application:
-
-```bash
-./scripts/sim-shell colcon build --symlink-install
-```
-
 ## Start the session
 
-Run this command from the repository root in a host terminal to open four sourced container Bash
-shells:
+Run this command from the repository root in a host terminal to build the workspace and open four
+sourced container Bash shells:
 
 ```bash
 ./scripts/tmux-session
@@ -55,31 +47,19 @@ select another world, for example `PX4_GZ_WORLD=default ./scripts/tmux-session s
 manual pane, run `PX4_GZ_WORLD=default ./scripts/px4-sitl` to select that world. See
 [Gazebo worlds](../../worlds/README.md).
 
-Run this command to open four sourced container shells, with pane 3 labeled for standalone
-flight commands:
-
-```bash
-./scripts/tmux-session test
-```
-
-The `test` command builds the flight and application packages inside the simulation container
-before opening the panes. Start the Agent and PX4 manually in panes 0 and 1 before running a
-flight from pane 3 with `./scripts/test-flights --case FT-00`.
-
 The launcher must run outside the project container because tmux starts on the machine that runs the script. The script reports an error when it detects a container environment.
 
-The script creates a UTC run directory, starts the `simulation` Compose service through `scripts/sim`, then attaches the `drone-swarming` tmux session. All four panes use the session's `DRONE_RUN_ID`. Running the command without an argument again reuses that ID and recreates any missing project panes. The `start` and `test` arguments apply to a new session; they report an error if the session already exists.
+When creating a session, the script creates a UTC run directory, starts the `simulation` Compose service through `scripts/sim`, and builds every workspace package with `colcon build --symlink-install` before attaching the `drone-swarming` tmux session. The build includes `flight_test`. Each `scripts/sim-shell` pane sources ROS 2, PX4 messages, and `/workspace/install/setup.bash` before opening its shell or running a command. All four panes use the session's `DRONE_RUN_ID`. Running the command without an argument when the session exists reuses its run ID and recreates any missing project panes without rebuilding. The `start` argument applies to a new session and reports an error if the session already exists.
 
 | Pane | Process or shell |
 | --- | --- |
 | 0 | Sourced container Bash shell, or XRCE-DDS Agent with `start` |
 | 1 | Sourced container Bash shell, or PX4 SITL and Gazebo Harmonic with `start` |
 | 2 | Sourced container shell for the ROS application |
-| 3 | Sourced container shell for ROS 2 CLI commands, labeled Flight Tests with `test` |
+| 3 | Sourced container shell for ROS 2 CLI commands and flight test commands |
 
-All four panes start sourced container Bash shells without an argument or with `test`. The
-application pane remains a shell in every mode. Only `start` launches the Agent and PX4. The
-script does not start the ROS application or send a mission.
+All four panes start sourced container Bash shells without an argument. Only `start` launches the
+Agent and PX4. The script does not start the ROS application or send a mission.
 
 ## Run logs
 

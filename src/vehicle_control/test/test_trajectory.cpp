@@ -45,22 +45,22 @@ TEST(Trajectory, AcceptsBoundedSearchLaneSchedule)
   };
   std::string failure_message;
 
-  EXPECT_TRUE(validate_trajectory(points, failure_message)) << failure_message;
+  EXPECT_TRUE(validate_trajectory(points, false, failure_message)) << failure_message;
   EXPECT_TRUE(failure_message.empty());
 }
 
 TEST(Trajectory, RejectsShortUnorderedAndNonzeroStartTimes)
 {
   std::string failure_message;
-  EXPECT_FALSE(validate_trajectory({point(0.0, 0.0, 0.0, 0.0F)}, failure_message));
+  EXPECT_FALSE(validate_trajectory({point(0.0, 0.0, 0.0, 0.0F)}, false, failure_message));
   EXPECT_NE(std::string::npos, failure_message.find("at least two"));
 
   EXPECT_FALSE(validate_trajectory(
-    {point(0.0, 0.0, 0.0, 0.0F), point(1.0, 0.0, 0.0, 0.05F)}, failure_message));
+    {point(0.0, 0.0, 0.0, 0.0F), point(1.0, 0.0, 0.0, 0.05F)}, false, failure_message));
   EXPECT_NE(std::string::npos, failure_message.find("at least 0.1"));
 
   EXPECT_FALSE(validate_trajectory(
-    {point(0.0, 0.0, 0.0, 1.0F), point(1.0, 0.0, 0.0, 2.0F)}, failure_message));
+    {point(0.0, 0.0, 0.0, 1.0F), point(1.0, 0.0, 0.0, 2.0F)}, false, failure_message));
   EXPECT_NE(std::string::npos, failure_message.find("time zero"));
 }
 
@@ -68,11 +68,11 @@ TEST(Trajectory, RejectsUnsafeEnvelopeAndSegmentSpeed)
 {
   std::string failure_message;
   EXPECT_FALSE(validate_trajectory(
-    {point(0.0, 0.0, 0.0, 0.0F), point(21.0, 0.0, 0.0, 10.0F)}, failure_message));
+    {point(0.0, 0.0, 0.0, 0.0F), point(21.0, 0.0, 0.0, 10.0F)}, false, failure_message));
   EXPECT_NE(std::string::npos, failure_message.find("envelope"));
 
   EXPECT_FALSE(validate_trajectory(
-    {point(0.0, 0.0, 0.0, 0.0F), point(5.0, 0.0, 0.0, 1.0F)}, failure_message));
+    {point(0.0, 0.0, 0.0, 0.0F), point(5.0, 0.0, 0.0, 1.0F)}, false, failure_message));
   EXPECT_NE(std::string::npos, failure_message.find("segment-speed"));
 }
 
@@ -85,11 +85,11 @@ TEST(Trajectory, RejectsExcessiveAccelerationAndYawRate)
       point(3.5, 0.0, 0.0, 1.0F),
       point(3.5, 0.0, 0.0, 2.0F),
       point(3.5, 0.0, 0.0, 3.0F),
-    }, failure_message));
+    }, false, failure_message));
   EXPECT_NE(std::string::npos, failure_message.find("acceleration"));
 
   EXPECT_FALSE(validate_trajectory(
-    {point(0.0, 0.0, 0.0, 0.0F), point(0.0, 0.0, 0.0, 1.0F, 3.0F)}, failure_message));
+    {point(0.0, 0.0, 0.0, 0.0F), point(0.0, 0.0, 0.0, 1.0F, 3.0F)}, true, failure_message));
   EXPECT_NE(std::string::npos, failure_message.find("yaw-rate"));
 }
 
@@ -117,7 +117,21 @@ TEST(Trajectory, RejectsNonFiniteValues)
     {
       point(0.0, 0.0, 0.0, 0.0F),
       point(std::numeric_limits<double>::quiet_NaN(), 0.0, 0.0, 1.0F),
-    }, failure_message));
+    }, false, failure_message));
+  EXPECT_NE(std::string::npos, failure_message.find("non-finite"));
+}
+
+TEST(Trajectory, IgnoresYawFieldsWhenYawControlIsDisabled)
+{
+  const float invalid_yaw = std::numeric_limits<float>::quiet_NaN();
+  const std::vector<TrajectoryPoint> points{
+    point(0.0, 0.0, 0.0, 0.0F, invalid_yaw),
+    point(0.0, 0.0, 1.0, 1.0F, invalid_yaw),
+  };
+  std::string failure_message;
+
+  EXPECT_TRUE(validate_trajectory(points, false, failure_message)) << failure_message;
+  EXPECT_FALSE(validate_trajectory(points, true, failure_message));
   EXPECT_NE(std::string::npos, failure_message.find("non-finite"));
 }
 
