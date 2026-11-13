@@ -1,6 +1,6 @@
 # vehicle_control
 
-`vehicle_control` is the only application package that depends on `px4_msgs`. Its PX4 adapter owns DDS topic names, command routing and acknowledgements, telemetry conversion, and ENU/NED conversion. The node exposes `VehicleState` and the `takeoff`, `navigate_to`, `orbit_point`, and `land` actions.
+`vehicle_control` is the only application package that depends on `px4_msgs`. Its PX4 adapter owns DDS topic names, command routing and acknowledgements, telemetry conversion, and ENU/NED conversion. The node publishes `VehicleState` and serves the internal `vehicle_control/takeoff`, `vehicle_control/navigate_to`, `vehicle_control/follow_trajectory`, `vehicle_control/orbit_point`, and `vehicle_control/land` actions. `mission_execution` is their sole application client. External callers use the [mission-execution interface](../mission_execution/README.md). Vehicle control validates and executes the selected operation; mission execution owns intent admission, serialization, and landing preemption.
 
 The adapter matches command acknowledgements by command and destination system/component. PX4 v1.17 does not set `VehicleCommandAck.from_external` when it publishes acknowledgements. Transition logs identify the stage, command, attempt, acknowledgement, and observed state change. Action errors include PX4 result codes and result parameters for non-accepted acknowledgements.
 
@@ -21,3 +21,7 @@ After completion or cancellation, `OrbitPoint` captures the current position, st
 Vehicle lifecycle, goal rejection, and PX4 transition events use ROS logging. Rejection logs include goal values, telemetry freshness, and yaw validity. Failed action results include measured progress, PX4 state, and applicable tolerances. The control setpoint timer does not emit per-setpoint log messages.
 
 The PX4 topic prefix is the full path through `fmu` and is independent of the ROS namespace. For example, application namespace `/uav_1` with PX4 prefix `/uav_1/fmu` resolves app actions under `/uav_1` and PX4 topics under `/uav_1/fmu/in/...` and `/uav_1/fmu/out/...`.
+
+## Geographic planning telemetry
+
+`VehicleState` publishes the validity-gated latitude, longitude, and AMSL altitude of the local ENU origin. `local_frame_revision` changes when PX4's reference timestamp, reference values, global-reference validity flags, or XY/Z reset counters change. Position samples without a frame change retain the same revision. The planner uses these application fields to project GPS paths; PX4-specific telemetry remains inside this package. Mission execution aborts a translated JSON mission when its captured revision changes.

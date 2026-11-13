@@ -57,7 +57,9 @@ exec "$@"
     --env "DRONE_RUN_METADATA=$container_run_directory/run-info.txt"
     --env "ROS_LOG_DIR=$container_run_directory/ros"
     --env "DRONE_LOG_ROLE=$log_role"
-    --env "PX4_GZ_WORLD=${PX4_GZ_WORLD:-lawn}"
+    --env "PX4_GZ_WORLD=${PX4_GZ_WORLD:-vip_windy}"
+    --env "PX4_GZ_MODEL=${PX4_GZ_MODEL:-vip_x500}"
+    --env "PX4_PARAM_SIM_BAT_DRAIN=${PX4_PARAM_SIM_BAT_DRAIN:-900}"
     --env RCUTILS_COLORIZED_OUTPUT=0
     simulation
     bash -c '

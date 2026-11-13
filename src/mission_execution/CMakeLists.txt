@@ -33,6 +33,18 @@ if(BUILD_TESTING)
   enable_project_cpp_diagnostics(test_geometry)
   ament_target_dependencies(test_geometry SYSTEM geometry_msgs)
   target_include_directories(test_geometry PRIVATE include)
+
+  ament_add_gtest(test_command_authority
+    test/test_command_authority.cpp src/mission_execution_node.cpp src/geometry.cpp
+    TIMEOUT 90
+  )
+  target_compile_features(test_command_authority PRIVATE cxx_std_17)
+  enable_project_cpp_diagnostics(test_command_authority)
+  enable_project_cpp_logging(test_command_authority)
+  ament_target_dependencies(test_command_authority SYSTEM
+    geometry_msgs rclcpp rclcpp_action swarm_interfaces
+  )
+  target_include_directories(test_command_authority PRIVATE include)
 endif()
 
 ament_package()

@@ -1,9 +1,13 @@
 # Run individual flight tests
 
-Each flight test sends ROS actions to the application in the normal PX4 SITL session. The flight
+Each flight test sends ROS actions through `mission_execution` to `vehicle_control` in the normal PX4 SITL session. The flight
 command runs one case and records its telemetry, action results, and assertions. The existing
 simulation session runs Gazebo, PX4, the XRCE-DDS Agent, and the application. QGroundControl runs
 on the host.
+
+The [command architecture validation record](COMMAND-ARCHITECTURE-VALIDATION.md) records command routing, automated checks, SITL results, and unresolved flight validation issues.
+
+The [JSON planner validation record](JSON-PLANNER-VALIDATION.md) covers file submission, fleet assignment translation, frame invalidation, and JSON SITL missions.
 
 ## Start the simulation
 
@@ -69,6 +73,12 @@ Both commands use `DRONE_RUN_DIR` supplied by `scripts/sim-shell` and create a n
 | FT-04 | Fly search lanes and land |
 | FT-05 | Fly altitude steps and land |
 | FT-06 | Cancel navigation, hold position, land |
+
+FT-01 uses `/execute_waypoint_mission`. The other operations use
+`/mission_execution/{takeoff,navigate_to,follow_trajectory,orbit_point,land}` with their existing
+action types. Cancellation and recovery landing use the same mission-execution boundary.
+The runner subscribes directly to `/vehicle_state` for read-only measurements. It has no
+vehicle-control command clients.
 
 The routine smoke flights are FT-00, FT-01, and FT-06. The stress flights are FT-02 through FT-05.
 Run each case with its own command. A failed case reports a nonzero exit status and attempts to

@@ -4,7 +4,7 @@ digraph FutureSystem {
     fontcolor="#f8fafc",
     fontname="DejaVu Sans",
     fontsize=24,
-    label="Future system: multi-vehicle search and rescue",
+    label="Planned system: flight intent and multi-vehicle search and rescue",
     labelloc=t,
     pad=0.4,
     rankdir=LR,
@@ -31,59 +31,41 @@ digraph FutureSystem {
     arrowsize=1.15
   ];
 
-  operator [label="Mission input", fillcolor="#ffd166"];
+  plan_file [label="JSON fleet file\nexplicit assignments", fillcolor="#ffd166"];
+  operator [label="Planned operator\nspecial instructions", fillcolor="#ffd166", style="rounded,dashed,filled"];
   coordination [
-    label="Swarm coordination\nassign / monitor / reassign\n(decentralized; protocol TBD)",
+    label="Planned swarm coordination\nassign / monitor / rebalance\n(protocol undefined)",
     fillcolor="#c084fc",
-    color="#e9d5ff"
+    style="rounded,dashed,filled"
   ];
-  perception [label="Perception\nvictim reports", fillcolor="#f0abfc", color="#f5d0fe", style="rounded,dashed,filled"];
-  contracts [label="swarm_interfaces\nflight + task contracts", fillcolor="#fde047"];
+  perception [label="Planned perception\ndetection results", fillcolor="#f0abfc", style="rounded,dashed,filled"];
+  priority [label="Planned priority policy\n1. Safety landing\n2. Urgent special instructions\n3. Normal planned path", fillcolor="#fde047", style="rounded,dashed,filled"];
 
   subgraph cluster_fleet {
-    label="Multi-vehicle fleet";
+    label="Planned multi-vehicle fleet";
     color="#64748b";
     fillcolor="#17212b";
     fontcolor="#f8fafc";
     fontname="DejaVu Sans";
     fontsize=20;
     penwidth=1.8;
-    style="rounded,filled";
+    style="rounded,dashed,filled";
 
-    subgraph cluster_vehicle_a {
-      label="Vehicle A";
-      color="#475569";
-      fillcolor="#1d2935";
-      fontcolor="#f8fafc";
-      style="rounded,filled";
-      mission_a [label="Mission executor", fillcolor="#22d3ee"];
-      control_a [label="Vehicle control", fillcolor="#86efac"];
-      px4_a [label="PX4\ncontrol + failsafes", fillcolor="#bbf7d0"];
-      mission_a -> control_a [label="actions"];
-      control_a -> mission_a [label="state"];
-      control_a -> px4_a [dir=both, label="PX4 DDS"];
-    }
-
-    subgraph cluster_vehicle_b {
-      label="Vehicle B ... N";
-      color="#475569";
-      fillcolor="#1d2935";
-      fontcolor="#f8fafc";
-      style="rounded,filled";
-      mission_b [label="Mission executor", fillcolor="#22d3ee"];
-      control_b [label="Vehicle control", fillcolor="#86efac"];
-      px4_b [label="PX4\ncontrol + failsafes", fillcolor="#bbf7d0"];
-      mission_b -> control_b [label="actions"];
-      control_b -> mission_b [label="state"];
-      control_b -> px4_b [dir=both, label="PX4 DDS"];
-    }
+    mission [label="mission_execution per vehicle\ncommand authority\nfuture intent arbitration", fillcolor="#22d3ee"];
+    planner [label="mission_planner per vehicle\nselect + translate assignment", fillcolor="#7dd3fc"];
+    control [label="vehicle_control per vehicle\nselected operation execution", fillcolor="#86efac"];
+    px4 [label="PX4 per vehicle\ncontrol + preflight + failsafes", fillcolor="#bbf7d0"];
+    mission -> control [label="selected operations"];
+    control -> mission [label="vehicle state"];
+    control -> px4 [dir=both, label="planned per-vehicle PX4 DDS", style=dashed];
   }
 
-  operator -> coordination [label="objectives"];
-  coordination -> mission_a [label="assignments"];
-  coordination -> mission_b [label="assignments"];
-  control_a -> coordination [label="state / health"];
-  control_b -> coordination [label="state / health"];
-  perception -> coordination [label="victim reports", style=dashed];
-  contracts -> coordination [style=dotted, dir=none, color="#facc15"];
+  plan_file -> mission [label="per-vehicle JSON submission"];
+  mission -> planner [label="JSON + ID + state"];
+  planner -> mission [label="translated instructions"];
+  coordination -> mission [label="planned urgent workload rebalance", style=dashed];
+  operator -> mission [label="planned urgent request", style=dashed];
+  perception -> mission [label="planned detections affecting flight", style=dashed];
+  mission -> coordination [label="planned health / task progress", style=dashed];
+  priority -> mission [label="planned selection policy", style=dashed];
 }
