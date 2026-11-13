@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ ! -f /.dockerenv && ! -f /run/.containerenv && -z "${REMOTE_CONTAINERS:-}" ]]; then
+    cd "$repository_root"
+    exec docker compose run --rm --no-deps -T --entrypoint /bin/bash \
+        --env BASH_ENV=/dev/null development --noprofile --norc -c '
+set -Ee -o pipefail
+source /opt/ros/jazzy/setup.bash
+source /opt/px4_ros2/install/setup.bash
+source /workspace/install/setup.bash
+exec /workspace/scripts/torture-tests "$@"
+' torture-tests "$@"
+fi
+
+if ! command -v ros2 >/dev/null 2>&1; then
+    printf 'Source ROS 2 Jazzy, px4_msgs, and the built workspace before running torture tests.\n' >&2
+    exit 2
+fi
+exec python3 "$repository_root/src/vehicle_control/test/torture/run.py" "$@"

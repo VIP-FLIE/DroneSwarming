@@ -41,6 +41,14 @@ install(TARGETS vehicle_control_core vehicle_control_node
 install(DIRECTORY include/ DESTINATION include)
 
 if(BUILD_TESTING)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  add_test(
+    NAME torture_report_integrity
+    COMMAND "${Python3_EXECUTABLE}" -m unittest discover
+      -s "${CMAKE_CURRENT_SOURCE_DIR}/test/torture" -p test_reports.py
+  )
+  set_tests_properties(torture_report_integrity PROPERTIES TIMEOUT 10)
+
   ament_add_gtest(test_coordinates test/test_coordinates.cpp)
   target_compile_features(test_coordinates PRIVATE cxx_std_17)
   enable_project_cpp_diagnostics(test_coordinates)

@@ -1,5 +1,9 @@
 # Run individual flight tests
 
+The [flight torture suite](TORTURE-TESTS.md) injects communication, estimate, command, concurrency,
+and process faults into the real application nodes using an isolated synthetic PX4 peer. It
+writes native ROS file logs and per-case diagnostic artifacts. It runs separately from Gazebo flights.
+
 Each flight test sends ROS actions through `mission_execution` to `vehicle_control` in the normal PX4 SITL session. The flight
 command runs one case and records its telemetry, action results, and assertions. The existing
 simulation session runs Gazebo, PX4, the XRCE-DDS Agent, and the application. QGroundControl runs

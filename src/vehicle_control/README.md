@@ -25,3 +25,9 @@ The PX4 topic prefix is the full path through `fmu` and is independent of the RO
 ## Geographic planning telemetry
 
 `VehicleState` publishes the validity-gated latitude, longitude, and AMSL altitude of the local ENU origin. `local_frame_revision` changes when PX4's reference timestamp, reference values, global-reference validity flags, or XY/Z reset counters change. Position samples without a frame change retain the same revision. The planner uses these application fields to project GPS paths; PX4-specific telemetry remains inside this package. Mission execution aborts a translated JSON mission when its captured revision changes.
+
+## Fault injection tests
+
+Run `./scripts/torture-tests` from a built project environment for the opt-in [flight torture suite](../../docs/testing/TORTURE-TESTS.md).
+The suite tests the real application executables with synthetic PX4 telemetry, writes native ROS file logs,
+and retains fault timelines and action results. Its diagnostic-report unit tests also run with the package tests.
