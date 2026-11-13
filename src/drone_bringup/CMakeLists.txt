@@ -8,6 +8,18 @@ include(CTest)
 install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  add_test(
+    NAME command_endpoints
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/test_command_endpoints.py"
+  )
+  set_tests_properties(command_endpoints PROPERTIES TIMEOUT 35)
+  add_test(
+    NAME planner_execution_flow
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/test_planner_execution_flow.py"
+  )
+  set_tests_properties(planner_execution_flow PROPERTIES TIMEOUT 60)
+
   unset(RUFF_EXECUTABLE CACHE)
   find_program(RUFF_EXECUTABLE NAMES ruff)
   if(NOT RUFF_EXECUTABLE)

@@ -42,17 +42,29 @@ digraph CurrentSystem {
     style="rounded,filled";
 
     bringup [label="drone_bringup\nlaunches nodes", fillcolor="#7dd3fc"];
-    mission [label="mission_execution\nmission action + flight clients", fillcolor="#22d3ee"];
-    control [label="vehicle_control\nactions + VehicleState", fillcolor="#86efac"];
+    planner [label="mission_planner\nJSON + geometry translation", fillcolor="#7dd3fc"];
+    mission [label="mission_execution\ncommand admission + selection", fillcolor="#22d3ee"];
+    control [label="vehicle_control\ninternal operations + VehicleState", fillcolor="#86efac"];
     interfaces [label="swarm_interfaces\napp actions + messages", fillcolor="#fde047"];
   }
+
+  file [label="JSON fleet file + submission CLI", fillcolor="#ffd166"];
+  caller [label="External mission callers", fillcolor="#ffd166"];
+  tests [label="flight_test\nintent + read-only metrics", fillcolor="#f0abfc"];
 
   agent [label="Micro XRCE-DDS Agent", fillcolor="#a7f3d0"];
   px4 [label="PX4 SITL\nOffboard + failsafes", fillcolor="#bbf7d0"];
   gazebo [label="Gazebo Harmonic\nX500 physics", fillcolor="#67e8f9"];
   qgc [label="QGroundControl", fillcolor="#fde68a"];
 
-  mission -> control [label="flight actions"];
+  file -> mission [label="ExecuteFlightPlan(JSON)"];
+  mission -> planner [label="JSON + vehicle ID + start snapshot"];
+  planner -> mission [label="translated mission instructions"];
+  bringup -> planner [label="launches", style=dashed, color="#94a3b8"];
+  caller -> mission [label="public command actions"];
+  tests -> mission [label="public command actions"];
+  control -> tests [label="read-only vehicle state"];
+  mission -> control [label="vehicle_control/* actions"];
   control -> mission [label="vehicle state"];
   bringup -> mission [label="launches", style=dashed, color="#94a3b8"];
   bringup -> control [label="launches", style=dashed, color="#94a3b8"];

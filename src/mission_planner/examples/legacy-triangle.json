@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "frame_id": "local_enu",
+  "takeoff_altitude_m": 5.0,
+  "waypoint_acceptance_radius_m": 1.0,
+  "path": {
+    "type": "waypoints",
+    "points": [[0, 0], [8, 0], [4, 7], [0, 0]]
+  }
+}

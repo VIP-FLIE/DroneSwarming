@@ -42,9 +42,10 @@ Run this command to start the XRCE-DDS Agent and PX4 SITL with Gazebo when creat
 ./scripts/tmux-session start
 ```
 
-The container shells have `PX4_GZ_WORLD=lawn` by default. Set `PX4_GZ_WORLD` before `start` to
-select another world, for example `PX4_GZ_WORLD=default ./scripts/tmux-session start`. In a
-manual pane, run `PX4_GZ_WORLD=default ./scripts/px4-sitl` to select that world. See
+The container shells use `PX4_GZ_WORLD=vip_windy` and `PX4_GZ_MODEL=vip_x500` by default. Set
+either variable before `start` to select another world or model, for example
+`PX4_GZ_WORLD=default PX4_GZ_MODEL=x500 ./scripts/tmux-session start`. In a manual pane, run
+`PX4_GZ_WORLD=default PX4_GZ_MODEL=x500 ./scripts/px4-sitl`. See
 [Gazebo worlds](../../worlds/README.md).
 
 The launcher must run outside the project container because tmux starts on the machine that runs the script. The script reports an error when it detects a container environment.

@@ -53,6 +53,7 @@ STATE_FRESHNESS_LIMIT_SEC: float = 1.0
 TAKEOFF_ALTITUDE_M: float = 3.0
 DEFAULT_ACTION_TIMEOUT_SEC: float = 180.0
 AIRBORNE_YAW_TIMEOUT_SEC: float = 15.0
+LANDED_STATE_TIMEOUT_SEC: float = 15.0
 MAX_RECORDED_SAMPLES: int = 12000
 FT02_PATH_TOLERANCE_M: float = 1.5
 FT02_ENDPOINT_TOLERANCE_M: float = 0.75
@@ -166,14 +167,16 @@ class FlightTestRunner(Node):
         self.state_subscription = self.create_subscription(
             VehicleState, '/vehicle_state', self._record_state, 10
         )
-        self.takeoff_client = ActionClient(self, Takeoff, '/takeoff')
-        self.navigation_client = ActionClient(self, NavigateTo, '/navigate_to')
-        self.land_client = ActionClient(self, Land, '/land')
+        self.takeoff_client = ActionClient(self, Takeoff, '/mission_execution/takeoff')
+        self.navigation_client = ActionClient(self, NavigateTo, '/mission_execution/navigate_to')
+        self.land_client = ActionClient(self, Land, '/mission_execution/land')
         self.mission_client = ActionClient(
             self, ExecuteWaypointMission, '/execute_waypoint_mission'
         )
-        self.trajectory_client = ActionClient(self, FollowTrajectory, '/follow_trajectory')
-        self.orbit_client = ActionClient(self, OrbitPoint, '/orbit_point')
+        self.trajectory_client = ActionClient(
+            self, FollowTrajectory, '/mission_execution/follow_trajectory'
+        )
+        self.orbit_client = ActionClient(self, OrbitPoint, '/mission_execution/orbit_point')
         self.case_started_monotonic_sec: float = 0.0
         self.case_active: bool = False
 
@@ -275,12 +278,8 @@ class FlightTestRunner(Node):
     def _wait_for_ready(
         self, timeout_sec: float, required_clients: tuple[ActionClient, ...]
     ) -> None:
-        """Require fresh landed telemetry and all vehicle actions used by a case."""
-        required_node_names: tuple[str, ...] = (
-            ('vehicle_control', 'mission_execution')
-            if self.case_id == 'FT-01'
-            else ('vehicle_control',)
-        )
+        """Require fresh landed telemetry and mission-execution actions for every case."""
+        required_node_names: tuple[str, ...] = ('vehicle_control', 'mission_execution')
         deadline: float = time.monotonic() + timeout_sec
         while time.monotonic() < deadline and rclpy.ok():
             rclpy.spin_once(self, timeout_sec=0.05)
@@ -397,9 +396,7 @@ class FlightTestRunner(Node):
             WrappedActionResultProtocol, result_future.result()
         )
         action_result: ActionResultProtocol = cast(ActionResultProtocol, wrapped_result.result)
-        result_fields: dict[str, object] = cast(
-            dict[str, object], ros_value_to_json(action_result)
-        )
+        result_fields: dict[str, object] = cast(dict[str, object], ros_value_to_json(action_result))
         self.action_events.append(
             {
                 'action': action_name,
@@ -434,7 +431,11 @@ class FlightTestRunner(Node):
         goal: Land.Goal = Land.Goal()
         goal.timeout_sec = 60.0
         self._execute_action(self.land_client, goal, 'land', 70.0)
-        deadline: float = time.monotonic() + 15.0
+        self._wait_for_landed_state()
+
+    def _wait_for_landed_state(self) -> None:
+        """Wait for telemetry to confirm the terminal landing state after an action result."""
+        deadline: float = time.monotonic() + LANDED_STATE_TIMEOUT_SEC
         while time.monotonic() < deadline:
             rclpy.spin_once(self, timeout_sec=0.05)
             landed_sample: FlightSample = self._current_sample()
@@ -607,6 +608,7 @@ class FlightTestRunner(Node):
         goal.land_after_waypoints = True
         goal.orbit_after_waypoints = False
         self._execute_action(self.mission_client, goal, 'execute_waypoint_mission', 180.0)
+        self._wait_for_landed_state()
         mission_samples: list[FlightSample] = self._samples_since(start_index)
         if not mission_samples:
             raise FlightTestFailure('square mission recorded no vehicle state samples')
@@ -703,8 +705,12 @@ class FlightTestRunner(Node):
         samples: list[FlightSample] = self._samples_since(start_index)
         if not samples:
             raise FlightTestFailure('stop-and-return trajectory recorded no state samples')
-        position_samples: list[FlightSample] = [sample for sample in samples if sample.position_valid]
-        velocity_samples: list[FlightSample] = [sample for sample in samples if sample.velocity_valid]
+        position_samples: list[FlightSample] = [
+            sample for sample in samples if sample.position_valid
+        ]
+        velocity_samples: list[FlightSample] = [
+            sample for sample in samples if sample.velocity_valid
+        ]
         if not position_samples or not velocity_samples:
             raise FlightTestFailure('stop-and-return trajectory lacks valid position or velocity')
         maximum_path_error_m: float = max(
@@ -1038,9 +1044,7 @@ class FlightTestRunner(Node):
         goal.position_tolerance_m = 0.5
         goal.timeout_sec = 45.0
         for time_from_start_sec, target_index in schedule:
-            self._record_trajectory_point(
-                goal, targets[target_index], time_from_start_sec, None
-            )
+            self._record_trajectory_point(goal, targets[target_index], time_from_start_sec, None)
         self._run_trajectory(goal)
         samples: list[FlightSample] = self._samples_since(start_index)
         if not samples:
