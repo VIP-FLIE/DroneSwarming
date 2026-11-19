@@ -2,6 +2,8 @@
 
 The primary workflow targets Ubuntu 24.04. ROS 2 Jazzy, PX4 SITL, Gazebo Harmonic, the XRCE-DDS Agent, and `px4_msgs` run inside the project container. QGroundControl runs on the host.
 
+macOS Docker Desktop and Windows Docker Desktop/WSL2 workflows are untested. Use an Ubuntu 24.04 environment with Docker Engine and QGroundControl for the documented workflow; GUI forwarding and network access inside a VM require host-specific configuration.
+
 The native companion-computer workflow targets 64-bit Raspberry Pi systems running Ubuntu 24.04. Follow [HITL-PI-SETUP.md](HITL-PI-SETUP.md) to install the pinned ROS 2 and PX4 message toolchain without Docker.
 
 ## Requirements
@@ -73,7 +75,7 @@ The shell and process wrappers start the simulation service and build its image 
 
 - `--progress=plain` prints full build output, including Dockerfile command traces. Example: `./scripts/sim --progress=plain up --build -d simulation`.
 
-The build uses PX4's Ubuntu 24.04, ROS 2 Jazzy, and Gazebo Harmonic toolchain image, pinned by OCI digest. It builds PX4 SITL from the stable `v1.17.0` source tag and uses its `bin/px4` executable directly. It builds `px4_msgs` from the matching `v1.17.0` tag, then builds the repository packages with `colcon`.
+The build uses PX4's Ubuntu 24.04, ROS 2 Jazzy, and Gazebo Harmonic toolchain image, pinned by OCI digest. It builds PX4 SITL and `px4_msgs` from matching `v1.17.0` tags and installs checksum-verified MAVSDK 4.2.0 before building the application packages with `colcon`.
 
 The container is named `swarm-sim`.
 
@@ -103,4 +105,14 @@ Run `./scripts/tmux-session start` from a host terminal to build the workspace a
 
 ## Stop a flight
 
-Press Ctrl-C in the launch shell to stop the flight. Use [Container lifecycle](#container-lifecycle) to stop, restart, rebuild, or remove the container.
+Request landing from a sourced container shell while the application is running:
+
+```bash
+ros2 action send_goal /mission_execution/land swarm_interfaces/action/Land \
+  "{timeout_sec: 60.0}" --feedback
+ros2 topic echo /vehicle_state --once
+```
+
+Use the application namespace in both endpoint paths when namespaced. Confirm a successful landing result and fresh state with `landed: true` and `armed: false`. If the application cannot confirm landing, use QGroundControl's landing control and verify touchdown and disarming there.
+
+After landing, press Ctrl-C in the launch shell and use [Container lifecycle](#container-lifecycle) to stop the container. Ctrl-C stops ROS processes; an uploaded PX4 mission can continue after those processes exit.

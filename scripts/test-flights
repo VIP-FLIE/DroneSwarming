@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-if (($# != 2)) || [[ "$1" != --case || ! "$2" =~ ^FT-0[0-6]$ ]]; then
-    printf 'Usage: %s --case FT-00..FT-06\n' "${0##*/}" >&2
+if (($# != 2)) || [[ "$1" != --case || ! "$2" =~ ^FT-0[0-7]$ ]]; then
+    printf 'Usage: %s --case FT-00..FT-07\n' "${0##*/}" >&2
     exit 2
 fi
 case_id="$2"

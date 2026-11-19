@@ -93,4 +93,19 @@ TEST(Coordinates, RejectsInvalidReferencesAndUnrepresentableAltitude)
       {std::numeric_limits<double>::quiet_NaN(), 0.0, 0.0}, 0.0, 0.0, 0.0).has_value());
 }
 
+TEST(Coordinates, ProjectsKnownGeographicDistanceAndAmslDifference)
+{
+  const std::optional<Position> offset = global_to_enu({1.0, 0.0, 103.0}, {0.0, 0.0, 100.0});
+  ASSERT_TRUE(offset.has_value());
+  EXPECT_NEAR((*offset)[0], 0.0, 1.0e-8);
+  EXPECT_NEAR((*offset)[1], 6371000.0 * std::acos(-1.0) / 180.0, 1.0e-8);
+  EXPECT_DOUBLE_EQ((*offset)[2], 3.0);
+}
+
+TEST(Coordinates, RejectsAntipodalAndWrappedLocalTargets)
+{
+  EXPECT_FALSE(global_to_enu({0.0, 180.0, 0.0}, {0.0, 0.0, 0.0}).has_value());
+  EXPECT_FALSE(enu_to_global({40030176.0, 0.0, 0.0}, 0.0, 0.0, 0.0).has_value());
+}
+
 }  // namespace vehicle_control

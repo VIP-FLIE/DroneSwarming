@@ -14,6 +14,7 @@
 
 #include "vehicle_control/px4_adapter.hpp"
 #include "vehicle_control/trajectory.hpp"
+#include "vehicle_control/onboard_mission.hpp"
 
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
@@ -27,7 +28,7 @@
 namespace vehicle_control
 {
 
-/// Exposes vehicle actions and state while managing the PX4 Offboard stream.
+/// Exposes vehicle actions and state through native missions and Offboard control.
 class VehicleControlNode : public rclcpp::Node
 {
 public:
@@ -42,6 +43,8 @@ private:
   using FollowTrajectory = swarm_interfaces::action::FollowTrajectory;
   using OrbitPoint = swarm_interfaces::action::OrbitPoint;
   using Land = swarm_interfaces::action::Land;
+  using FlyMission = swarm_interfaces::action::FlyMission;
+  using FlyMissionHandle = rclcpp_action::ServerGoalHandle<FlyMission>;
   using TakeoffHandle = rclcpp_action::ServerGoalHandle<Takeoff>;
   using NavigateHandle = rclcpp_action::ServerGoalHandle<NavigateTo>;
   using FollowTrajectoryHandle = rclcpp_action::ServerGoalHandle<FollowTrajectory>;
@@ -55,7 +58,8 @@ private:
     Navigate,
     FollowTrajectory,
     Orbit,
-    Land
+    Land,
+    OnboardMission
   };
 
   /// Reserves a validated flight goal and optionally requires valid yaw telemetry.
@@ -116,10 +120,17 @@ private:
   /// Returns whether the local-position reference matches the snapshot.
   bool has_same_local_reference(
     const VehicleTelemetry & current, const VehicleTelemetry & reference) const;
-  /// Restores Offboard position hold after PX4 exits Orbit under this action's control.
-  bool restore_offboard_after_orbit(std::string & failure_message);
+  /// Confirms settled Offboard hold, optionally transitioning from native Hold or Orbit.
+  bool establish_offboard_hold(
+    std::string & failure_message, bool allow_mode_transition = true,
+    double settle_timeout_sec = 15.0);
+  /// Uploads a global route and monitors PX4-owned takeoff, waypoints, and landing.
+  void execute_onboard_mission(const std::shared_ptr<FlyMissionHandle> & goal_handle);
+  /// Confirms native Hold or landed disarm without overriding an operator-selected mode.
+  bool stop_onboard_mission(std::string & failure_message);
 
   std::shared_ptr<Px4Adapter> px4_adapter_;
+  std::unique_ptr<OnboardMission> onboard_mission_;
   bool enable_flight_commands_{false};
   double setpoint_rate_hz_{20.0};
   double telemetry_timeout_sec_{1.0};
@@ -138,6 +149,7 @@ private:
   Position target_position_{};
   std::optional<Position> look_at_position_enu_;
   std::optional<double> target_yaw_rad_;
+  std::optional<std::uint64_t> navigation_frame_revision_;
   std::chrono::steady_clock::time_point look_at_setpoint_updated_at_{};
   bool goal_active_{false};
   bool landing_command_started_{false};
@@ -158,6 +170,7 @@ private:
   rclcpp_action::Server<FollowTrajectory>::SharedPtr follow_trajectory_server_;
   rclcpp_action::Server<OrbitPoint>::SharedPtr orbit_server_;
   rclcpp_action::Server<Land>::SharedPtr land_server_;
+  rclcpp_action::Server<FlyMission>::SharedPtr onboard_server_;
 };
 
 }  // namespace vehicle_control

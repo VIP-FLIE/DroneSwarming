@@ -74,7 +74,7 @@ The host stores each run at `run-logs/<UTC timestamp>/`. The simulation containe
 | `px4/log/` | PX4 SITL ULog files |
 | `flight-tests/` | Per-case flight test artifacts |
 
-The tmux launcher creates one ID for the session. Detaching and reattaching preserves the ID. Killing the session and starting a new one creates a new run directory. A session created before run ID support has no saved ID; close it with `tmux kill-session -t drone-swarming` before starting a new session. Remove a run directory manually to reclaim host disk space.
+The tmux launcher creates one ID for the session. Detaching and reattaching preserves the ID. Killing the session and starting a new one creates a new run directory. Remove a run directory manually to reclaim host disk space.
 
 For separate host terminals, run `export DRONE_RUN_ID="$(./scripts/new-run)"` once. Copy `printf 'export DRONE_RUN_ID=%q\n' "$DRONE_RUN_ID"` output into the other terminals before starting the wrappers.
 

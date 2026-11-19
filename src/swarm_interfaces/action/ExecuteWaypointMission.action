@@ -1,16 +1,25 @@
-# Waypoint offsets use local_enu meters from the position at mission start.
+# Empty frame_id preserves relative_enu input compatibility.
+# relative_enu: east/north/up offsets; relative_body: forward/left/up at captured yaw.
+# wgs84: fixed geographic destinations. Relative offsets always use one captured start.
+string frame_id
+swarm_interfaces/GeographicPosition[] waypoint_positions
+swarm_interfaces/GeographicPosition look_at_geographic_position
+swarm_interfaces/GeographicPosition orbit_center_geographic
+# Waypoint offsets are used only by relative_enu and relative_body.
+# Native upload requires a global reference and supports at most 256 waypoints.
+# Vertical climb in meters from the captured start for every input frame.
 float32 takeoff_altitude_m
 geometry_msgs/Point[] waypoint_offsets
 float32 position_tolerance_m
 float32 waypoint_timeout_sec
 bool land_after_waypoints
-# When true, every waypoint faces one point of interest relative to the mission-start origin.
+# Requests native ROI heading toward the geographic or resolved relative point.
 bool look_at_point_of_interest
-# Point-of-interest offset in local_enu meters from the mission-start position.
+# Point-of-interest offset in the selected relative frame from the captured start.
 geometry_msgs/Point look_at_offset
 # Run an OrbitPoint action after the final waypoint.
 bool orbit_after_waypoints
-# Orbit center offset in local_enu meters from the mission-start position.
+# Orbit center offset in the selected relative frame from the captured start.
 geometry_msgs/Point orbit_center_offset
 # Positive orbit radius in meters. PX4 requires at least 1 meter.
 float32 orbit_radius_m

@@ -5,6 +5,7 @@ This glossary defines terms and abbreviations used in the repository's code and 
 ## A
 
 - **Action:** A ROS 2 request for work that can take time and report feedback, a result, and cancellation. This repository uses actions for takeoff, navigation, landing, and mission execution. See the [ROS 2 action concepts](https://docs.ros.org/en/jazzy/Concepts/Basic/About-Actions.html).
+- **AMSL (Above Mean Sea Level):** The altitude datum used for geographic mission items. It differs from height above the mission start and height above local terrain.
 - **API (Application Programming Interface):** The types and operations that software exposes for other software to use. In this repository, ROS messages and actions are part of the application API.
 
 ## C
@@ -19,7 +20,7 @@ This glossary defines terms and abbreviations used in the repository's code and 
 
 ## E
 
-- **ENU (East-North-Up):** A local coordinate frame whose X axis points east, Y axis points north, and Z axis points up. Application positions use `local_enu` and are measured in meters from PX4's local-position origin.
+- **ENU (East-North-Up):** A local coordinate frame whose X axis points east, Y axis points north, and Z axis points up. Planning geometry uses ENU meters from an explicit anchor. Estimator-local telemetry uses `local_enu` from PX4's local-position origin.
 
 ## F
 
@@ -30,6 +31,10 @@ This glossary defines terms and abbreviations used in the repository's code and 
 - **Gazebo Harmonic:** The Gazebo simulator release used by this repository's development environment. It simulates the vehicle, sensors, physics, and world.
 - **GCS (Ground Control Station):** Software used to monitor and operate a vehicle. QGroundControl is this repository's ground control station.
 
+## H
+
+- **Hold:** PX4's native multicopter loiter mode. Uploaded-route cancellation confirms this mode. Standalone Offboard hold instead depends on application setpoints.
+
 ## L
 
 - **LLM (Large Language Model):** A model that generates or transforms text and code. The repository's coding rules apply to LLM-generated changes.
@@ -39,7 +44,9 @@ This glossary defines terms and abbreviations used in the repository's code and 
 ## M
 
 - **MAVLink:** A lightweight message protocol and library for communication between vehicles, onboard components, and ground stations. The upstream project names it the **Micro Air Vehicle Message Marshalling Library**. See the [MAVLink project](https://github.com/mavlink/mavlink).
-- **Mission origin:** The vehicle position captured at mission start. Every waypoint offset in a mission is added to this same position.
+- **MAVSDK:** The library used by `vehicle_control` to discover the configured MAVLink autopilot and upload and monitor raw mission items. The repository pins version 4.2.0.
+- **Mission mode:** PX4 execution of stored mission items. The uploaded route runs on the flight controller without an application Offboard setpoint stream.
+- **Mission origin:** The vehicle position captured at mission start. Every relative waypoint resolves once from this same geographic position. Body-relative input also captures yaw. Compiled destinations use WGS84/AMSL.
 
 ## N
 
@@ -71,6 +78,7 @@ This glossary defines terms and abbreviations used in the repository's code and 
 ## S
 
 - **Setpoint:** A desired position, velocity, or other control value that a controller attempts to reach or maintain.
+- **Service:** A ROS 2 request/response operation. `mission_planner/plan_flight` returns compiled instructions without commanding flight.
 - **SITL (Software In The Loop):** A simulation setup that runs the autopilot software against a simulated vehicle instead of flight-controller hardware. This repository runs PX4 SITL with Gazebo.
 
 ## T
@@ -79,10 +87,13 @@ This glossary defines terms and abbreviations used in the repository's code and 
 
 ## U
 
-- **UDP (User Datagram Protocol):** A network transport used by the project for XRCE-DDS communication and the QGroundControl MAVLink connection.
+- **UDP (User Datagram Protocol):** A network transport used for XRCE-DDS, the mission MAVLink connection, and QGroundControl telemetry in local SITL.
 - **uORB:** PX4's internal publish-subscribe message system. The XRCE-DDS client bridges selected uORB messages to ROS 2.
 - **uXRCE-DDS / Micro XRCE-DDS:** The PX4 bridge that uses eProsima's Micro XRCE-DDS implementation to connect resource-constrained clients to a DDS network. PX4 runs the client, and the companion computer runs the agent. **XRCE** refers to DDS for eXtremely Resource Constrained Environments. See the [PX4 bridge guide](https://docs.px4.io/v1.17/en/middleware/uxrce_dds) and [eProsima Micro XRCE-DDS documentation](https://micro-xrce-dds.docs.eprosima.com/en/latest/).
 
 ## X
 
-- **X500:** The stock PX4 multicopter model used by this repository's Gazebo simulation. It is a model name, not an acronym.
+- **X500:** A PX4 multicopter model. The repository defaults to its project `vip_x500` derivative with body wind effects enabled.
+
+- **Geographic destination:** Fixed WGS84 latitude/longitude with explicitly named AMSL altitude. It is independent of a vehicle's estimator-local origin.
+- **Shared ENU:** Metric site geometry from one geographic origin shared by the participating vehicles.

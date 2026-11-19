@@ -16,6 +16,7 @@
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <swarm_interfaces/action/execute_waypoint_mission.hpp>
 #include <swarm_interfaces/action/execute_flight_plan.hpp>
+#include <swarm_interfaces/action/fly_mission.hpp>
 #include <swarm_interfaces/action/follow_trajectory.hpp>
 #include <swarm_interfaces/action/land.hpp>
 #include <swarm_interfaces/action/navigate_to.hpp>
@@ -54,6 +55,8 @@ private:
     const std::function<bool()> & is_interrupted);
   /// Rejects a changed local coordinate frame while executing translated instructions.
   std::string frame_error(const swarm_interfaces::msg::VehicleState & captured_state);
+  /// Reports loss of the geographic estimate without coupling targets to local resets.
+  std::string global_state_error();
   /// Sends JSON to the planning service and executes its validated selected assignment.
   void execute_flight_plan(const std::shared_ptr<FlightPlanHandle> & goal_handle);
   /// Creates a public operation endpoint with shared command admission.
@@ -71,7 +74,7 @@ private:
   void enqueue(std::function<void()> job, bool is_landing = false);
   /// Runs queued command jobs until the node shuts down.
   void worker_loop();
-  /// Executes takeoff, mission-origin waypoint navigation, and optional landing.
+  /// Dispatches an onboard route and any finite-orbit tail through vehicle control.
   template<typename ActionT>
   void execute_mission(
     const std::shared_ptr<rclcpp_action::ServerGoalHandle<ActionT>> & goal_handle,
@@ -111,6 +114,7 @@ private:
   rclcpp_action::Server<swarm_interfaces::action::OrbitPoint>::SharedPtr orbit_server_;
   rclcpp_action::Server<swarm_interfaces::action::Land>::SharedPtr land_server_;
   rclcpp_action::Client<swarm_interfaces::action::Takeoff>::SharedPtr takeoff_client_;
+  rclcpp_action::Client<swarm_interfaces::action::FlyMission>::SharedPtr onboard_client_;
   rclcpp_action::Client<swarm_interfaces::action::NavigateTo>::SharedPtr navigation_client_;
   rclcpp_action::Client<swarm_interfaces::action::FollowTrajectory>::SharedPtr trajectory_client_;
   rclcpp_action::Client<swarm_interfaces::action::OrbitPoint>::SharedPtr orbit_client_;

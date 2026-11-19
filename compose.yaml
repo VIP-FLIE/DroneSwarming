@@ -11,6 +11,8 @@ services:
         CXX: ${CXX:?Set CXX in .env}
         PX4_VERSION: ${PX4_VERSION:?Set PX4_VERSION in .env}
         PX4_MSGS_VERSION: ${PX4_MSGS_VERSION:?Set PX4_MSGS_VERSION in .env}
+        MAVSDK_VERSION: ${MAVSDK_VERSION:?Set MAVSDK_VERSION in .env}
+        MAVSDK_AMD64_SHA256: ${MAVSDK_AMD64_SHA256:?Set MAVSDK_AMD64_SHA256 in .env}
         RUFF_VERSION: ${RUFF_VERSION:?Set RUFF_VERSION in .env}
         DRONE_LOG_MIN_SEVERITY: ${DRONE_LOG_MIN_SEVERITY:-DEBUG}
     command: ["sleep", "infinity"]
@@ -42,6 +44,8 @@ services:
         CXX: ${CXX:?Set CXX in .env}
         PX4_VERSION: ${PX4_VERSION:?Set PX4_VERSION in .env}
         PX4_MSGS_VERSION: ${PX4_MSGS_VERSION:?Set PX4_MSGS_VERSION in .env}
+        MAVSDK_VERSION: ${MAVSDK_VERSION:?Set MAVSDK_VERSION in .env}
+        MAVSDK_AMD64_SHA256: ${MAVSDK_AMD64_SHA256:?Set MAVSDK_AMD64_SHA256 in .env}
         RUFF_VERSION: ${RUFF_VERSION:?Set RUFF_VERSION in .env}
         DRONE_LOG_MIN_SEVERITY: ${DRONE_LOG_MIN_SEVERITY:-DEBUG}
     image: drone-swarming:px4-${PX4_VERSION}

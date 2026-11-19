@@ -33,6 +33,9 @@ class CommandEndpoints(unittest.TestCase):
             f'{namespace}/vehicle_control/{name}': [f'swarm_interfaces/action/{action}']
             for name, action in operations.items()
         }
+        expected_internal[f'{namespace}/vehicle_control/fly_mission'] = [
+            'swarm_interfaces/action/FlyMission'
+        ]
         expected_public: dict[str, list[str]] = {
             f'{namespace}/mission_execution/{name}': [f'swarm_interfaces/action/{action}']
             for name, action in operations.items()

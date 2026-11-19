@@ -35,6 +35,16 @@ RUN source /etc/os-release \
     && make -C "$PX4_DIR" px4_sitl_default \
     && test -x "$PX4_DIR/build/px4_sitl_default/bin/px4"
 
+ARG MAVSDK_VERSION
+ARG MAVSDK_AMD64_SHA256
+
+RUN curl -fL --retry 3 \
+    "https://github.com/mavlink/MAVSDK/releases/download/v${MAVSDK_VERSION}/libmavsdk-dev_${MAVSDK_VERSION}_ubuntu24.04_amd64.deb" \
+    -o /tmp/mavsdk.deb \
+    && echo "${MAVSDK_AMD64_SHA256}  /tmp/mavsdk.deb" | sha256sum -c - \
+    && dpkg -i /tmp/mavsdk.deb \
+    && rm /tmp/mavsdk.deb
+
 WORKDIR /opt/px4_ros2
 
 RUN mkdir -p src \

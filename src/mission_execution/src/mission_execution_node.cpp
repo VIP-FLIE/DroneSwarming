@@ -13,6 +13,7 @@
 #include <utility>
 
 #include "mission_execution/geometry.hpp"
+#include <swarm_geometry/geography.hpp>
 
 namespace mission_execution
 {
@@ -34,6 +35,8 @@ constexpr double maximum_planned_orbit_acceleration_mps2 = 2.0;
 constexpr float maximum_planned_orbit_timeout_sec = 600.0F;
 constexpr double hard_maximum_plan_altitude_m = 120.0;
 constexpr double hard_maximum_plan_distance_m = 1000.0;
+constexpr double maximum_timeout_sec = 3600.0;
+constexpr float maximum_waypoint_timeout_sec = 600.0F;
 
 /// Stores synchronization state for one asynchronous child action.
 template<typename ActionT>
@@ -240,7 +243,8 @@ void finish_unsuccessful(
 /// Rejects non-finite or negative durations before reserving command authority.
 bool is_valid_timeout(const float timeout_sec)
 {
-  return std::isfinite(timeout_sec) && timeout_sec >= 0.0F;
+  return std::isfinite(timeout_sec) && timeout_sec >= 0.0F &&
+         static_cast<double>(timeout_sec) <= maximum_timeout_sec;
 }
 
 /// Checks application positions at the command boundary.
@@ -258,11 +262,20 @@ bool is_valid_goal(const swarm_interfaces::action::Takeoff::Goal & goal)
 /// Validates the absolute navigation contract and optional look-at position.
 bool is_valid_goal(const swarm_interfaces::action::NavigateTo::Goal & goal)
 {
-  return goal.frame_id == "local_enu" && is_finite_point(goal.target_position) &&
-         is_valid_timeout(goal.position_tolerance_m) && is_valid_timeout(goal.timeout_sec) &&
-         (!goal.look_at_target || (is_finite_point(goal.look_at_position) &&
-         std::hypot(goal.look_at_position.x - goal.target_position.x,
-         goal.look_at_position.y - goal.target_position.y) > minimum_look_at_distance_m));
+  const bool is_geographic = goal.frame_id == "wgs84";
+  const bool is_frame_valid = is_geographic || goal.frame_id == "local_enu" ||
+    goal.frame_id == "relative_enu" || goal.frame_id == "relative_body";
+  const bool is_target_valid = is_geographic ?
+    swarm_geometry::is_valid(swarm_geometry::from_message(goal.geographic_target)) :
+    is_finite_point(goal.target_position);
+  const bool is_look_at_valid = !goal.look_at_target || (is_geographic ?
+    swarm_geometry::is_valid(swarm_geometry::from_message(goal.look_at_geographic_position)) :
+    (is_finite_point(goal.look_at_position) &&
+    std::hypot(goal.look_at_position.x - goal.target_position.x,
+    goal.look_at_position.y - goal.target_position.y) > minimum_look_at_distance_m));
+  return is_frame_valid && is_target_valid && is_look_at_valid &&
+         goal.position_tolerance_m <= maximum_planned_position_tolerance_m &&
+         is_valid_timeout(goal.position_tolerance_m) && is_valid_timeout(goal.timeout_sec);
 }
 
 /// Validates trajectory time order, positions, and requested heading fields.
@@ -347,15 +360,22 @@ MissionExecutionNode::MissionExecutionNode(const rclcpp::NodeOptions & options)
     throw std::invalid_argument("JSON plan bounds exceed supported altitude or distance limits");
   }
   if (!std::isfinite(telemetry_timeout_sec_) || telemetry_timeout_sec_ <= 0.0 ||
+    telemetry_timeout_sec_ > maximum_timeout_sec ||
     !std::isfinite(starting_position_timeout_sec_) || starting_position_timeout_sec_ <= 0.0 ||
+    starting_position_timeout_sec_ > maximum_timeout_sec ||
     !std::isfinite(action_server_timeout_sec_) || action_server_timeout_sec_ <= 0.0 ||
+    action_server_timeout_sec_ > maximum_timeout_sec ||
     !std::isfinite(child_result_timeout_sec_) ||
     child_result_timeout_sec_ < minimum_child_result_timeout_sec ||
-    !std::isfinite(default_waypoint_timeout_sec_) || default_waypoint_timeout_sec_ <= 0.0)
+    child_result_timeout_sec_ > maximum_timeout_sec ||
+    !std::isfinite(default_waypoint_timeout_sec_) || default_waypoint_timeout_sec_ <= 0.0 ||
+    default_waypoint_timeout_sec_ > static_cast<double>(maximum_waypoint_timeout_sec))
   {
     throw std::invalid_argument("mission-execution timeouts must be finite and positive");
   }
 
+  onboard_client_ = rclcpp_action::create_client<swarm_interfaces::action::FlyMission>(
+    this, "vehicle_control/fly_mission");
   takeoff_client_ = rclcpp_action::create_client<swarm_interfaces::action::Takeoff>(
     this, "vehicle_control/takeoff");
   navigation_client_ = rclcpp_action::create_client<swarm_interfaces::action::NavigateTo>(
@@ -390,12 +410,18 @@ MissionExecutionNode::MissionExecutionNode(const rclcpp::NodeOptions & options)
   mission_server_ = rclcpp_action::create_server<Mission>(
     this, "execute_waypoint_mission",
     [this](const rclcpp_action::GoalUUID &, std::shared_ptr<const Mission::Goal> goal) {
-      bool is_valid = goal->waypoint_offsets.size() < std::numeric_limits<std::uint32_t>::max() &&
+      const bool is_geographic = goal->frame_id == "wgs84";
+      bool is_valid = (is_geographic || goal->frame_id.empty() || goal->frame_id == "relative_enu" ||
+        goal->frame_id == "relative_body") &&
+        (is_geographic ? goal->waypoint_offsets.empty() : goal->waypoint_positions.empty()) &&
+        goal->waypoint_positions.size() <= maximum_planned_waypoints &&
+        goal->waypoint_offsets.size() <= maximum_planned_waypoints &&
         std::isfinite(goal->takeoff_altitude_m) && goal->takeoff_altitude_m > 0.0F &&
         std::isfinite(goal->position_tolerance_m) && goal->position_tolerance_m >= 0.0F &&
-        std::isfinite(goal->waypoint_timeout_sec) && goal->waypoint_timeout_sec >= 0.0F;
+        std::isfinite(goal->waypoint_timeout_sec) && goal->waypoint_timeout_sec >= 0.0F &&
+        goal->waypoint_timeout_sec <= maximum_waypoint_timeout_sec;
       if (goal->look_at_point_of_interest) {
-        is_valid = is_valid && !goal->waypoint_offsets.empty() &&
+        is_valid = is_valid && (!goal->waypoint_offsets.empty() || !goal->waypoint_positions.empty()) &&
           std::isfinite(goal->look_at_offset.x) && std::isfinite(goal->look_at_offset.y) &&
           std::isfinite(goal->look_at_offset.z);
       }
@@ -412,6 +438,17 @@ MissionExecutionNode::MissionExecutionNode(const rclcpp::NodeOptions & options)
       for (const geometry_msgs::msg::Point & waypoint : goal->waypoint_offsets) {
         is_valid = is_valid && std::isfinite(waypoint.x) && std::isfinite(waypoint.y) &&
           std::isfinite(waypoint.z);
+      }
+      for (const swarm_interfaces::msg::GeographicPosition & waypoint : goal->waypoint_positions) {
+        is_valid = is_valid && swarm_geometry::is_valid(swarm_geometry::from_message(waypoint));
+      }
+      if (is_geographic && goal->look_at_point_of_interest) {
+        is_valid = is_valid && swarm_geometry::is_valid(
+          swarm_geometry::from_message(goal->look_at_geographic_position));
+      }
+      if (is_geographic && goal->orbit_after_waypoints) {
+        is_valid = is_valid && swarm_geometry::is_valid(
+          swarm_geometry::from_message(goal->orbit_center_geographic));
       }
       return reserve_command(is_valid) ?
         rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE : rclcpp_action::GoalResponse::REJECT;
@@ -491,7 +528,8 @@ std::string MissionExecutionNode::state_error(
   }
   if ((is_takeoff && (latest_vehicle_state_.armed || !latest_vehicle_state_.landed)) ||
     (!is_takeoff && !is_landing && (!latest_vehicle_state_.armed ||
-    latest_vehicle_state_.landed || !latest_vehicle_state_.offboard)))
+    latest_vehicle_state_.landed ||
+    (!latest_vehicle_state_.offboard && !latest_vehicle_state_.holding))))
   {
     return "Vehicle state is incompatible with the requested operation";
   }
@@ -544,7 +582,7 @@ void MissionExecutionNode::execute_operation(
       };
     bool requires_yaw = false;
     if constexpr (std::is_same_v<ActionT, swarm_interfaces::action::NavigateTo>) {
-      requires_yaw = goal->look_at_target;
+      requires_yaw = goal->look_at_target || goal->frame_id == "relative_body";
     } else if constexpr (std::is_same_v<ActionT, swarm_interfaces::action::FollowTrajectory>) {
       requires_yaw = goal->control_yaw;
     } else if constexpr (std::is_same_v<ActionT, swarm_interfaces::action::OrbitPoint>) {
@@ -560,8 +598,17 @@ void MissionExecutionNode::execute_operation(
       result_timeout_sec = std::max(
         result_timeout_sec, static_cast<double>(goal->timeout_sec) + result_timeout_margin_sec);
     }
+    typename ActionT::Goal child_goal = *goal;
+    if constexpr (std::is_same_v<ActionT, swarm_interfaces::action::NavigateTo>) {
+      swarm_interfaces::msg::VehicleState snapshot;
+      {
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        snapshot = latest_vehicle_state_;
+      }
+      child_goal = resolve_navigation(*goal, snapshot);
+    }
     const ChildActionOutcome outcome = run_child_action<ActionT>(
-      client, child_pending_, *goal,
+      client, child_pending_, child_goal,
       deadline_after(action_server_timeout_sec_), deadline_after(result_timeout_sec),
       is_interrupted,
       [this, is_landing, requires_yaw]() {
@@ -668,6 +715,19 @@ std::string MissionExecutionNode::frame_error(
   return {};
 }
 
+std::string MissionExecutionNode::global_state_error()
+{
+  std::lock_guard<std::mutex> lock(state_mutex_);
+  if (!has_vehicle_state_ || !latest_vehicle_state_.global_position_valid ||
+    !swarm_geometry::is_valid(swarm_geometry::from_message(latest_vehicle_state_.geographic_position)) ||
+    std::chrono::steady_clock::now() - vehicle_state_received_ >
+    std::chrono::duration<double>(telemetry_timeout_sec_))
+  {
+    return "No fresh, valid geographic vehicle position was received";
+  }
+  return {};
+}
+
 void MissionExecutionNode::execute_flight_plan(
   const std::shared_ptr<FlightPlanHandle> & goal_handle)
 {
@@ -714,30 +774,33 @@ void MissionExecutionNode::execute_flight_plan(
     if (is_interrupted()) {
       throw std::runtime_error("JSON mission interrupted after planning");
     }
-    const std::string frame_failure = frame_error(initial_state);
+    const std::string frame_failure = global_state_error();
     if (!frame_failure.empty()) {
       throw std::runtime_error(frame_failure);
     }
-    const std::function<bool(const geometry_msgs::msg::Point &, double)> is_bounded =
-      [this](const geometry_msgs::msg::Point & offset, const double radius_m) {
-        return is_finite_point(offset) && offset.z > 0.0 &&
-               offset.z <= maximum_plan_altitude_m_ &&
-               std::hypot(offset.x, offset.y) + radius_m <= maximum_plan_distance_m_;
+    const std::function<bool(const swarm_interfaces::msg::GeographicPosition &, double)> is_bounded =
+      [this, initial_state](const swarm_interfaces::msg::GeographicPosition & target, const double radius_m) {
+        const std::optional<swarm_geometry::Position> offset = swarm_geometry::global_to_enu(
+          swarm_geometry::from_message(target),
+          swarm_geometry::from_message(initial_state.geographic_position));
+        return offset && (*offset)[2] > 0.0 && (*offset)[2] <= maximum_plan_altitude_m_ + swarm_geometry::projection_tolerance_m &&
+               std::hypot((*offset)[0], (*offset)[1]) + radius_m <=
+               maximum_plan_distance_m_ + swarm_geometry::projection_tolerance_m;
       };
     bool is_valid = std::isfinite(planned->takeoff_altitude_m) &&
       planned->takeoff_altitude_m > 0.0F &&
       static_cast<double>(planned->takeoff_altitude_m) <= maximum_plan_altitude_m_ &&
       std::isfinite(planned->position_tolerance_m) && planned->position_tolerance_m > 0.0F &&
       planned->position_tolerance_m <= maximum_planned_position_tolerance_m &&
-      planned->waypoint_offsets.size() <= maximum_planned_waypoints &&
-      (!planned->waypoint_offsets.empty() || planned->orbit_after_waypoints);
-    for (const geometry_msgs::msg::Point & offset : planned->waypoint_offsets) {
+      planned->waypoint_positions.size() <= maximum_planned_waypoints &&
+      (!planned->waypoint_positions.empty() || planned->orbit_after_waypoints);
+    for (const swarm_interfaces::msg::GeographicPosition & offset : planned->waypoint_positions) {
       is_valid = is_valid && is_bounded(offset, 0.0);
     }
     if (planned->orbit_after_waypoints) {
       is_valid = is_valid && std::isfinite(planned->orbit_radius_m) &&
         planned->orbit_radius_m >= minimum_orbit_radius_m &&
-        is_bounded(planned->orbit_center_offset, static_cast<double>(planned->orbit_radius_m)) &&
+        is_bounded(planned->orbit_center_geographic, static_cast<double>(planned->orbit_radius_m)) &&
         std::isfinite(planned->orbit_tangential_speed_mps) &&
         planned->orbit_tangential_speed_mps > 0.0F &&
         planned->orbit_tangential_speed_mps <= maximum_planned_orbit_speed_mps &&
@@ -750,12 +813,13 @@ void MissionExecutionNode::execute_flight_plan(
       throw std::runtime_error("Mission planner returned invalid or out-of-bounds instructions");
     }
     std::shared_ptr<Mission::Goal> mission = std::make_shared<Mission::Goal>();
+    mission->frame_id = "wgs84";
     mission->takeoff_altitude_m = planned->takeoff_altitude_m;
-    mission->waypoint_offsets = planned->waypoint_offsets;
+    mission->waypoint_positions = planned->waypoint_positions;
     mission->position_tolerance_m = planned->position_tolerance_m;
     mission->land_after_waypoints = true;
     mission->orbit_after_waypoints = planned->orbit_after_waypoints;
-    mission->orbit_center_offset = planned->orbit_center_offset;
+    mission->orbit_center_geographic = planned->orbit_center_geographic;
     mission->orbit_radius_m = planned->orbit_radius_m;
     mission->orbit_tangential_speed_mps = planned->orbit_tangential_speed_mps;
     mission->orbit_revolutions = planned->orbit_revolutions;
@@ -771,7 +835,7 @@ void MissionExecutionNode::execute_flight_plan(
 template<typename ActionT>
 void MissionExecutionNode::execute_mission(
   const std::shared_ptr<rclcpp_action::ServerGoalHandle<ActionT>> & goal_handle,
-  const std::shared_ptr<const Mission::Goal> & goal,
+  const std::shared_ptr<const Mission::Goal> & input_goal,
   const std::optional<swarm_interfaces::msg::VehicleState> & captured_state)
 {
   std::shared_ptr<typename ActionT::Result> result = std::make_shared<typename ActionT::Result>();
@@ -809,99 +873,72 @@ void MissionExecutionNode::execute_mission(
       }
     };
 
-  RCLCPP_INFO(
-    get_logger(), "Starting waypoint mission (waypoints=%zu, orbit=%s, land=%s)",
-    goal->waypoint_offsets.size(), goal->orbit_after_waypoints ? "enabled" : "disabled",
-    goal->land_after_waypoints ? "enabled" : "disabled");
-
   try {
     const swarm_interfaces::msg::VehicleState initial_state = captured_state ?
       *captured_state : starting_state(parent_is_canceling);
-    const std::function<std::string()> execution_error = [this, captured_state]() {
-        return captured_state ? frame_error(*captured_state) : std::string();
-      };
-    const geometry_msgs::msg::Point mission_origin = initial_state.position;
-
-    const std::string takeoff_state_error = state_error(true, false, false);
-    if (!takeoff_state_error.empty()) {
-      throw std::runtime_error(takeoff_state_error);
-    }
-    publish_feedback(0, 0.0F, "Taking off");
-    swarm_interfaces::action::Takeoff::Goal takeoff_goal;
-    takeoff_goal.altitude_m = goal->takeoff_altitude_m;
-    ChildActionOutcome takeoff_outcome = run_child_action<swarm_interfaces::action::Takeoff>(
-      takeoff_client_, child_pending_, takeoff_goal,
-      deadline_after(action_server_timeout_sec_), deadline_after(child_result_timeout_sec_),
-      parent_is_canceling,
-      [this]() {return state_error(true, false, false);},
-      [publish_feedback](const swarm_interfaces::action::Takeoff::Feedback & feedback) {
-        publish_feedback(
-          0, std::abs(feedback.target_altitude_m - feedback.current_altitude_m), "Taking off");
-      }, [](const swarm_interfaces::action::Takeoff::Result &) {}, execution_error);
-    if (!takeoff_outcome.succeeded) {
-      result->message = "Takeoff failed or was interrupted: " + takeoff_outcome.message;
-      finish_unsuccessful<ActionT>(goal_handle, result, takeoff_outcome.cancellation_completed);
-      return;
-    }
-
+    const std::shared_ptr<const Mission::Goal> goal =
+      std::make_shared<Mission::Goal>(resolve_mission(*input_goal, initial_state));
     const double waypoint_timeout = goal->waypoint_timeout_sec == 0.0F ?
       default_waypoint_timeout_sec_ : static_cast<double>(goal->waypoint_timeout_sec);
-    for (std::size_t index = 0; index < goal->waypoint_offsets.size(); ++index) {
-      if (parent_is_canceling()) {
-        result->message = "Mission canceled after " + std::to_string(result->completed_waypoints) +
-          " completed waypoints";
-        finish_unsuccessful<ActionT>(goal_handle, result);
-        return;
-      }
-      const std::string navigation_state_error = state_error(
-        false, false, goal->look_at_point_of_interest);
-      if (!navigation_state_error.empty()) {
-        throw std::runtime_error(navigation_state_error);
-      }
-      const geometry_msgs::msg::Point & offset = goal->waypoint_offsets[index];
-      swarm_interfaces::action::NavigateTo::Goal navigation_goal;
-      navigation_goal.target_position = add_waypoint_offset(mission_origin, offset);
-      navigation_goal.frame_id = "local_enu";
-      navigation_goal.look_at_target = goal->look_at_point_of_interest;
-      if (goal->look_at_point_of_interest) {
-        navigation_goal.look_at_position = add_waypoint_offset(
-          mission_origin, goal->look_at_offset);
-      }
-      navigation_goal.position_tolerance_m = goal->position_tolerance_m;
-      navigation_goal.timeout_sec = static_cast<float>(waypoint_timeout);
-      const std::uint32_t current_waypoint = static_cast<std::uint32_t>(index + 1);
-      publish_feedback(current_waypoint, 0.0F, "Navigating to waypoint");
-      const double result_timeout = std::max(child_result_timeout_sec_, waypoint_timeout + 10.0);
-      ChildActionOutcome navigation_outcome =
-        run_child_action<swarm_interfaces::action::NavigateTo>(
-        navigation_client_, child_pending_, navigation_goal,
-        deadline_after(action_server_timeout_sec_), deadline_after(result_timeout),
-        parent_is_canceling,
-        [this, goal]() {return state_error(false, false, goal->look_at_point_of_interest);},
-        [publish_feedback, current_waypoint](
-          const swarm_interfaces::action::NavigateTo::Feedback & feedback) {
-          publish_feedback(
-            current_waypoint, feedback.distance_to_target_m, "Navigating to waypoint");
-        }, [](const swarm_interfaces::action::NavigateTo::Result &) {}, execution_error);
-      if (!navigation_outcome.succeeded) {
-        result->message = "Waypoint " + std::to_string(current_waypoint) + " failed: " +
-          navigation_outcome.message;
-        finish_unsuccessful<ActionT>(goal_handle, result, navigation_outcome.cancellation_completed);
-        return;
-      }
-      ++(*completed_waypoints);
-      result->completed_waypoints = completed_waypoints->load();
+    swarm_interfaces::action::FlyMission::Goal onboard_goal;
+    onboard_goal.starting_position = initial_state.geographic_position;
+    onboard_goal.takeoff_position = initial_state.geographic_position;
+    onboard_goal.takeoff_position.altitude_amsl_m += static_cast<double>(goal->takeoff_altitude_m);
+    onboard_goal.position_tolerance_m = goal->position_tolerance_m;
+    onboard_goal.waypoint_timeout_sec = static_cast<float>(waypoint_timeout);
+    onboard_goal.look_at_point_of_interest = goal->look_at_point_of_interest;
+    onboard_goal.look_at_position = goal->look_at_geographic_position;
+    onboard_goal.land_after_waypoints = goal->land_after_waypoints && !goal->orbit_after_waypoints;
+    onboard_goal.waypoint_positions = goal->waypoint_positions;
+    const double route_timeout = child_result_timeout_sec_ + result_timeout_margin_sec +
+      (static_cast<double>(goal->waypoint_positions.size()) + 1.0) * waypoint_timeout;
+    const ChildActionOutcome onboard_outcome = run_child_action<swarm_interfaces::action::FlyMission>(
+      onboard_client_, child_pending_, onboard_goal,
+      deadline_after(action_server_timeout_sec_), deadline_after(route_timeout), parent_is_canceling,
+      [this]() {
+        const std::string state_failure = state_error(true, false, false);
+        return state_failure.empty() ? global_state_error() : state_failure;
+      },
+      [publish_feedback, completed_waypoints](const swarm_interfaces::action::FlyMission::Feedback & feedback) {
+        completed_waypoints->store(feedback.completed_waypoints);
+        publish_feedback(feedback.current_waypoint, feedback.distance_to_target_m, feedback.status);
+      },
+      [result](const swarm_interfaces::action::FlyMission::Result & child_result) {
+        result->completed_waypoints = child_result.completed_waypoints;
+      });
+    completed_waypoints->store(result->completed_waypoints);
+    if (!onboard_outcome.succeeded) {
+      result->message = "Onboard mission failed or was interrupted: " + onboard_outcome.message;
+      finish_unsuccessful<ActionT>(goal_handle, result, onboard_outcome.cancellation_completed);
+      return;
     }
+    const std::function<std::string()> execution_error = [this]() {return global_state_error();};
 
     if (goal->orbit_after_waypoints) {
-      const std::string orbit_state_error = state_error(false, false, false);
+      const std::chrono::steady_clock::time_point handoff_deadline =
+        deadline_after(action_server_timeout_sec_);
+      std::string orbit_state_error = state_error(false, false, false);
+      while (!orbit_state_error.empty() && !parent_is_canceling() &&
+        std::chrono::steady_clock::now() < handoff_deadline)
+      {
+        std::this_thread::sleep_for(callback_poll_interval);
+        orbit_state_error = state_error(false, false, false);
+      }
+      if (parent_is_canceling()) {
+        throw std::runtime_error("Mission interrupted during native Hold handoff");
+      }
       if (!orbit_state_error.empty()) {
         throw std::runtime_error(orbit_state_error);
       }
       RCLCPP_INFO(get_logger(), "Starting mission OrbitPoint child action");
       publish_feedback(0, 0.0F, "Orbiting point of interest");
       swarm_interfaces::action::OrbitPoint::Goal orbit_goal;
-      orbit_goal.center_position = add_waypoint_offset(mission_origin, goal->orbit_center_offset);
+      swarm_interfaces::msg::VehicleState handoff_state;
+      {
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        handoff_state = latest_vehicle_state_;
+      }
+      orbit_goal.center_position = local_position(goal->orbit_center_geographic, handoff_state);
       orbit_goal.frame_id = "local_enu";
       orbit_goal.radius_m = goal->orbit_radius_m;
       orbit_goal.clockwise = goal->orbit_clockwise;
@@ -918,7 +955,8 @@ void MissionExecutionNode::execute_mission(
         [publish_orbit_feedback](const swarm_interfaces::action::OrbitPoint::Feedback & feedback) {
           publish_orbit_feedback(
             feedback.completed_revolutions, feedback.status);
-        }, [](const swarm_interfaces::action::OrbitPoint::Result &) {}, execution_error);
+        }, [](const swarm_interfaces::action::OrbitPoint::Result &) {},
+        [this, handoff_state]() {return frame_error(handoff_state);});
       if (!orbit_outcome.succeeded) {
         result->message = "Orbit failed: " + orbit_outcome.message;
         RCLCPP_ERROR(get_logger(), "%s", result->message.c_str());
@@ -929,7 +967,7 @@ void MissionExecutionNode::execute_mission(
       RCLCPP_INFO(get_logger(), "Mission OrbitPoint child action completed");
     }
 
-    if (goal->land_after_waypoints) {
+    if (goal->land_after_waypoints && goal->orbit_after_waypoints) {
       const std::string landing_state_error = state_error(false, true, false);
       if (!landing_state_error.empty()) {
         throw std::runtime_error(landing_state_error);

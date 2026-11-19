@@ -5,7 +5,7 @@ import rclpy
 from rcl_interfaces.msg import ParameterDescriptor
 from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException
-from geometry_msgs.msg import Point
+from swarm_interfaces.msg import GeographicPosition
 from swarm_interfaces.srv import PlanFlight
 
 from .compiler import PlanningLimits, StartingPosition, compile_plan
@@ -33,11 +33,17 @@ class MissionPlanner(Node):
     def plan_flight(
         self, request: PlanFlight.Request, response: PlanFlight.Response
     ) -> PlanFlight.Response:
-        """Return validated mission-origin instructions or an unsuccessful diagnostic."""
+        """Return fixed geographic instructions or an unsuccessful diagnostic."""
         try:
             state = request.starting_state
-            if state.header.frame_id != 'local_enu' or not state.position_valid:
-                raise ValueError('planning requires a valid local_enu start snapshot')
+            if (
+                state.header.frame_id != 'local_enu'
+                or not state.position_valid
+                or not state.global_position_valid
+            ):
+                raise ValueError(
+                    'planning requires valid local and geographic position in the start snapshot'
+                )
             reference: GeographicOrigin | None = None
             if state.global_reference_valid:
                 if state.local_frame_revision == 0:
@@ -48,25 +54,42 @@ class MissionPlanner(Node):
                     state.reference_altitude_amsl_m,
                 )
             start = StartingPosition(
-                state.position.x, state.position.y, state.position.z, reference
+                state.position.x,
+                state.position.y,
+                state.position.z,
+                reference,
+                state.yaw_rad if state.yaw_valid else None,
+                GeographicOrigin(
+                    state.geographic_position.latitude_deg,
+                    state.geographic_position.longitude_deg,
+                    state.geographic_position.altitude_amsl_m,
+                ),
             )
             instructions = compile_plan(request.plan_json, request.vehicle_id, start, self.limits)
             response.takeoff_altitude_m = instructions.takeoff_altitude_m
             response.position_tolerance_m = instructions.position_tolerance_m
-            response.waypoint_offsets = [
-                Point(x=east_m, y=north_m, z=up_m)
-                for east_m, north_m, up_m in instructions.waypoint_offsets
+            response.waypoint_positions = [
+                GeographicPosition(
+                    latitude_deg=position.latitude_deg,
+                    longitude_deg=position.longitude_deg,
+                    altitude_amsl_m=position.altitude_amsl_m,
+                )
+                for position in instructions.waypoint_positions
             ]
-            if instructions.orbit_center_offset is not None:
-                east_m, north_m, up_m = instructions.orbit_center_offset
+            if instructions.orbit_center_geographic is not None:
+                center: GeographicOrigin = instructions.orbit_center_geographic
                 response.orbit_after_waypoints = True
-                response.orbit_center_offset = Point(x=east_m, y=north_m, z=up_m)
+                response.orbit_center_geographic = GeographicPosition(
+                    latitude_deg=center.latitude_deg,
+                    longitude_deg=center.longitude_deg,
+                    altitude_amsl_m=center.altitude_amsl_m,
+                )
                 response.orbit_radius_m = instructions.orbit_radius_m
                 response.orbit_tangential_speed_mps = instructions.orbit_speed_mps
                 response.orbit_revolutions = 1.0
                 response.orbit_timeout_sec = instructions.orbit_timeout_sec
             response.success = True
-            response.message = 'Selected assignment compiled into mission-start offsets'
+            response.message = 'Selected assignment compiled into fixed geographic destinations'
         except (ValueError, OverflowError, RecursionError) as error:
             response.success = False
             response.message = str(error)

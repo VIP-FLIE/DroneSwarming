@@ -1,15 +1,25 @@
 # swarm_interfaces
 
-Application contracts use `local_enu`: X is east, Y is north, and Z is up, in meters from PX4's local-position origin. PX4-specific message types belong in `vehicle_control` only.
+Compiled mission destinations use `GeographicPosition`: float64 WGS84 latitude/longitude in degrees and altitude in meters above mean sea level. Shared planning geometry uses ENU meters from a documented geographic anchor. PX4 message types remain confined to `vehicle_control`.
 
-The public command endpoints belong to `mission_execution`; `vehicle_control/<operation>` endpoints are internal execution contracts. Both use the existing `Takeoff`, `NavigateTo`, `FollowTrajectory`, `OrbitPoint`, and `Land` types. `ExecuteWaypointMission` retains its public endpoint and origin semantics.
+Public endpoints belong to `mission_execution`. `vehicle_control/<operation>` endpoints are internal execution contracts. Build and source the entire workspace after changing these messages, actions, or services.
 
-`OrbitPoint` accepts an absolute `local_enu` center and requests a finite, signed orbit from `vehicle_control`. The center Z value is orbit altitude. The result reports measured completed revolutions and succeeds only after Offboard hold is confirmed. `ExecuteWaypointMission` can optionally run the same action after its waypoints; its orbit-center offset uses the mission-start origin.
+| Contract | Coordinate semantics |
+| --- | --- |
+| `VehicleState` | Local ENU telemetry plus a validity-gated current `geographic_position` and estimator-origin diagnostics |
+| `NavigateTo` | Public `relative_enu`, `relative_body`, `wgs84`, or legacy `local_enu`; relative input resolves once to WGS84 before child dispatch |
+| `ExecuteWaypointMission` | Authored relative ENU/body offsets or WGS84 destinations, selected by `frame_id` |
+| `PlanFlight` | JSON, vehicle ID, and a captured state produce fixed geographic waypoints, takeoff climb, and an optional geographic orbit center |
+| `FlyMission` | Captured geographic starting position, geographic takeoff/waypoint/ROI destinations, and execution settings |
+| `FollowTrajectory` | Timed estimator-local ENU positions and optional ROS yaw |
+| `OrbitPoint` | Estimator-local ENU center and finite orbit settings |
 
-`NavigateTo` accepts an optional absolute `local_enu` look-at point. The vehicle yaw tracks the horizontal bearing to that point while position control continues to use the independent ENU position target. `ExecuteWaypointMission` can apply one look-at offset, relative to the mission-start position, to every waypoint.
+`NavigateTo.geographic_target` and `look_at_geographic_position` apply to `wgs84`. `target_position` and `look_at_position` apply to the other public frames. Relative body axes are forward, left, and up at one captured heading. Relative ENU axes remain east, north, and up.
 
-`SearchRegion`, `TaskAssignment`, and `VictimReport` are provisional initial contracts. Refine them when coordination and perception are implemented.
+`ExecuteWaypointMission.waypoint_positions`, `look_at_geographic_position`, and `orbit_center_geographic` apply to `wgs84`. Its offset fields apply to `relative_enu` or `relative_body`. Geographic and relative waypoint lists cannot be combined. An empty frame retains the previous relative ENU input convention. Every relative mission waypoint uses one captured start. Takeoff altitude is a vertical climb from that start for every input frame.
 
-`ExecuteFlightPlan` carries bounded JSON content to mission execution. `PlanFlight` is a planning-only service: JSON, vehicle ID, and one captured `VehicleState` produce mission-start waypoint offsets, takeoff climb, and optional orbit instructions. Its response contains application coordinates and no flight side effects. JSON execution always lands after successful path completion. See the [schema](../mission_planner/README.md).
+`VehicleState.global_position_valid` gates the current geographic estimate. `global_reference_valid` gates the reference latitude, longitude, and AMSL altitude of the estimator-local origin. `local_frame_revision` identifies local reference or position-reset changes. Geographic missions remain fixed across revisions. Local operations retain frame checks. Geographic orbit centers are projected only at the orbit handoff.
 
-`VehicleState.local_frame_revision` identifies changes to the local geographic reference or estimator position-reset counters. `global_reference_valid` gates `reference_latitude_deg`, `reference_longitude_deg`, and `reference_altitude_amsl_m`. These fields describe the geographic location of the local ENU origin. AMSL height is meters above mean sea level. Geographic planning requires valid reference fields and a nonzero revision. Executors abort translated missions if the revision changes.
+`VehicleState.holding` and `VehicleState.mission` expose fresh native PX4 mode status. Uploaded mission cancellation confirms native Hold or landed/disarmed state. Navigation confirms a settled Offboard hold; orbit confirms Offboard recovery. The action result and state topic arrive independently.
+
+`SearchRegion`, `TaskAssignment`, and `VictimReport` are provisional definitions without coordination or perception runtime. The [coordinate guide](../../docs/architecture/COORDINATES.md) provides commands and sensing limits; the [planner guide](../mission_planner/README.md) defines JSON inputs; the [onboard mission guide](../../docs/architecture/PX4-ONBOARD-MISSIONS.md) defines upload and cancellation.

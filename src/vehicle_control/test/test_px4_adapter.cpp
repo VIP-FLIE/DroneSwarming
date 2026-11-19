@@ -10,12 +10,15 @@
 
 #include <gtest/gtest.h>
 #include <px4_msgs/msg/vehicle_command.hpp>
+#include <px4_msgs/msg/vehicle_land_detected.hpp>
+#include <px4_msgs/msg/vehicle_status.hpp>
 #include <px4_msgs/msg/vehicle_local_position.hpp>
 #include <px4_msgs/msg/vehicle_command_ack.hpp>
 #include <px4_msgs/msg/trajectory_setpoint.hpp>
 #include <rclcpp/rclcpp.hpp>
 
 #include "vehicle_control/px4_adapter.hpp"
+#include "vehicle_control/vehicle_control_node.hpp"
 
 namespace vehicle_control
 {
@@ -261,6 +264,69 @@ TEST(Px4Adapter, RevisesTheLocalFrameOnlyWhenItsReferenceOrResetChanges)
     EXPECT_EQ(adapter.telemetry().local_frame_revision, initial_revision + 2U);
     EXPECT_DOUBLE_EQ(adapter.telemetry().reference_longitude_deg, position.ref_lon);
     executor.remove_node(node);
+  }
+  rclcpp::shutdown();
+}
+
+TEST(VehicleState, LandStateFreshnessCoversTheOneSecondPublisherPeriod)
+{
+  rclcpp::init(0, nullptr);
+  {
+    const std::shared_ptr<VehicleControlNode> control = std::make_shared<VehicleControlNode>();
+    const std::shared_ptr<rclcpp::Node> peer = std::make_shared<rclcpp::Node>("land_freshness_test");
+    const rclcpp::QoS qos = rclcpp::QoS(1).best_effort().transient_local();
+    const rclcpp::Publisher<px4_msgs::msg::VehicleLocalPosition>::SharedPtr position_publisher =
+      peer->create_publisher<px4_msgs::msg::VehicleLocalPosition>("/fmu/out/vehicle_local_position_v1", qos);
+    const rclcpp::Publisher<px4_msgs::msg::VehicleStatus>::SharedPtr status_publisher =
+      peer->create_publisher<px4_msgs::msg::VehicleStatus>("/fmu/out/vehicle_status_v1", qos);
+    const rclcpp::Publisher<px4_msgs::msg::VehicleLandDetected>::SharedPtr land_publisher =
+      peer->create_publisher<px4_msgs::msg::VehicleLandDetected>("/fmu/out/vehicle_land_detected", qos);
+    std::optional<swarm_interfaces::msg::VehicleState> latest;
+    const rclcpp::Subscription<swarm_interfaces::msg::VehicleState>::SharedPtr state_subscription =
+      peer->create_subscription<swarm_interfaces::msg::VehicleState>("/vehicle_state", 10,
+      [&latest](const swarm_interfaces::msg::VehicleState & message) {latest = message;});
+    const rclcpp::TimerBase::SharedPtr timer = peer->create_wall_timer(std::chrono::milliseconds(20),
+      [position_publisher, status_publisher]() {
+        px4_msgs::msg::VehicleLocalPosition position;
+        position.xy_valid = true;
+        position.z_valid = true;
+        position_publisher->publish(position);
+        status_publisher->publish(px4_msgs::msg::VehicleStatus());
+      });
+    rclcpp::executors::SingleThreadedExecutor executor;
+    executor.add_node(control);
+    executor.add_node(peer);
+    const std::chrono::steady_clock::time_point discovery_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (land_publisher->get_subscription_count() == 0U &&
+      std::chrono::steady_clock::now() < discovery_deadline)
+    {
+      executor.spin_some();
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    px4_msgs::msg::VehicleLandDetected landed;
+    landed.landed = true;
+    land_publisher->publish(landed);
+    const std::chrono::steady_clock::time_point sent = std::chrono::steady_clock::now();
+    while (std::chrono::steady_clock::now() - sent < std::chrono::milliseconds(1300)) {
+      executor.spin_some();
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    EXPECT_TRUE(latest.has_value());
+    if (latest) {
+      EXPECT_TRUE(latest->position_valid);
+      EXPECT_TRUE(latest->landed);
+    }
+    while (std::chrono::steady_clock::now() - sent < std::chrono::milliseconds(2300)) {
+      executor.spin_some();
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    if (latest) {
+      EXPECT_TRUE(latest->position_valid);
+      EXPECT_FALSE(latest->landed);
+    }
+    executor.remove_node(control);
+    executor.remove_node(peer);
   }
   rclcpp::shutdown();
 }

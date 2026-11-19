@@ -2,7 +2,7 @@ DOT ?= dot
 
 ARCHITECTURE_DIR := docs/architecture
 GENERATED_DIR := $(ARCHITECTURE_DIR)/generated
-DIAGRAMS := current-system future-system
+DIAGRAMS := current-system
 FORMATS := svg png
 DIAGRAM_OUTPUTS := $(foreach diagram,$(DIAGRAMS),$(foreach format,$(FORMATS),$(GENERATED_DIR)/$(diagram).$(format)))
 

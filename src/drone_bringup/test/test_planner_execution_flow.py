@@ -2,7 +2,6 @@
 """Exercise real planners and executors with namespaced simulated action backends."""
 
 import json
-import math
 import os
 import signal
 import subprocess
@@ -22,12 +21,12 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.task import Future
-from swarm_interfaces.action import ExecuteFlightPlan, Land, NavigateTo, Takeoff
-from swarm_interfaces.msg import VehicleState
+from swarm_interfaces.action import ExecuteFlightPlan, FlyMission, Land
+from swarm_interfaces.msg import GeographicPosition, VehicleState
 from swarm_interfaces.srv import PlanFlight
 from geometry_msgs.msg import Point
 
-from mission_planner.geography import GeographicOrigin, enu_to_geographic
+from mission_planner.geography import GeographicOrigin, enu_to_geographic, geographic_to_enu
 from mission_planner.node import MissionPlanner
 from mission_planner.flight_plan import JsonValue
 
@@ -42,7 +41,15 @@ class VehicleBackend(Node):
         self.state.position_valid = True
         self.state.yaw_valid = True
         self.state.landed = True
+        self.reference = reference
         self.state.global_reference_valid = True
+        self.state.global_position_valid = True
+        self.state.geographic_position = GeographicPosition(
+            latitude_deg=reference.latitude_deg,
+            longitude_deg=reference.longitude_deg,
+            altitude_amsl_m=reference.altitude_amsl_m,
+        )
+        self.geographic_targets: list[GeographicPosition] = []
         self.state.local_frame_revision = 1
         self.state.reference_latitude_deg = reference.latitude_deg
         self.state.reference_longitude_deg = reference.longitude_deg
@@ -59,13 +66,10 @@ class VehicleBackend(Node):
         group = ReentrantCallbackGroup()
         self.servers: list[ActionServer] = [
             ActionServer(
-                self, Takeoff, 'vehicle_control/takeoff', self.takeoff, callback_group=group
-            ),
-            ActionServer(
                 self,
-                NavigateTo,
-                'vehicle_control/navigate_to',
-                self.navigate,
+                FlyMission,
+                'vehicle_control/fly_mission',
+                self.fly_mission,
                 cancel_callback=lambda handle: CancelResponse.ACCEPT,
                 callback_group=group,
             ),
@@ -76,36 +80,62 @@ class VehicleBackend(Node):
         with self.lock:
             self.state.header.stamp = self.get_clock().now().to_msg()
             self.state.setpoint_publication_count += 1
+            current = enu_to_geographic(
+                self.state.position.x, self.state.position.y, self.state.position.z, self.reference
+            )
+            self.state.geographic_position = GeographicPosition(
+                latitude_deg=current.latitude_deg,
+                longitude_deg=current.longitude_deg,
+                altitude_amsl_m=current.altitude_amsl_m,
+            )
             self.publisher.publish(self.state)
 
-    def takeoff(self, handle: ServerGoalHandle) -> Takeoff.Result:
+    def local_position(self, position: GeographicPosition) -> Point:
+        """Project received geographic destinations for independent metric assertions."""
+        east_m, north_m, up_m = geographic_to_enu(
+            GeographicOrigin(
+                position.latitude_deg, position.longitude_deg, position.altitude_amsl_m
+            ),
+            self.reference,
+        )
+        return Point(x=east_m, y=north_m, z=up_m)
+
+    def fly_mission(self, handle: ServerGoalHandle) -> FlyMission.Result:
+        """Simulate one uploaded route and its native cancellation boundary."""
         with self.lock:
             self.takeoffs += 1
             self.state.armed = True
             self.state.landed = False
-            self.state.offboard = True
-            self.state.position.z += handle.request.altitude_m
-        time.sleep(0.06)
-        handle.succeed()
-        return Takeoff.Result(success=True, message='Simulated takeoff complete')
-
-    def navigate(self, handle: ServerGoalHandle) -> NavigateTo.Result:
-        with self.lock:
-            target = handle.request.target_position
-            self.navigation_targets.append((target.x, target.y, target.z))
+            self.state.mission = True
+            self.state.position = self.local_position(handle.request.takeoff_position)
+            for target in handle.request.waypoint_positions:
+                local = self.local_position(target)
+                self.navigation_targets.append((local.x, local.y, local.z))
+                self.geographic_targets.append(target)
             self.navigation_started.set()
         while self.should_hold_navigation and rclpy.ok():
             if handle.is_cancel_requested:
                 with self.lock:
                     self.navigation_cancellations += 1
+                    self.state.mission = False
+                    self.state.holding = True
                 handle.canceled()
-                return NavigateTo.Result(success=False, message='Simulated hold established')
+                return FlyMission.Result(success=False, message='Native Hold confirmed')
             time.sleep(0.01)
         with self.lock:
-            self.state.position = handle.request.target_position
+            if handle.request.waypoint_positions:
+                self.state.position = self.local_position(handle.request.waypoint_positions[-1])
+            self.state.mission = False
+            self.state.holding = True
+            if handle.request.land_after_waypoints:
+                self.landings += 1
+                self.state.armed = False
+                self.state.landed = True
         time.sleep(0.06)
         handle.succeed()
-        return NavigateTo.Result(success=True, final_distance_m=0.0, final_yaw_error_rad=math.nan)
+        return FlyMission.Result(
+            success=True, completed_waypoints=len(handle.request.waypoint_positions)
+        )
 
     def land(self, handle: ServerGoalHandle) -> Land.Result:
         with self.lock:
@@ -236,8 +266,12 @@ class PlannerExecutionFlow(unittest.TestCase):
             self.wait_future(future)
             self.assertEqual(future.result().status, GoalStatus.STATUS_SUCCEEDED)
             self.assertEqual(future.result().result.completed_waypoints, 2)
-        self.assertEqual(self.backends[0].navigation_targets, [(3, 0, 3), (3, 2, 3)])
-        self.assertEqual(self.backends[1].navigation_targets, [(-4, 0, 3), (-4, 2, 3)])
+        for backend, expected in zip(
+            self.backends, (((3, 0, 3), (3, 2, 3)), ((-4, 0, 3), (-4, 2, 3))), strict=True
+        ):
+            for actual, target in zip(backend.navigation_targets, expected, strict=True):
+                for value, coordinate in zip(actual, target, strict=True):
+                    self.assertAlmostEqual(value, coordinate, places=4)
         self.assertEqual([backend.landings for backend in self.backends], [1, 1])
 
     def test_two_local_frames_resolve_one_absolute_gps_destination(self) -> None:
@@ -265,6 +299,13 @@ class PlannerExecutionFlow(unittest.TestCase):
             future = self.start_plan(encoded, index).get_result_async()
             self.wait_future(future)
             self.assertEqual(future.result().status, GoalStatus.STATUS_SUCCEEDED)
+        self.assertEqual(self.backends[0].geographic_targets, self.backends[1].geographic_targets)
+        self.assertEqual(
+            self.backends[0].geographic_targets[0].latitude_deg, destination.latitude_deg
+        )
+        self.assertEqual(
+            self.backends[0].geographic_targets[0].longitude_deg, destination.longitude_deg
+        )
         self.assertAlmostEqual(self.backends[0].navigation_targets[0][0], 10.0, places=6)
         self.assertAlmostEqual(self.backends[1].navigation_targets[0][0], -20.0, places=4)
         self.assertAlmostEqual(self.backends[0].navigation_targets[0][1], 5.0, places=6)
@@ -304,22 +345,26 @@ class PlannerExecutionFlow(unittest.TestCase):
         self.wait_future(result)
         self.assertEqual(result.result().status, GoalStatus.STATUS_CANCELED)
         self.assertEqual(backend.navigation_cancellations, 1)
-        self.assertEqual(len(backend.navigation_targets), 1)
+        self.assertEqual(len(backend.navigation_targets), 2)
         self.assertEqual(backend.landings, 0)
 
-    def test_coordinate_frame_reset_cancels_and_aborts_the_plan(self) -> None:
+    def test_coordinate_frame_reset_does_not_retranslate_an_uploaded_route(self) -> None:
         backend = self.backends[0]
         backend.should_hold_navigation = True
         handle = self.start_plan(self.relative_plan())
         self.assertTrue(backend.navigation_started.wait(timeout=5.0))
         with backend.lock:
             backend.state.local_frame_revision += 1
+        backend.should_hold_navigation = False
         result = handle.get_result_async()
         self.wait_future(result)
-        self.assertEqual(result.result().status, GoalStatus.STATUS_ABORTED)
-        self.assertIn('coordinate frame changed', result.result().result.message)
-        self.assertEqual(backend.navigation_cancellations, 1)
-        self.assertEqual(len(backend.navigation_targets), 1)
+        self.assertEqual(result.result().status, GoalStatus.STATUS_SUCCEEDED)
+        self.assertEqual(backend.navigation_cancellations, 0)
+        for actual, expected in zip(
+            backend.navigation_targets, ((3, 0, 3), (3, 2, 3)), strict=True
+        ):
+            for value, coordinate in zip(actual, expected, strict=True):
+                self.assertAlmostEqual(value, coordinate, places=4)
 
     def test_explicit_landing_preempts_the_json_route(self) -> None:
         backend = self.backends[0]
@@ -339,7 +384,7 @@ class PlannerExecutionFlow(unittest.TestCase):
             self.assertEqual(parent_result.result().status, GoalStatus.STATUS_ABORTED)
             self.assertEqual(backend.navigation_cancellations, 1)
             self.assertEqual(backend.landings, 1)
-            self.assertEqual(len(backend.navigation_targets), 1)
+            self.assertEqual(len(backend.navigation_targets), 2)
         finally:
             client.destroy()
 
@@ -359,7 +404,9 @@ class PlannerExecutionFlow(unittest.TestCase):
             response.success = True
             response.takeoff_altitude_m = 3.0
             response.position_tolerance_m = 0.5
-            response.waypoint_offsets = [Point(x=10000.0, y=0.0, z=3.0)]
+            response.waypoint_positions = [
+                GeographicPosition(latitude_deg=48.0, longitude_deg=8.0, altitude_amsl_m=503.0)
+            ]
             return response
 
         self.planners[0].planning_service.callback = invalid_instructions
@@ -380,7 +427,9 @@ class PlannerExecutionFlow(unittest.TestCase):
             response.success = True
             response.takeoff_altitude_m = 3.0
             response.position_tolerance_m = 0.5
-            response.waypoint_offsets = [Point(x=3.0, y=0.0, z=3.0)]
+            response.waypoint_positions = [
+                GeographicPosition(latitude_deg=47.0, longitude_deg=8.0, altitude_amsl_m=503.0)
+            ]
             return response
 
         self.planners[0].planning_service.callback = delayed_instructions
