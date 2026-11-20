@@ -11,10 +11,14 @@ find_package(px4_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(swarm_interfaces REQUIRED)
+find_package(swarm_geometry REQUIRED)
+find_package(MAVSDK 4.2.0 EXACT REQUIRED)
 
 add_library(vehicle_control_core
   src/coordinates.cpp
   src/orbit_progress.cpp
+  src/onboard_mission.cpp
+  src/onboard_mission_execution.cpp
   src/px4_adapter.cpp
   src/trajectory.cpp
   src/vehicle_control_node.cpp
@@ -24,9 +28,9 @@ target_compile_features(vehicle_control_core PUBLIC cxx_std_17)
 enable_project_cpp_diagnostics(vehicle_control_core)
 enable_project_cpp_logging(vehicle_control_core)
 ament_target_dependencies(vehicle_control_core SYSTEM
-  geometry_msgs px4_msgs rclcpp rclcpp_action swarm_interfaces
+  geometry_msgs px4_msgs rclcpp rclcpp_action swarm_interfaces swarm_geometry
 )
-target_link_libraries(vehicle_control_core ${px4_msgs_TARGETS})
+target_link_libraries(vehicle_control_core ${px4_msgs_TARGETS} MAVSDK::mavsdk)
 
 add_executable(vehicle_control_node src/main.cpp)
 target_compile_features(vehicle_control_node PRIVATE cxx_std_17)
@@ -41,6 +45,11 @@ install(TARGETS vehicle_control_core vehicle_control_node
 install(DIRECTORY include/ DESTINATION include)
 
 if(BUILD_TESTING)
+  ament_add_gtest(test_onboard_mission test/test_onboard_mission.cpp)
+  target_compile_features(test_onboard_mission PRIVATE cxx_std_17)
+  enable_project_cpp_diagnostics(test_onboard_mission)
+  target_link_libraries(test_onboard_mission vehicle_control_core)
+
   ament_add_gtest(test_coordinates test/test_coordinates.cpp)
   target_compile_features(test_coordinates PRIVATE cxx_std_17)
   enable_project_cpp_diagnostics(test_coordinates)

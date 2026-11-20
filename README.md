@@ -2,27 +2,28 @@
 
 ROS 2 control software for PX4 search-and-rescue drones. The project targets Ubuntu 24.04, ROS 2 Jazzy, PX4 v1.17.0, and matching `px4_msgs` v1.17.0. Use the Docker environment for SITL and Gazebo. Use the [native Raspberry Pi guide](docs/setup/HITL-PI-SETUP.md) to build the same application packages on a 64-bit Ubuntu 24.04 companion computer.
 
-> **Do not push directly to `main`.** Create feature branches from `dev`, validate the changes, and open pull requests into `dev`. Promote `dev` to `main` through a release pull request after required validation and approval by at least two team members. `main` must build, run the documented SITL mission without a vehicle crash, and remain ready for project demos. Read the [Repository Rules](docs/REPOSITORY_RULES.md) and [Contributing](CONTRIBUTING.md) before changing the repository.
+Read [Contributing](CONTRIBUTING.md) for branch rules, coding standards, LLM use, and release checks.
 
 ## Architecture
 
 | Package | Responsibility |
 | --- | --- |
-| `swarm_interfaces` | Application messages, actions, and planning service. Execution positions use `local_enu`. |
-| `mission_planner` | Decodes versioned JSON fleet assignments and translates relative or GPS paths into per-vehicle instructions. |
-| `vehicle_control` | PX4 adapter, state publication, frame conversion, and execution of internal vehicle operations. |
-| `mission_execution` | Sole application command authority. Admits intent, checks state, serializes operations, preempts for landing, and executes waypoint missions. |
-| `flight_test` | Sends all flight-test intent through mission execution and records read-only vehicle telemetry. |
-| `swarm_coordination` | Empty scaffold for future peer health and task coordination. |
-| `drone_bringup` | Launches the application nodes with separate application namespace and PX4 topic-prefix settings. |
+| [swarm_interfaces](src/swarm_interfaces/README.md) | Application messages, actions, and planning service. Execution positions use `local_enu`. |
+| [swarm_geometry](src/swarm_geometry/README.md) | Shared C++ and Python geographic projection and metric calculations. |
+| [mission_planner](src/mission_planner/README.md) | Decodes versioned JSON fleet assignments and translates relative or GPS paths into per-vehicle instructions. |
+| [vehicle_control](src/vehicle_control/README.md) | PX4 adapter, state publication, frame conversion, and execution of internal vehicle operations. |
+| [mission_execution](src/mission_execution/README.md) | Sole application command authority. Admits intent, checks state, serializes operations, preempts for landing, and executes waypoint missions. |
+| [flight_test](src/flight_test/README.md) | Sends all flight-test intent through mission execution and records read-only vehicle telemetry. |
+| [swarm_coordination](src/swarm_coordination/README.md) | Empty scaffold for future peer health and task coordination. |
+| [drone_bringup](src/drone_bringup/README.md) | Launches the application nodes with separate application namespace and PX4 topic-prefix settings. |
 
-PX4 retains low-level flight control, preflight checks, and failsafes. `vehicle_control` sends position setpoints in Offboard mode. `mission_execution` uses ROS 2 actions and does not depend on PX4 messages.
+PX4 retains low-level flight control, preflight checks, and failsafes. `vehicle_control` uploads waypoint routes through MAVLink and monitors PX4 Mission mode. Standalone takeoff, navigation, timed trajectories, and finite-orbit handoffs retain Offboard control. `mission_execution` uses ROS 2 actions and does not depend on PX4 messages.
 
-Callers use `/execute_waypoint_mission` or `/mission_execution/{takeoff,navigate_to,follow_trajectory,orbit_point,land}`. Only mission execution calls `/vehicle_control/<operation>`. An explicit `/mission_execution/land` request interrupts an active route and waits for child termination before landing. JSON file callers use `/mission_execution/execute_flight_plan`. The executor calls the planning-only service and executes its translated instructions. The [JSON schema guide](src/mission_planner/README.md) documents fleet assignments, relative coordinates, GPS/AMSL coordinates, and file submission. Swarm coordination, operator arbitration, and perception inputs remain planned.
+Callers use `/execute_waypoint_mission` or `/mission_execution/{takeoff,navigate_to,follow_trajectory,orbit_point,land}`. Only mission execution calls `/vehicle_control/<operation>`. An explicit `/mission_execution/land` request interrupts an active route and waits for child termination before landing. JSON file callers use `/mission_execution/execute_flight_plan`. The executor calls the planning-only service and executes its translated instructions. The [JSON schema guide](src/mission_planner/README.md) documents fleet assignments, relative coordinates, GPS/AMSL coordinates, and file submission. Swarm coordination and operator arbitration remain unimplemented. The supported drones use GPS/GNSS without vision or obstacle sensing.
 
 Position actions leave yaw uncontrolled unless the caller requests `NavigateTo.look_at_target`, `FollowTrajectory.control_yaw`, or `OrbitPoint.face_center`. `vehicle_control` checks yaw telemetry and target error for requested yaw control. PX4 receives an unspecified yaw setpoint for ordinary Offboard position commands.
 
-The application frame is `local_enu`: X is east, Y is north, and Z is up, in meters from PX4's local-position origin. PX4 v1.17 local positions and trajectory setpoints use NED, so `vehicle_control` maps `(east, north, up)` to `(north, east, down)`. The PX4 topic prefix is the full path through `fmu`; `/fmu` addresses the default single-vehicle topics and `/uav_1/fmu` addresses a namespaced PX4 instance.
+Compiled missions use fixed WGS84 latitude/longitude and AMSL altitude. Planning and debugging use meters. Relative ENU and forward/left/up commands resolve once into geographic destinations. Estimator-local telemetry, trajectories, and orbit execution use `local_enu`: X east, Y north, Z up. The [coordinate guide](docs/architecture/COORDINATES.md) defines the frames, GPS navigation commands, sensing limits, and research basis. PX4 v1.17 local positions and trajectory setpoints use NED, so `vehicle_control` maps `(east, north, up)` to `(north, east, down)`. The PX4 topic prefix is the full path through `fmu`; `/fmu` addresses the default single-vehicle topics and `/uav_1/fmu` addresses a namespaced PX4 instance.
 
 ## Container setup and build
 
@@ -63,7 +64,7 @@ Use this when inspecting ROS topics without sending flight commands. Do not run 
 ./scripts/sim-shell ros2 launch drone_bringup single_vehicle.launch.py enable_flight_commands:=false
 ```
 
-The single-vehicle simulation uses the default PX4 topic prefix `/fmu`. Use a different `px4_topic_prefix` only when PX4 is configured to publish under that prefix. The application namespace and PX4 topic prefix are independent settings.
+The single-vehicle simulation uses the default PX4 topic prefix `/fmu`. Use a different `px4_topic_prefix` only when PX4 is configured to publish under that prefix. The application namespace, PX4 topic prefix, and MAVLink connection are independent settings. Uploaded missions require a valid global reference and a MAVLink link to the same `px4_system_id`. The default `mission_connection_url:=udpin://0.0.0.0:14540` listens to the first SITL vehicle. Give each vehicle a separate endpoint. See the [onboard mission migration](docs/architecture/PX4-ONBOARD-MISSIONS.md) for connection setup and changed cancellation behavior.
 
 ## Simulation flight procedure
 
@@ -94,11 +95,11 @@ ros2 topic echo --once /vehicle_state
 ros2 action list
 ros2 action send_goal /execute_waypoint_mission \
   swarm_interfaces/action/ExecuteWaypointMission \
-  "{takeoff_altitude_m: 3.0, waypoint_offsets: [{x: 3.0, y: 0.0, z: 3.0}, {x: 3.0, y: 3.0, z: 3.0}, {x: 0.0, y: 3.0, z: 3.0}, {x: 0.0, y: 0.0, z: 3.0}], position_tolerance_m: 0.5, waypoint_timeout_sec: 30.0, land_after_waypoints: true}" \
+  "{frame_id: relative_enu, takeoff_altitude_m: 3.0, waypoint_offsets: [{x: 3.0, y: 0.0, z: 3.0}, {x: 3.0, y: 3.0, z: 3.0}, {x: 0.0, y: 3.0, z: 3.0}, {x: 0.0, y: 0.0, z: 3.0}], position_tolerance_m: 0.5, waypoint_timeout_sec: 30.0, land_after_waypoints: true}" \
   --feedback
 ```
 
-The mission climbs 3 m, flies a 3 m square at 3 m relative to the position captured at mission start, then requests PX4 auto-land. Each waypoint offset is added to that same mission origin. The mission executor converts each offset to an absolute `local_enu` target, and `vehicle_control` converts it to PX4 NED setpoints.
+The mission climbs 3 m, flies a 3 m square at 3 m relative to the position captured at mission start, then lands through an uploaded PX4 mission. Every waypoint offset uses the same captured geographic start. The mission executor sends fixed geographic destinations to `vehicle_control`, which encodes them directly into mission items. PX4 owns takeoff, waypoint progression, and landing; the Pi publishes no Offboard setpoint stream for this route.
 
 Press `Ctrl-b`, then `d` to detach from tmux. Run `tmux attach-session -t drone-swarming` to return to the session.
 
@@ -132,25 +133,27 @@ Run `./scripts/xrce-agent`, `./scripts/px4-sitl`, and `./scripts/sim-shell` with
 
 ## Scope and verification
 
-`swarm_coordination` defines no peer discovery, allocation, failure detection, or flight behavior. Perception, collision avoidance, multi-drone task allocation, and payload operations are outside the initial vertical slice.
+`swarm_coordination` defines no peer discovery, allocation, failure detection, or flight behavior. Perception, collision avoidance, automatic fleet allocation, and payload operations are unimplemented. The [testing guide](docs/testing/README.md#validation-status) records current validation limits and unresolved SITL failures.
 
 The v1.17 Offboard topic and timestamp behavior follows the [PX4 v1.17 ROS 2 Offboard example](https://docs.px4.io/v1.17/en/ros2/offboard_control). The PX4 DDS configuration is pinned to [PX4-Autopilot v1.17.0](https://github.com/PX4/PX4-Autopilot/blob/v1.17.0/src/modules/uxrce_dds_client/dds_topics.yaml). In the running v1.17 SITL graph, PX4 exposes versioned position, status, and battery topics with a `_v1` suffix. ROS package and action APIs target [ROS 2 Jazzy](https://docs.ros.org/en/jazzy/).
 
 ## Project guides
 
-- [Codebase tour: ROS 2 and PX4](docs/architecture/CODEBASE-TOUR.md)
+- [Architecture, ROS concepts, and coordinate frames](docs/architecture/README.md)
+- [GPS missions, forward commands, and shared ENU coordinates](docs/architecture/COORDINATES.md)
+- [JSON planning and execution flow](docs/architecture/JSON-FLIGHT-PLANS.md)
+- [Onboard missions and cancellation](docs/architecture/PX4-ONBOARD-MISSIONS.md)
+- [JSON schema and file submission](src/mission_planner/README.md)
 - [Native Raspberry Pi setup](docs/setup/HITL-PI-SETUP.md)
-- [Architecture diagrams](docs/architecture/README.md)
+- [Desktop simulation with ROS on the Pi](docs/setup/pi-desktop-sim.md)
 - [Linux and Docker setup](docs/setup/LINUX.md)
 - [Simulation architecture](docs/simulation/HOW-IT-WORKS.md)
-- [Simulation fidelity](docs/simulation/SIMULATION-FIDELITY.md)
 - [Individual flight tests](docs/testing/README.md)
 - [Gazebo world resources](worlds/README.md)
-- [Swarm development stages](docs/swarm/SWARM.md)
 - [Neovim LSP setup](docs/development/NEOVIM.md)
 - [tmux simulation session](docs/development/TMUX.md)
 - [VS Code LSP setup](docs/development/VS-CODE.md)
 - [Zed LSP setup](docs/development/ZED.md)
-- [Repository rules](docs/REPOSITORY_RULES.md)
-- [Repository coding rules](CONTRIBUTING.md)
+- [Contributing and repository rules](CONTRIBUTING.md)
+- [Repository skills](skills/README.md)
 - [Glossary](docs/reference/GLOSSARY.md)

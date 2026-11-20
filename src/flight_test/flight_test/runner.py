@@ -46,7 +46,7 @@ from swarm_interfaces.action import (
     OrbitPoint,
     Takeoff,
 )
-from swarm_interfaces.msg import TrajectoryPoint, VehicleState
+from swarm_interfaces.msg import GeographicPosition, TrajectoryPoint, VehicleState
 
 SAMPLE_GAP_LIMIT_SEC: float = 0.5
 STATE_FRESHNESS_LIMIT_SEC: float = 1.0
@@ -106,6 +106,8 @@ class FlightSample:
     offboard: bool
     landed: bool
     setpoint_publication_count: int
+    global_position_valid: bool = False
+    geographic_position: tuple[float, float, float] = (math.nan, math.nan, math.nan)
 
 
 class FlightTestFailure(RuntimeError):
@@ -142,6 +144,11 @@ class FlightTestRunner(Node):
                 'offboard',
                 'landed',
                 'setpoint_publication_count',
+                'global_position_valid',
+                'latitude_deg',
+                'longitude_deg',
+                'altitude_amsl_m',
+                'local_frame_revision',
             )
         )
         self.command_file = (artifact_directory / 'commanded-trajectory.csv').open(
@@ -149,7 +156,15 @@ class FlightTestRunner(Node):
         )
         self.command_writer = csv.writer(self.command_file)
         self.command_writer.writerow(
-            ('case_id', 'point_index', 'time_from_start_sec', 'x_m', 'y_m', 'z_m', 'yaw_rad')
+            (
+                'case_id',
+                'point_index',
+                'time_from_start_sec',
+                'x_m',
+                'y_m',
+                'z_m',
+                'yaw_rad',
+            )
         )
         self.feedback_file = (artifact_directory / 'action-feedback.jsonl').open(
             'w', encoding='utf-8'
@@ -212,6 +227,12 @@ class FlightTestRunner(Node):
             offboard=bool(message.offboard),
             landed=bool(message.landed),
             setpoint_publication_count=int(message.setpoint_publication_count),
+            global_position_valid=bool(message.global_position_valid),
+            geographic_position=(
+                float(message.geographic_position.latitude_deg),
+                float(message.geographic_position.longitude_deg),
+                float(message.geographic_position.altitude_amsl_m),
+            ),
         )
         if self.case_active and self.samples:
             previous_sample: FlightSample = self.samples[-1]
@@ -246,6 +267,11 @@ class FlightTestRunner(Node):
                 sample.offboard,
                 sample.landed,
                 sample.setpoint_publication_count,
+                bool(message.global_position_valid),
+                float(message.geographic_position.latitude_deg),
+                float(message.geographic_position.longitude_deg),
+                float(message.geographic_position.altitude_amsl_m),
+                int(message.local_frame_revision),
             )
         )
         self.telemetry_file.flush()
@@ -504,7 +530,9 @@ class FlightTestRunner(Node):
         return (origin[0] + offset[0], origin[1] + offset[1], origin[2] + offset[2])
 
     def _assert_case_boundary(
-        self, origin: tuple[float, float, float], positions: list[tuple[float, float, float]]
+        self,
+        origin: tuple[float, float, float],
+        positions: list[tuple[float, float, float]],
     ) -> None:
         """Reject commanded positions outside the 20-meter SITL test envelope."""
         for position in positions:
@@ -595,6 +623,7 @@ class FlightTestRunner(Node):
         mission_origin: tuple[float, float, float] = self._current_sample().position_enu
         start_index: int = len(self.samples)
         goal: ExecuteWaypointMission.Goal = ExecuteWaypointMission.Goal()
+        goal.frame_id = 'relative_enu'
         goal.takeoff_altitude_m = TAKEOFF_ALTITUDE_M
         goal.waypoint_offsets = []
         for east_m, north_m in ((3.0, 0.0), (3.0, 3.0), (0.0, 3.0), (0.0, 0.0)):
@@ -607,7 +636,11 @@ class FlightTestRunner(Node):
         goal.waypoint_timeout_sec = 30.0
         goal.land_after_waypoints = True
         goal.orbit_after_waypoints = False
-        self._execute_action(self.mission_client, goal, 'execute_waypoint_mission', 180.0)
+        self.expect_offboard = False
+        try:
+            self._execute_action(self.mission_client, goal, 'execute_waypoint_mission', 180.0)
+        finally:
+            self.expect_offboard = True
         self._wait_for_landed_state()
         mission_samples: list[FlightSample] = self._samples_since(start_index)
         if not mission_samples:
@@ -638,18 +671,26 @@ class FlightTestRunner(Node):
                 flight_samples[sample_index].position_enu, waypoint_position
             )
             self._record_assertion(
-                f'waypoint {waypoint_number} position error', closest_error_m, 0.5, 'at_most'
+                f'waypoint {waypoint_number} position error',
+                closest_error_m,
+                0.5,
+                'at_most',
             )
         path_start: tuple[float, float, float] = self._position_after_offset(
             mission_origin, (0.0, 0.0, TAKEOFF_ALTITUDE_M)
         )
-        path_points: list[tuple[float, float, float]] = [path_start, *waypoint_positions]
+        path_points: list[tuple[float, float, float]] = [
+            path_start,
+            *waypoint_positions,
+        ]
         path_error_values_m: list[float] = []
         segment_start_index: int = 0
         for segment_index, segment_end_index in enumerate(waypoint_indices, start=1):
             path_error_values_m.extend(
                 cross_track_distance(
-                    sample.position_enu, path_points[segment_index - 1], path_points[segment_index]
+                    sample.position_enu,
+                    path_points[segment_index - 1],
+                    path_points[segment_index],
                 )
                 for sample in flight_samples[segment_start_index : segment_end_index + 1]
             )
@@ -670,7 +711,10 @@ class FlightTestRunner(Node):
             'completed square waypoints', float(completed_waypoints), 4.0, 'at_least'
         )
         self._record_assertion(
-            'completed square waypoint count', float(completed_waypoints), 4.0, 'at_most'
+            'completed square waypoint count',
+            float(completed_waypoints),
+            4.0,
+            'at_most',
         )
 
     def _run_fast_stop_and_return(self) -> None:
@@ -721,7 +765,10 @@ class FlightTestRunner(Node):
             for sample in position_samples
         )
         self._record_assertion(
-            'out-and-back path error', maximum_path_error_m, FT02_PATH_TOLERANCE_M, 'at_most'
+            'out-and-back path error',
+            maximum_path_error_m,
+            FT02_PATH_TOLERANCE_M,
+            'at_most',
         )
         maximum_horizontal_speed_mps: float = max(
             math.hypot(sample.velocity_enu[0], sample.velocity_enu[1])
@@ -755,7 +802,10 @@ class FlightTestRunner(Node):
             default=math.inf,
         )
         self._record_assertion(
-            'return position error', return_position_error_m, FT02_ENDPOINT_TOLERANCE_M, 'at_most'
+            'return position error',
+            return_position_error_m,
+            FT02_ENDPOINT_TOLERANCE_M,
+            'at_most',
         )
         self._land()
         self.measurements['landing_horizontal_offset_m'] = distance_2d(
@@ -921,7 +971,10 @@ class FlightTestRunner(Node):
             hold_samples[-1].setpoint_publication_count - first_setpoint_count
         )
         self._record_assertion(
-            'orbit cancel hold setpoint publications', float(setpoint_increments), 1.0, 'at_least'
+            'orbit cancel hold setpoint publications',
+            float(setpoint_increments),
+            1.0,
+            'at_least',
         )
 
     def _run_orbit(self) -> None:
@@ -929,15 +982,35 @@ class FlightTestRunner(Node):
         self._takeoff(8.0)
         self._wait_for_airborne_yaw()
         origin: tuple[float, float, float] = self._current_sample().position_enu
-        center_position: tuple[float, float, float] = (origin[0] + 12.0, origin[1], origin[2])
+        center_position: tuple[float, float, float] = (
+            origin[0] + 12.0,
+            origin[1],
+            origin[2],
+        )
         orbit_radius_m: float = 6.0
         self._assert_case_boundary(
             origin,
             [
-                (center_position[0] - orbit_radius_m, center_position[1], center_position[2]),
-                (center_position[0] + orbit_radius_m, center_position[1], center_position[2]),
-                (center_position[0], center_position[1] - orbit_radius_m, center_position[2]),
-                (center_position[0], center_position[1] + orbit_radius_m, center_position[2]),
+                (
+                    center_position[0] - orbit_radius_m,
+                    center_position[1],
+                    center_position[2],
+                ),
+                (
+                    center_position[0] + orbit_radius_m,
+                    center_position[1],
+                    center_position[2],
+                ),
+                (
+                    center_position[0],
+                    center_position[1] - orbit_radius_m,
+                    center_position[2],
+                ),
+                (
+                    center_position[0],
+                    center_position[1] + orbit_radius_m,
+                    center_position[2],
+                ),
             ],
         )
         self._run_orbit_cancel_and_hold(center_position, orbit_radius_m)
@@ -1205,7 +1278,7 @@ class FlightTestRunner(Node):
         )
         if not goals_canceling:
             raise FlightTestFailure('navigate_to goal was not accepted for cancellation')
-        self._spin_until_future(result_future, 10.0, 'navigate_to canceled result')
+        self._spin_until_future(result_future, 15.0, 'navigate_to canceled result')
         wrapped_result: WrappedActionResultProtocol = cast(
             WrappedActionResultProtocol, result_future.result()
         )
@@ -1225,6 +1298,14 @@ class FlightTestRunner(Node):
         )
 
         hold_reference: FlightSample = self._require_airborne_sample()
+        if not hold_reference.velocity_valid:
+            raise FlightTestFailure('canceled navigation requires valid settled velocity telemetry')
+        self._record_assertion(
+            'post-cancel horizontal speed',
+            math.hypot(*hold_reference.velocity_enu[:2]),
+            0.3,
+            'at_most',
+        )
         first_setpoint_count: int = hold_reference.setpoint_publication_count
         hold_samples: list[FlightSample] = self._wait_for_duration(5.0)
         if not hold_samples:
@@ -1244,13 +1325,79 @@ class FlightTestRunner(Node):
             hold_samples[-1].setpoint_publication_count - first_setpoint_count
         )
         self._record_assertion(
-            'post-cancel setpoint publications', float(setpoint_increments), 1.0, 'at_least'
+            'post-cancel setpoint publications',
+            float(setpoint_increments),
+            1.0,
+            'at_least',
         )
         offboard_duration_sec: float = self._longest_boolean_interval(
             hold_samples, lambda sample: sample.offboard
         )
         self._record_assertion(
             'post-cancel Offboard duration', offboard_duration_sec, 4.0, 'at_least'
+        )
+        self._land()
+
+    def _run_geographic_navigation(self) -> None:
+        """Verify forward, fixed GPS return, and north-relative goals through public actions."""
+        self._takeoff()
+        self._wait_for_airborne_yaw()
+        self._wait_for_duration(2.0)
+        origin: FlightSample = self._current_sample(require_yaw=True)
+        if not origin.global_position_valid or not all(
+            math.isfinite(value) for value in origin.geographic_position
+        ):
+            raise FlightTestFailure('GPS navigation case requires valid geographic telemetry')
+        forward_goal: NavigateTo.Goal = NavigateTo.Goal()
+        forward_goal.frame_id = 'relative_body'
+        forward_goal.target_position.x = 3.0
+        forward_goal.position_tolerance_m = 0.5
+        forward_goal.timeout_sec = 30.0
+        self._execute_action(self.navigation_client, forward_goal, 'navigate_forward', 40.0)
+        forward_target: tuple[float, float, float] = (
+            origin.position_enu[0] + 3.0 * math.cos(origin.yaw_rad),
+            origin.position_enu[1] + 3.0 * math.sin(origin.yaw_rad),
+            origin.position_enu[2],
+        )
+        self._record_assertion(
+            'forward endpoint error',
+            distance_3d(self._current_sample().position_enu, forward_target),
+            0.75,
+            'at_most',
+        )
+        gps_goal: NavigateTo.Goal = NavigateTo.Goal()
+        gps_goal.frame_id = 'wgs84'
+        gps_goal.geographic_target = GeographicPosition(
+            latitude_deg=origin.geographic_position[0],
+            longitude_deg=origin.geographic_position[1],
+            altitude_amsl_m=origin.geographic_position[2],
+        )
+        gps_goal.position_tolerance_m = 0.5
+        gps_goal.timeout_sec = 30.0
+        self._execute_action(self.navigation_client, gps_goal, 'navigate_gps_return', 40.0)
+        self._record_assertion(
+            'GPS return endpoint error',
+            distance_3d(self._current_sample().position_enu, origin.position_enu),
+            0.75,
+            'at_most',
+        )
+        north_origin: FlightSample = self._current_sample()
+        north_goal: NavigateTo.Goal = NavigateTo.Goal()
+        north_goal.frame_id = 'relative_enu'
+        north_goal.target_position.y = 2.0
+        north_goal.position_tolerance_m = 0.5
+        north_goal.timeout_sec = 30.0
+        self._execute_action(self.navigation_client, north_goal, 'navigate_north', 40.0)
+        north_target: tuple[float, float, float] = (
+            north_origin.position_enu[0],
+            north_origin.position_enu[1] + 2.0,
+            north_origin.position_enu[2],
+        )
+        self._record_assertion(
+            'north endpoint error',
+            distance_3d(self._current_sample().position_enu, north_target),
+            0.75,
+            'at_most',
         )
         self._land()
 
@@ -1302,6 +1449,7 @@ class FlightTestRunner(Node):
             'FT-04': (self.takeoff_client, self.land_client, self.trajectory_client),
             'FT-05': (self.takeoff_client, self.land_client, self.trajectory_client),
             'FT-06': (self.takeoff_client, self.land_client, self.navigation_client),
+            'FT-07': (self.takeoff_client, self.land_client, self.navigation_client),
         }
         started_at_utc: str = datetime.now(UTC).isoformat()
         case_method_by_id: dict[str, Callable[[], None]] = {
@@ -1312,6 +1460,7 @@ class FlightTestRunner(Node):
             'FT-04': self._run_search_lanes,
             'FT-05': self._run_altitude_steps,
             'FT-06': self._run_cancel_navigation,
+            'FT-07': self._run_geographic_navigation,
         }
         status: str = 'passed'
         failure_message: str | None = None
@@ -1446,7 +1595,16 @@ def parse_arguments(arguments: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Execute one PX4 SITL flight test case.')
     parser.add_argument(
         '--case',
-        choices=('FT-00', 'FT-01', 'FT-02', 'FT-03', 'FT-04', 'FT-05', 'FT-06'),
+        choices=(
+            'FT-00',
+            'FT-01',
+            'FT-02',
+            'FT-03',
+            'FT-04',
+            'FT-05',
+            'FT-06',
+            'FT-07',
+        ),
         required=True,
     )
     parser.add_argument('--artifact-dir', type=Path)
@@ -1520,7 +1678,8 @@ def main(arguments: list[str] | None = None) -> int:
         if result_path.is_file():
             try:
                 existing_result: dict[str, object] = cast(
-                    dict[str, object], json.loads(result_path.read_text(encoding='utf-8'))
+                    dict[str, object],
+                    json.loads(result_path.read_text(encoding='utf-8')),
                 )
                 existing_result.update(failure_result)
                 failure_result = existing_result

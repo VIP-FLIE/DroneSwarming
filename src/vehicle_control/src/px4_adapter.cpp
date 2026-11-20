@@ -35,6 +35,15 @@ rclcpp::QoS px4_command_qos()
 
 }  // namespace
 
+std::optional<GlobalPosition> global_position(const VehicleTelemetry & telemetry) noexcept
+{
+  if (!telemetry.position_valid || !telemetry.xy_global || !telemetry.z_global) {
+    return std::nullopt;
+  }
+  return enu_to_global(telemetry.position_enu, telemetry.reference_latitude_deg,
+    telemetry.reference_longitude_deg, telemetry.reference_altitude_amsl_m);
+}
+
 /// Owns PX4 endpoints and decodes subscribed messages into telemetry.
 struct Px4Adapter::Implementation
 {
@@ -104,6 +113,7 @@ struct Px4Adapter::Implementation
         telemetry.armed = message.arming_state == px4_msgs::msg::VehicleStatus::ARMING_STATE_ARMED;
         telemetry.offboard = message.nav_state ==
           px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD;
+        telemetry.failsafe = message.failsafe;
         telemetry.in_transition_mode = message.in_transition_mode;
         telemetry.vehicle_type = message.vehicle_type;
         telemetry.navigation_state = message.nav_state;

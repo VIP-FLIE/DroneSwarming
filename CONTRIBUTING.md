@@ -1,4 +1,4 @@
-# Repository coding rules
+# Contributing
 
 These rules apply to application code, tests, launch files, ROS interfaces, and build configuration. They apply to human-written and LLM-generated changes.
 
@@ -8,8 +8,21 @@ These rules apply to application code, tests, launch files, ROS interfaces, and 
 - Create each feature or fix branch from the current `dev` branch.
 - Push changes to the feature or fix branch, then open a pull request targeting `dev`.
 - Do not push directly to `main`. Update `main` only through a release pull request from `dev`.
-- Require approval from at least two team members before merging a release pull request into `main`.
-- Keep `main` buildable, runnable, and ready for project demonstrations. A release candidate must pass the release checks in the [Repository Rules](docs/REPOSITORY_RULES.md), including the documented SITL mission without a vehicle crash.
+- Keep `main` buildable and runnable for project demonstrations.
+
+Agents keep changes local. Each remote push and pull-request creation requires an explicit user request. Reuse an existing feature branch. If the current branch is `dev` or `main`, report the branch to the user and stop before changing files.
+
+## Release checks
+
+Merge a release from `dev` into `main` only after all checks pass:
+
+- The complete workspace builds in the project container with `colcon build --symlink-install`.
+- `colcon test` completes and `colcon test-result --verbose` reports no failures.
+- The [documented SITL mission](README.md#simulation-flight-procedure) completes and the vehicle lands without a crash.
+- Review confirms compliance with this guide.
+- At least two team members approve the release pull request.
+
+Record incomplete or failed checks. An incomplete or failed required check blocks the release.
 
 ## Standards are acceptance criteria
 
@@ -73,18 +86,21 @@ Minimality does not permit skipping validation, error handling, or required test
 - Use RAII and standard ownership types. Do not use owning raw pointers or manual `new` and `delete`.
 - Use shared ownership only when multiple components share an object's lifetime. Prefer unique ownership otherwise.
 - Keep cancellation behavior explicit for long-running ROS actions. Cancel active child actions and wait for their terminal results when the parent operation depends on them.
-- Preserve a valid position hold and setpoint stream when cancelling vehicle navigation.
+- Preserve the documented hold contract during cancellation. Uploaded missions confirm native Hold; standalone navigation confirms settled Offboard hold and retains its setpoint stream.
 - Do not bypass PX4 preflight checks or failsafes.
 - Keep `enable_flight_commands` disabled by default. Enable it only for a controlled simulation or hardware session after checking telemetry, system ID, topic prefix, and the operator's recovery path.
 
 ## ROS 2 and PX4 boundaries
 
-- Keep application position contracts in `local_enu`, measured in meters. X is east, Y is north, and Z is up.
+- Keep compiled mission destinations in WGS84 latitude/longitude and explicitly named AMSL altitude. Preserve geographic waypoints through planner, executor, and mission upload.
+- Keep metric planning in a documented ENU frame. Use one geographic anchor for shared site geometry. Retain `local_enu` for estimator-local telemetry, trajectories, and orbit execution.
+- Resolve relative ENU or body-frame command input once from one captured geographic start and, for body input, one valid captured yaw. Body axes are forward, left, and up. Do not infer heading or geographic references when telemetry is invalid.
 - Keep PX4-specific message types and DDS topic handling inside `vehicle_control`.
+- Keep MAVLink mission upload and progress handling inside `vehicle_control`.
 - Keep PX4-to-application frame conversion inside the `vehicle_control` PX4 adapter. Convert application `(east, north, up)` positions to PX4 `(north, east, down)` at that boundary.
 - Keep `vehicle_control` as the only application package that depends on `px4_msgs`.
 - Use application ROS actions for takeoff, navigation, landing, and mission execution. Keep higher-level mission logic independent of PX4 message types and topics.
-- Derive every mission waypoint offset from the single position captured at mission start. Do not change this behavior without updating the mission interface documentation and tests.
+- Resolve every relative mission waypoint from the single position captured at mission start. Geographic destinations remain fixed across local estimator resets. Project a geographic orbit center only at its local-operation handoff.
 - Keep `drone_bringup` responsible for launching application nodes and configuring the application namespace and PX4 topic prefix. It does not start PX4, Gazebo, a DDS agent, or a mission.
 - Keep PX4 responsible for low-level flight control, preflight checks, and failsafes.
 - Keep the supported ROS 2 Jazzy and PX4/`px4_msgs` v1.17.0 versions aligned across the Docker image, dependencies, and documentation. Version changes require an explicit compatibility update.
@@ -97,6 +113,8 @@ Minimality does not permit skipping validation, error handling, or required test
 - Add a dependency only when existing project libraries and platform APIs do not meet the requirement.
 - Keep Docker build dependencies pinned or otherwise reproducible through the existing Docker configuration.
 - Use the documented editor setup for language servers so they resolve headers and compilation commands from the container.
+
+Add ROS packages under `src/` and declare dependencies in `package.xml` and `CMakeLists.txt` or `setup.py`. Rebuild the image after changing build metadata or container dependencies. Build and source the workspace before using changed interfaces. The [root build procedure](README.md#container-setup-and-build) and [editor guides](README.md#project-guides) provide the commands.
 
 ## Tests and verification
 
@@ -111,7 +129,12 @@ Minimality does not permit skipping validation, error handling, or required test
 
 ## Human and LLM contributions
 
+- Contributors may use LLM assistance and remain responsible for understanding and reviewing every change.
+- Vibe coding, defined here as submitting generated code without understanding or review, is prohibited.
+- Read the relevant architecture and source before changing behavior. Use time saved through generation to study the implementation and verify its assumptions.
 - Apply the same rules to generated code and hand-written code.
 - Review each generated change for correctness, explicit types, input validation, ownership, ROS/PX4 boundaries, and required tests.
 - Be able to explain each abstraction, cast, numeric conversion, safety decision, and exception to the explicit-type rule.
 - Do not accept generated code solely because it compiles or its generated tests pass.
+- Do not submit or push code that you have not reviewed or cannot explain.
+- Verify code and the operator recovery procedure before running it on physical hardware. Flight-control failures can cause crashes, property damage, and injury.

@@ -1,4 +1,4 @@
-# HITL Pi Setup
+# Raspberry Pi native build
 
 This procedure uses Ubuntu 24.04 on arm64 with ROS 2 Jazzy. It installs `rosdep`, builds the matching `px4_msgs` package, builds the Micro XRCE-DDS Agent, and builds DroneSwarming.
 
@@ -107,6 +107,27 @@ make -j2
 sudo make install
 sudo ldconfig /usr/local/lib/
 ```
+
+## Install MAVSDK for onboard missions
+
+Vehicle control requires MAVSDK 4.2.0 in addition to the DDS dependencies. Build the pinned C++ library on arm64 before building DroneSwarming:
+
+```bash
+source /path/to/DroneSwarming/.env
+sudo apt install -y build-essential cmake git libssl-dev curl zip unzip autoconf libtool pkg-config
+mkdir -p "$HOME/src"
+git clone --depth 1 --branch "v${MAVSDK_VERSION}" --recursive \
+  https://github.com/mavlink/MAVSDK.git "$HOME/src/MAVSDK"
+cmake -S "$HOME/src/MAVSDK/cpp" -B "$HOME/src/MAVSDK/build" \
+  -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_MAVSDK_SERVER=OFF
+cmake --build "$HOME/src/MAVSDK/build" -j2
+sudo cmake --install "$HOME/src/MAVSDK/build"
+sudo ldconfig
+```
+
+The Docker image installs the checksum-verified Ubuntu 24.04 amd64 package. The arm64 source build uses the same release. The native arm64 build and hardware/HITL flight remain unvalidated; this guide defines the build environment.
+
+Native missions require both DDS and MAVLink. Configure a flight-controller MAVLink telemetry link to the Pi and pass its URL as `mission_connection_url`. For a dedicated serial MAVLink port, use `serial:///dev/ttyAMA0:921600` with the actual device and configured baud rate. DDS and MAVLink cannot independently open the same serial device; use separate ports or a configured router. Verify `px4_system_id` matches on both links. See the [mission connection contract](../architecture/PX4-ONBOARD-MISSIONS.md).
 
 ## Build DroneSwarming nodes
 

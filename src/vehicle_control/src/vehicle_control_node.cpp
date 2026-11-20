@@ -20,6 +20,49 @@ namespace vehicle_control
 {
 namespace
 {
+/// Resolves a fixed geographic navigation target at the PX4 local-control boundary.
+std::optional<swarm_interfaces::action::NavigateTo::Goal> local_navigation_goal(
+  const swarm_interfaces::action::NavigateTo::Goal & goal, const VehicleTelemetry & telemetry)
+{
+  if (goal.frame_id == "local_enu") {
+    return goal;
+  }
+  if (goal.frame_id != "wgs84" || !global_position(telemetry)) {
+    return std::nullopt;
+  }
+  const GlobalPosition reference{telemetry.reference_latitude_deg,
+    telemetry.reference_longitude_deg, telemetry.reference_altitude_amsl_m};
+  const std::optional<Position> target = global_to_enu(
+    swarm_geometry::from_message(goal.geographic_target), reference);
+  if (!target) {
+    return std::nullopt;
+  }
+  constexpr double maximum_navigation_distance_m = 1000.0;
+  constexpr double maximum_navigation_height_change_m = 120.0;
+  if (std::hypot((*target)[0] - telemetry.position_enu[0],
+    (*target)[1] - telemetry.position_enu[1]) > maximum_navigation_distance_m + swarm_geometry::projection_tolerance_m ||
+    std::abs((*target)[2] - telemetry.position_enu[2]) > maximum_navigation_height_change_m + swarm_geometry::projection_tolerance_m)
+  {
+    return std::nullopt;
+  }
+  swarm_interfaces::action::NavigateTo::Goal resolved = goal;
+  resolved.frame_id = "local_enu";
+  resolved.target_position.x = (*target)[0];
+  resolved.target_position.y = (*target)[1];
+  resolved.target_position.z = (*target)[2];
+  if (goal.look_at_target) {
+    const std::optional<Position> look_at = global_to_enu(
+      swarm_geometry::from_message(goal.look_at_geographic_position), reference);
+    if (!look_at) {
+      return std::nullopt;
+    }
+    resolved.look_at_position.x = (*look_at)[0];
+    resolved.look_at_position.y = (*look_at)[1];
+    resolved.look_at_position.z = (*look_at)[2];
+  }
+  return resolved;
+}
+
 
 constexpr std::uint8_t command_accepted = 0;
 constexpr int maximum_command_attempts = 3;
@@ -27,9 +70,14 @@ constexpr std::chrono::milliseconds worker_poll_interval(50);
 constexpr std::chrono::milliseconds feedback_interval(200);
 constexpr double minimum_setpoint_rate_hz = 2.0;
 constexpr double maximum_setpoint_rate_hz = 100.0;
+constexpr double maximum_timeout_sec = 3600.0;
+// PX4 LandDetector republishes unchanged state once per second.
+constexpr double minimum_land_state_timeout_sec = 2.0;
 constexpr double prestream_duration_sec = 1.0;
 constexpr double minimum_trajectory_settle_duration_sec = 0.5;
 constexpr double minimum_navigation_yaw_settle_duration_sec = 0.5;
+constexpr double navigation_cancel_hold_timeout_sec = 12.0;
+constexpr double maximum_navigation_position_tolerance_m = 10.0;
 constexpr double minimum_look_at_distance_m = 0.1;
 constexpr double maximum_look_at_yaw_rate_radps = 2.0;
 constexpr double maximum_trajectory_yaw_tolerance_rad = 1.0;
@@ -153,17 +201,28 @@ VehicleControlNode::VehicleControlNode()
     throw std::invalid_argument("setpoint_rate_hz must be between 2 and 100");
   }
   if (!std::isfinite(telemetry_timeout_sec_) || telemetry_timeout_sec_ <= 0.0 ||
+    telemetry_timeout_sec_ > maximum_timeout_sec ||
     !std::isfinite(default_navigation_timeout_sec_) || default_navigation_timeout_sec_ <= 0.0 ||
+    default_navigation_timeout_sec_ > maximum_timeout_sec ||
     !std::isfinite(default_position_tolerance_m_) || default_position_tolerance_m_ <= 0.0 ||
     !std::isfinite(max_orbit_radius_m_) || max_orbit_radius_m_ < 1.0 ||
     !std::isfinite(max_orbit_speed_mps_) || max_orbit_speed_mps_ <= 0.0 ||
     !std::isfinite(max_orbit_center_distance_m_) || max_orbit_center_distance_m_ <= 0.0 ||
     !std::isfinite(command_ack_timeout_sec_) || command_ack_timeout_sec_ <= 0.0 ||
+    command_ack_timeout_sec_ > maximum_timeout_sec ||
     !std::isfinite(transition_timeout_sec_) || transition_timeout_sec_ <= 0.0 ||
-    !std::isfinite(takeoff_timeout_sec_) || takeoff_timeout_sec_ <= 0.0)
+    transition_timeout_sec_ > maximum_timeout_sec ||
+    !std::isfinite(takeoff_timeout_sec_) || takeoff_timeout_sec_ <= 0.0 ||
+    takeoff_timeout_sec_ > maximum_timeout_sec)
   {
     throw std::invalid_argument(
             "vehicle-control timeouts and default tolerance must be positive and finite");
+  }
+
+  const std::string mission_connection_url = declare_parameter<std::string>(
+    "mission_connection_url", "udpin://0.0.0.0:14540");
+  if (enable_flight_commands_) {
+    onboard_mission_ = std::make_unique<OnboardMission>(mission_connection_url, px4_system_id_);
   }
 
   px4_adapter_ = std::make_shared<Px4Adapter>(*this, topic_prefix, px4_system_id_);
@@ -200,19 +259,25 @@ VehicleControlNode::VehicleControlNode()
   navigation_server_ = rclcpp_action::create_server<NavigateTo>(
     this, "vehicle_control/navigate_to",
     [this](const rclcpp_action::GoalUUID &, std::shared_ptr<const NavigateTo::Goal> goal) {
+      const std::optional<NavigateTo::Goal> resolved = local_navigation_goal(*goal, px4_adapter_->telemetry());
+      if (!resolved) {
+        return rclcpp_action::GoalResponse::REJECT;
+      }
       const Position target_position{
-        goal->target_position.x, goal->target_position.y, goal->target_position.z};
+        resolved->target_position.x, resolved->target_position.y, resolved->target_position.z};
       const Position look_at_position{
-        goal->look_at_position.x, goal->look_at_position.y, goal->look_at_position.z};
+        resolved->look_at_position.x, resolved->look_at_position.y, resolved->look_at_position.z};
       const bool has_valid_look_at_position = !goal->look_at_target ||
         (is_finite_position(look_at_position) &&
         std::hypot(look_at_position[0] - target_position[0],
         look_at_position[1] - target_position[1]) > minimum_look_at_distance_m);
-      const bool is_valid = goal->frame_id == "local_enu" &&
-        std::isfinite(goal->target_position.x) && std::isfinite(goal->target_position.y) &&
-        std::isfinite(goal->target_position.z) && std::isfinite(goal->position_tolerance_m) &&
+      const bool is_valid = resolved->frame_id == "local_enu" &&
+        std::isfinite(resolved->target_position.x) && std::isfinite(resolved->target_position.y) &&
+        std::isfinite(resolved->target_position.z) && std::isfinite(goal->position_tolerance_m) &&
         goal->position_tolerance_m >= 0.0F && std::isfinite(goal->timeout_sec) &&
-        goal->timeout_sec >= 0.0F && has_valid_look_at_position;
+        static_cast<double>(goal->position_tolerance_m) <= maximum_navigation_position_tolerance_m &&
+        goal->timeout_sec >= 0.0F &&
+        static_cast<double>(goal->timeout_sec) <= maximum_timeout_sec && has_valid_look_at_position;
       if (!is_valid) {
         RCLCPP_WARN(
           get_logger(), "Rejecting navigation: invalid goal (frame=%s, target=[%.2f, %.2f, "
@@ -230,17 +295,9 @@ VehicleControlNode::VehicleControlNode()
     },
     [](const std::shared_ptr<NavigateHandle>) {return rclcpp_action::CancelResponse::ACCEPT;},
     [this](const std::shared_ptr<NavigateHandle> handle) {
-      const std::shared_ptr<const NavigateTo::Goal> goal = handle->get_goal();
       {
         std::lock_guard<std::mutex> lock(control_mutex_);
-        target_position_ = {
-          goal->target_position.x, goal->target_position.y, goal->target_position.z};
-        if (goal->look_at_target) {
-          look_at_position_enu_ = Position{
-            goal->look_at_position.x, goal->look_at_position.y, goal->look_at_position.z};
-          target_yaw_rad_ = reserved_start_yaw_rad_;
-          look_at_setpoint_updated_at_ = std::chrono::steady_clock::now();
-        }
+        target_position_ = reserved_start_position_;
       }
       enqueue([this, handle]() {execute_navigation(handle);});
     });
@@ -332,7 +389,8 @@ VehicleControlNode::VehicleControlNode()
         static_cast<double>(goal->yaw_tolerance_rad) <= maximum_trajectory_yaw_tolerance_rad &&
         (goal->face_center || goal->yaw_tolerance_rad == 0.0F) &&
         std::isfinite(goal->revolutions) && goal->revolutions > 0.0F &&
-        std::isfinite(goal->timeout_sec) && goal->timeout_sec > 0.0F;
+        std::isfinite(goal->timeout_sec) && goal->timeout_sec > 0.0F &&
+        static_cast<double>(goal->timeout_sec) <= maximum_timeout_sec;
       if (!is_valid) {
         RCLCPP_WARN(
           get_logger(), "Rejecting OrbitPoint: invalid goal (frame=%s, center=[%.2f, %.2f, "
@@ -359,7 +417,8 @@ VehicleControlNode::VehicleControlNode()
   land_server_ = rclcpp_action::create_server<Land>(
     this, "vehicle_control/land",
     [this](const rclcpp_action::GoalUUID &, std::shared_ptr<const Land::Goal> goal) {
-      if (!std::isfinite(goal->timeout_sec) || goal->timeout_sec < 0.0F) {
+      if (!std::isfinite(goal->timeout_sec) || goal->timeout_sec < 0.0F ||
+        static_cast<double>(goal->timeout_sec) > maximum_timeout_sec) {
         RCLCPP_WARN(
           get_logger(), "Rejecting landing: timeout must be finite and nonnegative "
           "(timeout=%.2f s)", static_cast<double>(goal->timeout_sec));
@@ -375,6 +434,23 @@ VehicleControlNode::VehicleControlNode()
     },
     [this](const std::shared_ptr<LandHandle> handle) {
       enqueue([this, handle]() {execute_land(handle);});
+    });
+
+  onboard_server_ = rclcpp_action::create_server<FlyMission>(
+    this, "vehicle_control/fly_mission",
+    [this](const rclcpp_action::GoalUUID &, std::shared_ptr<const FlyMission::Goal> goal) {
+      try {
+        static_cast<void>(build_onboard_plan(*goal, px4_adapter_->telemetry(), default_position_tolerance_m_));
+      } catch (const std::exception & exception) {
+        RCLCPP_WARN(get_logger(), "Rejecting onboard mission: %s", exception.what());
+        return rclcpp_action::GoalResponse::REJECT;
+      }
+      return reserve_goal(GoalKind::OnboardMission) ?
+        rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE : rclcpp_action::GoalResponse::REJECT;
+    },
+    [](const std::shared_ptr<FlyMissionHandle>) {return rclcpp_action::CancelResponse::ACCEPT;},
+    [this](const std::shared_ptr<FlyMissionHandle> handle) {
+      enqueue([this, handle]() {execute_onboard_mission(handle);});
     });
 
   worker_thread_ = std::thread(&VehicleControlNode::worker_loop, this);
@@ -416,6 +492,9 @@ bool VehicleControlNode::reserve_goal(
     case GoalKind::Land:
       goal_name = "landing";
       break;
+    case GoalKind::OnboardMission:
+      goal_name = "onboard mission";
+      break;
     case GoalKind::None:
       break;
   }
@@ -425,6 +504,10 @@ bool VehicleControlNode::reserve_goal(
     return false;
   }
   const VehicleTelemetry telemetry = px4_adapter_->telemetry();
+  if (telemetry.failsafe && kind != GoalKind::Land) {
+    RCLCPP_WARN(get_logger(), "Rejecting %s: PX4 failsafe is active", goal_name);
+    return false;
+  }
   if (!has_fresh_control_telemetry(telemetry, true)) {
     const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
     const double position_age_sec = telemetry.has_position ?
@@ -438,9 +521,10 @@ bool VehicleControlNode::reserve_goal(
       std::numeric_limits<double>::quiet_NaN();
     RCLCPP_WARN(
       get_logger(), "Rejecting %s: telemetry unavailable or stale (position_valid=%s, "
-      "position_age=%.2f s, status_age=%.2f s, land_age=%.2f s, limit=%.2f s)",
+      "position_age=%.2f s, status_age=%.2f s, land_age=%.2f s, position/status_limit=%.2f s, land_limit=%.2f s)",
       goal_name, telemetry.position_valid ? "true" : "false", position_age_sec,
-      status_age_sec, land_age_sec, telemetry_timeout_sec_);
+      status_age_sec, land_age_sec, telemetry_timeout_sec_,
+      std::max(telemetry_timeout_sec_, minimum_land_state_timeout_sec));
     return false;
   }
   if (require_yaw && (!telemetry.yaw_valid || !std::isfinite(telemetry.yaw_enu_rad))) {
@@ -471,11 +555,16 @@ bool VehicleControlNode::reserve_goal(
     RCLCPP_WARN(get_logger(), "Rejecting %s goal: another flight goal is active", goal_name);
     return false;
   }
-  if ((kind == GoalKind::Takeoff && (telemetry.armed || !telemetry.landed)) ||
-    (kind == GoalKind::Navigate && (!telemetry.armed || !telemetry.offboard)) ||
+  const bool can_enter_offboard = telemetry.offboard || telemetry.navigation_state ==
+    px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_AUTO_LOITER;
+  if (((kind == GoalKind::Takeoff || kind == GoalKind::OnboardMission) &&
+    (telemetry.armed || !telemetry.landed)) ||
+    (kind == GoalKind::OnboardMission && (telemetry.in_transition_mode ||
+    telemetry.vehicle_type != px4_msgs::msg::VehicleStatus::VEHICLE_TYPE_ROTARY_WING)) ||
+    (kind == GoalKind::Navigate && (!telemetry.armed || !can_enter_offboard)) ||
     (kind == GoalKind::FollowTrajectory &&
-    (!telemetry.armed || !telemetry.offboard || telemetry.landed)) ||
-    (kind == GoalKind::Orbit && (!telemetry.armed || !telemetry.offboard || telemetry.landed ||
+    (!telemetry.armed || !can_enter_offboard || telemetry.landed)) ||
+    (kind == GoalKind::Orbit && (!telemetry.armed || !can_enter_offboard || telemetry.landed ||
     telemetry.in_transition_mode || telemetry.vehicle_type !=
     px4_msgs::msg::VehicleStatus::VEHICLE_TYPE_ROTARY_WING)) ||
     (kind == GoalKind::Land && !telemetry.armed && !telemetry.landed))
@@ -490,6 +579,7 @@ bool VehicleControlNode::reserve_goal(
   }
 
   goal_active_ = true;
+  navigation_frame_revision_.reset();
   reserved_start_position_ = telemetry.position_enu;
   reserved_start_yaw_rad_ = telemetry.yaw_enu_rad;
   look_at_position_enu_.reset();
@@ -512,17 +602,18 @@ bool VehicleControlNode::has_fresh_control_telemetry(
   const VehicleTelemetry & telemetry, const bool require_land_state) const
 {
   const std::chrono::steady_clock::time_point current_time = std::chrono::steady_clock::now();
-  const std::function<bool(const std::chrono::steady_clock::time_point &)> is_recent =
-    [this, &current_time](
-      const std::chrono::steady_clock::time_point & received) {
+  const std::function<bool(const std::chrono::steady_clock::time_point &, double)> is_recent =
+    [&current_time](
+      const std::chrono::steady_clock::time_point & received, const double timeout_sec) {
       const std::chrono::steady_clock::duration age = current_time - received;
       return age >= std::chrono::steady_clock::duration::zero() &&
-             age <= std::chrono::duration<double>(telemetry_timeout_sec_);
+             age <= std::chrono::duration<double>(timeout_sec);
     };
   return has_fresh_position(telemetry) && telemetry.has_status &&
-         is_recent(telemetry.status_received) &&
+         is_recent(telemetry.status_received, telemetry_timeout_sec_) &&
          (!require_land_state ||
-         (telemetry.has_land_state && is_recent(telemetry.land_state_received)));
+         (telemetry.has_land_state && is_recent(telemetry.land_state_received,
+         std::max(telemetry_timeout_sec_, minimum_land_state_timeout_sec))));
 }
 
 bool VehicleControlNode::has_fresh_position(const VehicleTelemetry & telemetry) const
@@ -751,6 +842,11 @@ void VehicleControlNode::publish_state()
     std::isfinite(telemetry.reference_altitude_amsl_m) &&
     telemetry.reference_latitude_deg >= -90.0 && telemetry.reference_latitude_deg <= 90.0 &&
     telemetry.reference_longitude_deg >= -180.0 && telemetry.reference_longitude_deg <= 180.0;
+  const std::optional<GlobalPosition> current_global = global_position(telemetry);
+  state.global_position_valid = state.position_valid && current_global.has_value();
+  if (state.global_position_valid) {
+    state.geographic_position = swarm_geometry::to_message(*current_global);
+  }
   state.reference_latitude_deg = telemetry.reference_latitude_deg;
   state.reference_longitude_deg = telemetry.reference_longitude_deg;
   state.reference_altitude_amsl_m = telemetry.reference_altitude_amsl_m;
@@ -760,7 +856,14 @@ void VehicleControlNode::publish_state()
   const std::chrono::duration<double> freshness(telemetry_timeout_sec_);
   state.armed = telemetry.has_status && status_age <= freshness && telemetry.armed;
   state.offboard = telemetry.has_status && status_age <= freshness && telemetry.offboard;
-  state.landed = telemetry.has_land_state && land_age <= freshness && telemetry.landed;
+  state.holding = telemetry.has_status && status_age <= freshness && telemetry.navigation_state ==
+    px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_AUTO_LOITER;
+  state.mission = telemetry.has_status && status_age <= freshness && telemetry.navigation_state ==
+    px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_AUTO_MISSION;
+  state.landed = telemetry.has_land_state &&
+    land_age >= std::chrono::steady_clock::duration::zero() &&
+    land_age <= std::chrono::duration<double>(std::max(telemetry_timeout_sec_, minimum_land_state_timeout_sec)) &&
+    telemetry.landed;
   state.battery_available = telemetry.battery_available;
   state.battery_percentage = telemetry.battery_percentage;
   state_publisher_->publish(state);
@@ -776,6 +879,17 @@ void VehicleControlNode::publish_control_setpoint()
   bool should_publish = false;
   {
     std::lock_guard<std::mutex> lock(control_mutex_);
+    if (navigation_frame_revision_ &&
+      telemetry.local_frame_revision != *navigation_frame_revision_)
+    {
+      if (!has_fresh_position(telemetry)) {
+        return;
+      }
+      target_position_ = telemetry.position_enu;
+      look_at_position_enu_.reset();
+      target_yaw_rad_.reset();
+      navigation_frame_revision_ = telemetry.local_frame_revision;
+    }
     if (stream_requested_ && telemetry.offboard) {
       stream_mode_established_ = true;
     }
@@ -1000,7 +1114,10 @@ void VehicleControlNode::execute_navigation(const std::shared_ptr<NavigateHandle
   std::shared_ptr<NavigateTo::Result> result = std::make_shared<NavigateTo::Result>();
   result->final_distance_m = std::numeric_limits<float>::quiet_NaN();
   result->final_yaw_error_rad = std::numeric_limits<float>::quiet_NaN();
-  const std::shared_ptr<const NavigateTo::Goal> goal = goal_handle->get_goal();
+  const VehicleTelemetry reference_telemetry = px4_adapter_->telemetry();
+  const std::optional<NavigateTo::Goal> resolved = local_navigation_goal(*goal_handle->get_goal(), reference_telemetry);
+  const std::shared_ptr<const NavigateTo::Goal> goal = std::make_shared<NavigateTo::Goal>(
+    resolved ? *resolved : *goal_handle->get_goal());
   const double tolerance = goal->position_tolerance_m == 0.0F ?
     default_position_tolerance_m_ : static_cast<double>(goal->position_tolerance_m);
   const double timeout = goal->timeout_sec == 0.0F ?
@@ -1021,11 +1138,38 @@ void VehicleControlNode::execute_navigation(const std::shared_ptr<NavigateHandle
     timeout);
 
   try {
+    if (!resolved) {
+      throw std::runtime_error("Navigation geographic position or reference is unavailable");
+    }
+    {
+      std::lock_guard<std::mutex> lock(control_mutex_);
+      navigation_frame_revision_ = reference_telemetry.local_frame_revision;
+      target_position_ = target_position;
+      if (goal->look_at_target) {
+        look_at_position_enu_ = look_at_position;
+        target_yaw_rad_ = reference_telemetry.yaw_enu_rad;
+        look_at_setpoint_updated_at_ = std::chrono::steady_clock::now();
+      }
+    }
+    if (!px4_adapter_->telemetry().offboard) {
+      if (!establish_offboard_hold(failure_message)) {
+        throw std::runtime_error(failure_message);
+      }
+      if (px4_adapter_->telemetry().local_frame_revision != reference_telemetry.local_frame_revision) {
+        throw std::runtime_error("Local frame changed while establishing navigation hold");
+      }
+      std::lock_guard<std::mutex> lock(control_mutex_);
+      target_position_ = target_position;
+      if (goal->look_at_target) {
+        look_at_position_enu_ = look_at_position;
+        target_yaw_rad_ = px4_adapter_->telemetry().yaw_enu_rad;
+        look_at_setpoint_updated_at_ = std::chrono::steady_clock::now();
+      }
+    }
     while (std::chrono::steady_clock::now() < deadline) {
       if (is_cancelled()) {
         result->success = false;
-        result->message = "Navigation canceled; holding the current position";
-        RCLCPP_WARN(get_logger(), "%s", result->message.c_str());
+        result->message = "Navigation cancellation is braking into Offboard hold";
         const VehicleTelemetry telemetry = px4_adapter_->telemetry();
         if (telemetry.position_valid) {
           result->final_distance_m = static_cast<float>(
@@ -1042,16 +1186,26 @@ void VehicleControlNode::execute_navigation(const std::shared_ptr<NavigateHandle
           }
         }
         hold_current_position();
+        if (!establish_offboard_hold(failure_message, false, navigation_cancel_hold_timeout_sec)) {
+          result->message = "Navigation cancellation hold unconfirmed: " + failure_message;
+          goal_handle->abort(result);
+          finish_goal();
+          return;
+        }
+        const VehicleTelemetry stopped = px4_adapter_->telemetry();
+        result->final_distance_m = static_cast<float>(distance(stopped.position_enu, target_position));
+        result->message = "Navigation canceled; position and velocity settled in Offboard hold";
         goal_handle->canceled(result);
         finish_goal();
         return;
       }
       const VehicleTelemetry telemetry = px4_adapter_->telemetry();
       if (!has_fresh_control_telemetry(telemetry, false) ||
+        telemetry.local_frame_revision != reference_telemetry.local_frame_revision ||
         (goal->look_at_target && (!telemetry.yaw_valid ||
         !std::isfinite(telemetry.yaw_enu_rad))))
       {
-        failure_message = "PX4 telemetry became stale or invalid during navigation";
+        failure_message = "PX4 telemetry became stale, invalid, or its local frame reset during navigation";
         throw std::runtime_error(failure_message);
       }
       const double target_distance = distance(telemetry.position_enu, target_position);
@@ -1189,6 +1343,9 @@ void VehicleControlNode::execute_follow_trajectory(
     goal->control_yaw ? "true" : "false", yaw_tolerance_rad, timeout_sec);
 
   try {
+    if (!px4_adapter_->telemetry().offboard && !establish_offboard_hold(failure_message)) {
+      throw std::runtime_error(failure_message);
+    }
     VehicleTelemetry telemetry = px4_adapter_->telemetry();
     if (!has_fresh_control_telemetry(telemetry, false) || !telemetry.armed ||
       !telemetry.offboard || telemetry.landed ||
@@ -1480,17 +1637,26 @@ void VehicleControlNode::execute_land(const std::shared_ptr<LandHandle> & goal_h
   }
 }
 
-bool VehicleControlNode::restore_offboard_after_orbit(std::string & failure_message)
+bool VehicleControlNode::establish_offboard_hold(
+  std::string & failure_message, const bool allow_mode_transition,
+  const double settle_timeout_sec)
 {
   const std::function<bool()> is_shutdown = []() {return !rclcpp::ok();};
   VehicleTelemetry telemetry = px4_adapter_->telemetry();
-  if (!has_fresh_control_telemetry(telemetry, false) || !telemetry.armed || telemetry.landed) {
+  if (!has_fresh_control_telemetry(telemetry, false) || !telemetry.armed || telemetry.landed ||
+    telemetry.failsafe) {
     failure_message = "cannot restore Offboard hold because PX4 telemetry is stale or vehicle is not airborne";
     return false;
   }
+  if (!allow_mode_transition && !telemetry.offboard) {
+    failure_message = "PX4 left Offboard; leaving the selected mode in control";
+    return false;
+  }
+  const std::uint64_t reference_revision = telemetry.local_frame_revision;
 
   if (!telemetry.offboard && telemetry.navigation_state !=
-    px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_ORBIT)
+    px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_ORBIT &&
+    telemetry.navigation_state != px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_AUTO_LOITER)
   {
     failure_message = "PX4 exited Orbit into navigation state " +
       std::to_string(telemetry.navigation_state) + "; leaving that mode in control";
@@ -1506,7 +1672,7 @@ bool VehicleControlNode::restore_offboard_after_orbit(std::string & failure_mess
   }
 
   if (!telemetry.offboard) {
-    RCLCPP_INFO(get_logger(), "Orbit ending; prestreaming Offboard hold at current position");
+    RCLCPP_INFO(get_logger(), "Establishing Offboard hold at current position");
     if (!wait_for_prestream(
         deadline_after(prestream_duration_sec), is_shutdown, failure_message))
     {
@@ -1526,7 +1692,7 @@ bool VehicleControlNode::restore_offboard_after_orbit(std::string & failure_mess
     stream_mode_established_ = true;
   }
 
-  const std::chrono::steady_clock::time_point settle_deadline = deadline_after(15.0);
+  const std::chrono::steady_clock::time_point settle_deadline = deadline_after(settle_timeout_sec);
   std::chrono::steady_clock::time_point stable_since{};
   while (std::chrono::steady_clock::now() < settle_deadline) {
     if (is_shutdown()) {
@@ -1535,7 +1701,7 @@ bool VehicleControlNode::restore_offboard_after_orbit(std::string & failure_mess
     }
     telemetry = px4_adapter_->telemetry();
     if (!has_fresh_control_telemetry(telemetry, false) || !telemetry.armed ||
-      !telemetry.offboard)
+      !telemetry.offboard || telemetry.failsafe || telemetry.local_frame_revision != reference_revision)
     {
       failure_message = "PX4 left Offboard or telemetry became invalid before hold was confirmed";
       return false;
@@ -1608,6 +1774,9 @@ void VehicleControlNode::execute_orbit(const std::shared_ptr<OrbitHandle> & goal
   goal_handle->publish_feedback(initial_feedback);
 
   try {
+    if (!px4_adapter_->telemetry().offboard && !establish_offboard_hold(failure_message)) {
+      throw std::runtime_error(failure_message);
+    }
     VehicleTelemetry reference_telemetry = px4_adapter_->telemetry();
     if (!has_fresh_control_telemetry(reference_telemetry, true) ||
       !reference_telemetry.armed || !reference_telemetry.offboard ||
@@ -1798,7 +1967,7 @@ void VehicleControlNode::execute_orbit(const std::shared_ptr<OrbitHandle> & goal
         feedback->yaw_error_rad = static_cast<float>(yaw_error_rad);
         feedback->status = feedback_status;
         goal_handle->publish_feedback(feedback);
-        if (!restore_offboard_after_orbit(failure_message)) {
+        if (!establish_offboard_hold(failure_message)) {
           throw std::runtime_error(
                   "Orbit completed but Offboard hold was not confirmed: " + failure_message);
         }
@@ -1833,7 +2002,7 @@ void VehicleControlNode::execute_orbit(const std::shared_ptr<OrbitHandle> & goal
     if (!recovery_attempted) {
       recovery_attempted = true;
       std::string recovery_failure;
-      recovery_confirmed = restore_offboard_after_orbit(recovery_failure);
+      recovery_confirmed = establish_offboard_hold(recovery_failure);
       if (!recovery_confirmed) {
         failure_message += "; " + recovery_failure;
       }

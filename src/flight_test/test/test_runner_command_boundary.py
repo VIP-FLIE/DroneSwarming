@@ -11,7 +11,7 @@ from flight_test.runner import FlightTestRunner
 from flight_test import runner as runner_module
 
 
-@pytest.mark.parametrize('case_id', [f'FT-{index:02d}' for index in range(7)])
+@pytest.mark.parametrize('case_id', [f'FT-{index:02d}' for index in range(8)])
 def test_case_command_clients_target_mission_execution(
     case_id: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

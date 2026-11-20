@@ -6,12 +6,12 @@ swarm_interfaces/VehicleState starting_state
 ---
 bool success
 string message
-# Every offset uses the request's single starting position in local_enu meters.
+# Fixed geographic destinations, independent of the vehicle estimator origin.
 float32 takeoff_altitude_m
-geometry_msgs/Point[] waypoint_offsets
+swarm_interfaces/GeographicPosition[] waypoint_positions
 float32 position_tolerance_m
 bool orbit_after_waypoints
-geometry_msgs/Point orbit_center_offset
+swarm_interfaces/GeographicPosition orbit_center_geographic
 float32 orbit_radius_m
 float32 orbit_tangential_speed_mps
 float32 orbit_revolutions

@@ -5,9 +5,7 @@ command runs one case and records its telemetry, action results, and assertions.
 simulation session runs Gazebo, PX4, the XRCE-DDS Agent, and the application. QGroundControl runs
 on the host.
 
-The [command architecture validation record](COMMAND-ARCHITECTURE-VALIDATION.md) records command routing, automated checks, SITL results, and unresolved flight validation issues.
-
-The [JSON planner validation record](JSON-PLANNER-VALIDATION.md) covers file submission, fleet assignment translation, frame invalidation, and JSON SITL missions.
+FT-01 executes an uploaded PX4 mission and requires the MAVLink link on UDP 14540 and a valid global reference. Other cases retain standalone Offboard operations. See [onboard missions](../architecture/PX4-ONBOARD-MISSIONS.md) for setup and cancellation behavior.
 
 ## Start the simulation
 
@@ -33,13 +31,12 @@ In pane 1, start PX4 SITL with Gazebo:
 ./scripts/px4-sitl
 ```
 
-In the application pane, launch the flight-enabled application:
+Confirm that Gazebo shows the X500 and QGroundControl shows the vehicle with updating telemetry and passing PX4 preflight checks. In the application pane, launch the flight-enabled application:
 
 ```bash
 ros2 launch drone_bringup single_vehicle.launch.py enable_flight_commands:=true
 ```
 
-Confirm that Gazebo shows the X500 and QGroundControl shows the vehicle with updating telemetry.
 The `vehicle_control` node must report that flight actions are enabled before a case starts.
 
 ## Run one flight
@@ -73,6 +70,7 @@ Both commands use `DRONE_RUN_DIR` supplied by `scripts/sim-shell` and create a n
 | FT-04 | Fly search lanes and land |
 | FT-05 | Fly altitude steps and land |
 | FT-06 | Cancel navigation, hold position, land |
+| FT-07 | Fly forward, return to a fixed GPS target, move north, land |
 
 FT-01 uses `/execute_waypoint_mission`. The other operations use
 `/mission_execution/{takeoff,navigate_to,follow_trajectory,orbit_point,land}` with their existing
@@ -164,5 +162,39 @@ Run the ROS package tests in the simulation container:
 ./scripts/sim-shell bash -lc 'colcon test --packages-up-to flight_test vehicle_control mission_execution drone_bringup && colcon test-result --verbose'
 ```
 
-FT-03 orbits a virtual `local_enu` point. The default `lawn` world has no building fixture or
+FT-03 orbits a virtual `local_enu` point. The default `vip_windy` world has no building fixture or
 contact monitor. The case does not report building clearance or collision safety.
+
+## Earlier onboard-backend validation
+
+Validation on November 18, 2026 used PX4 v1.17.0, the project `vip_x500` model, and the default `vip_windy` world with 5 m/s wind. Preflight checks, failsafes, and flight-test tolerances remained enabled. The Docker image built with strict compiler diagnostics. Both the development workspace and an isolated container from the finished image passed 126 tests with zero errors, failures, or skips.
+
+| Flight check | Result |
+| --- | --- |
+| FT-00 hover and landing | Passed |
+| FT-01 uploaded square | Passed |
+| FT-02 timed position and yaw | Passed |
+| FT-03 finite orbit | Failed when heading validity dropped; recovery landing completed |
+| FT-04 timed search lanes | Failed the ordered target-visit check; recovery landing completed |
+| FT-05 altitude steps | Passed |
+| FT-06 navigation cancellation | Failed the hold-drift check; recovery landing completed |
+| JSON six-waypoint lawnmower | Passed |
+| JSON circle | Passed uploaded takeoff, Hold-to-Offboard orbit handoff, and landing |
+| Native mission interruption | Passed cancellation to Hold, zero application mission setpoints, navigation handoff, and landing preemption |
+| Vehicle-control process termination | PX4 completed the stored route, landed, and disarmed |
+
+FT-03 recorded 126 invalid heading-for-control samples during the failing orbit interval. FT-04's closest distance to its third ordered target was 0.87 meters. FT-06 measured 3.027 meters of hold drift against a 0.750-meter limit. These were the unresolved results before the coordinate migration. Current results and remaining limitations are recorded in [coordinate migration validation](COORDINATE-MIGRATION.md).
+
+The process-loss check terminated only vehicle control with SIGKILL. Independent PX4 telemetry measured a 0.143-meter minimum horizontal waypoint error before landing. QGroundControl and the DDS agent remained running. This check does not cover complete companion-computer power loss.
+
+Local evidence is stored under `run-logs/20261118T221233Z/`, including flight reports, ULogs, `onboard-process-loss.json`, validation scripts, and workspace/image test logs. Run artifacts are ignored by Git and are not included in a fresh clone.
+
+Physical Raspberry Pi builds, HITL, hardware flight, multi-vehicle PX4 routing, complete Pi power loss, and native ROI heading behavior remain unvalidated. ROS pause/resume, airborne mission replacement, and perception-driven rejoin are unimplemented.
+
+FT-07 takes off, flies 3 meters forward at the captured heading, returns to an exact GPS/AMSL target captured after takeoff, moves 2 meters north, and lands. Each observed endpoint must be within 0.75 meters. Run it with `./scripts/test-flights --case FT-07`. Geographic coordinates, frame revision, and local meter measurements are recorded in the telemetry CSV.
+
+FT-06 now checks that navigation cancellation returns after a settled hold, including horizontal speed at most 0.3 m/s. The action has a 12-second hold-confirmation deadline; the test waits up to 15 seconds for its canceled result. The 0.75-meter drift limit is unchanged.
+
+## Coordinate migration validation
+
+The [migration validation record](COORDINATE-MIGRATION.md) records package tests, isolated PX4 flights, native JSON routes, clean-image checks, and remaining limits for the geographic coordinate contracts.

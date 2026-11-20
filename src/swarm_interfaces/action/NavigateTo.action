@@ -1,8 +1,13 @@
-# Absolute position in local_enu (East, North, Up), relative to the PX4 local origin.
+# local_enu: absolute estimator-local ENU; relative_enu: east/north/up offset.
+# relative_body: forward/left/up offset at command-start heading.
+# wgs84: geographic_target is authoritative. Relative commands require global position.
+# look_at_position uses the same frame as target_position.
+swarm_interfaces/GeographicPosition geographic_target
+swarm_interfaces/GeographicPosition look_at_geographic_position
 geometry_msgs/Point target_position
 # When true, set yaw toward the horizontal bearing from the current position to this point.
 bool look_at_target
-# Absolute point in local_enu. Its horizontal coordinates determine yaw; its height does not.
+# Point in the selected metric frame. Horizontal coordinates determine yaw.
 # The goal is rejected if this point is within 0.1 m of the destination horizontally.
 geometry_msgs/Point look_at_position
 string frame_id

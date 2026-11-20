@@ -32,9 +32,10 @@ create one explicitly named directory.
 | FT-04 | Fly search lanes, land |
 | FT-05 | Fly altitude steps, land |
 | FT-06 | Cancel navigation, hold, land |
+| FT-07 | Fly forward, return to a fixed GPS target, move north, land |
 
 Every operation below follows `flight_test -> mission_execution -> vehicle_control`. FT-01 uses
-`execute_waypoint_mission`; its takeoff, navigation, and landing are child operations. FT-00 uses
+`execute_waypoint_mission`; its takeoff, waypoints, and landing execute through one uploaded `FlyMission` child, without an Offboard stream. FT-00 uses
 `mission_execution/takeoff` and `mission_execution/land`. FT-02, FT-04, and FT-05 add
 `mission_execution/follow_trajectory`. FT-03 adds `mission_execution/orbit_point`, including its
 cancellation and confirmed hold recovery. FT-06 adds `mission_execution/navigate_to`, including
@@ -68,5 +69,9 @@ FT-03 records radial and heading error distributions. The `OrbitPoint` action en
 progress and requested center-facing yaw tolerance. FT-05 records climb and descent settling
 durations without requiring a fixed settling time.
 
-FT-03 uses a virtual `local_enu` orbit center. The stock Gazebo world has no building fixture or
+FT-03 uses a virtual `local_enu` orbit center. The default `vip_windy` world has no building fixture or
 contact monitor. The case makes no building-clearance or collision-safety claim.
+
+Telemetry CSV output includes geographic validity, latitude, longitude, AMSL altitude, and local-frame revision alongside local ENU measurements. Relative mission input is compiled into geographic targets. Standalone trajectory cases retain local ENU coordinates.
+
+FT-07 takes off, flies 3 meters forward at the captured heading, returns to an exact GPS/AMSL target captured after takeoff, moves 2 meters north, and lands. Each observed endpoint must be within 0.75 meters. Run it with `./scripts/test-flights --case FT-07`. Geographic coordinates, frame revision, and local meter measurements are recorded in the telemetry CSV.

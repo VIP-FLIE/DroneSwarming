@@ -19,6 +19,9 @@ if(BUILD_TESTING)
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/test_planner_execution_flow.py"
   )
   set_tests_properties(planner_execution_flow PROPERTIES TIMEOUT 60)
+  set_tests_properties(command_endpoints planner_execution_flow
+    PROPERTIES ENVIRONMENT "ROS_DOMAIN_ID=79"
+  )
 
   unset(RUFF_EXECUTABLE CACHE)
   find_program(RUFF_EXECUTABLE NAMES ruff)

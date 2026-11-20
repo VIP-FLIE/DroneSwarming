@@ -9,6 +9,9 @@ float32 yaw_rad
 bool yaw_valid
 bool armed
 bool offboard
+# Native PX4 Hold and Mission states. Fresh status is required for either flag.
+bool holding
+bool mission
 bool landed
 bool battery_available
 float32 battery_percentage
@@ -21,3 +24,7 @@ bool global_reference_valid
 float64 reference_latitude_deg
 float64 reference_longitude_deg
 float64 reference_altitude_amsl_m
+
+# Current geographic estimate derived from the fresh PX4 local position/reference.
+bool global_position_valid
+swarm_interfaces/GeographicPosition geographic_position

@@ -26,6 +26,7 @@ struct VehicleTelemetry
   bool yaw_valid{false};
   bool armed{false};
   bool offboard{false};
+  bool failsafe{false};
   bool in_transition_mode{false};
   std::uint8_t vehicle_type{0};
   std::uint8_t navigation_state{0};
@@ -49,6 +50,9 @@ struct VehicleTelemetry
   std::chrono::steady_clock::time_point status_received{};
   std::chrono::steady_clock::time_point land_state_received{};
 };
+
+/// Returns the current geographic estimate when local position and both references are valid.
+std::optional<GlobalPosition> global_position(const VehicleTelemetry & telemetry) noexcept;
 
 /// PX4 command result paired with its receive generation.
 struct CommandAcknowledgement

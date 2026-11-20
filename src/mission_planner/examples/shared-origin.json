@@ -5,7 +5,7 @@
       "vehicle_ids": [
         "uav_1"
       ],
-      "frame_id": "relative_enu",
+      "frame_id": "shared_enu",
       "takeoff_altitude_m": 3.0,
       "waypoint_acceptance_radius_m": 0.5,
       "path": {
@@ -30,17 +30,17 @@
         ]
       },
       "origin": {
-        "latitude_deg": 47.397742,
-        "longitude_deg": 8.545594,
-        "altitude_amsl_m": 488.0
+        "latitude_deg": 47.397971057728974,
+        "longitude_deg": 8.546163739800146,
+        "altitude_amsl_m": 0.0
       }
     },
     {
       "vehicle_ids": [
         "uav_2"
       ],
-      "frame_id": "relative_enu",
-      "takeoff_altitude_m": 3.0,
+      "frame_id": "shared_enu",
+      "takeoff_altitude_m": 5.0,
       "waypoint_acceptance_radius_m": 0.5,
       "path": {
         "type": "waypoints",
@@ -64,9 +64,9 @@
         ]
       },
       "origin": {
-        "latitude_deg": 47.397742,
-        "longitude_deg": 8.545594,
-        "altitude_amsl_m": 488.0
+        "latitude_deg": 47.397971057728974,
+        "longitude_deg": 8.546163739800146,
+        "altitude_amsl_m": 0.0
       }
     }
   ]

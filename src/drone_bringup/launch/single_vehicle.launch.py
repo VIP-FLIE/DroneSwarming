@@ -40,6 +40,7 @@ def generate_launch_description() -> LaunchDescription:
             default_value='false',
             description='Explicitly enable vehicle-control flight actions',
         ),
+        DeclareLaunchArgument('mission_connection_url', default_value='udpin://0.0.0.0:14540'),
         DeclareLaunchArgument('setpoint_rate_hz', default_value='20.0'),
         DeclareLaunchArgument('telemetry_timeout_sec', default_value='1.0'),
         DeclareLaunchArgument('default_navigation_timeout_sec', default_value='30.0'),
@@ -65,6 +66,7 @@ def generate_launch_description() -> LaunchDescription:
         arguments=['--ros-args', '--log-level', log_level],
         parameters=[
             {
+                'mission_connection_url': LaunchConfiguration('mission_connection_url'),
                 'px4_topic_prefix': px4_topic_prefix,
                 'px4_system_id': ParameterValue(
                     LaunchConfiguration('px4_system_id'), value_type=int

@@ -13,6 +13,7 @@
 #include <gtest/gtest.h>
 
 #include "mission_execution/mission_execution_node.hpp"
+#include <swarm_geometry/geography.hpp>
 
 namespace mission_execution
 {
@@ -24,6 +25,7 @@ using NavigateTo = swarm_interfaces::action::NavigateTo;
 using FollowTrajectory = swarm_interfaces::action::FollowTrajectory;
 using OrbitPoint = swarm_interfaces::action::OrbitPoint;
 using Land = swarm_interfaces::action::Land;
+using FlyMission = swarm_interfaces::action::FlyMission;
 using Mission = swarm_interfaces::action::ExecuteWaypointMission;
 constexpr std::chrono::seconds test_timeout(3);
 
@@ -86,6 +88,7 @@ public:
 
   void finish_canceled(const std::size_t index = 0)
   {
+    ASSERT_TRUE(wait_until([this, index]() {return goal(index)->is_canceling();}));
     goal(index)->canceled(std::make_shared<typename ActionT::Result>());
   }
 
@@ -117,6 +120,7 @@ protected:
       rclcpp::Parameter("action_server_timeout_sec", 0.5)});
     mission_ = std::make_shared<MissionExecutionNode>(options);
     peer_ = std::make_shared<rclcpp::Node>("command_test_peer", test_namespace);
+    onboard_ = std::make_unique<ControlledAction<FlyMission>>(peer_, "fly_mission");
     takeoff_ = std::make_unique<ControlledAction<Takeoff>>(peer_, "takeoff");
     navigation_ = std::make_unique<ControlledAction<NavigateTo>>(peer_, "navigate_to");
     trajectory_ = std::make_unique<ControlledAction<FollowTrajectory>>(peer_, "follow_trajectory");
@@ -125,10 +129,19 @@ protected:
     publisher_ = peer_->create_publisher<swarm_interfaces::msg::VehicleState>("vehicle_state", 10);
     state_.header.frame_id = "local_enu";
     state_.position_valid = true;
+    state_.global_position_valid = true;
+    state_.global_reference_valid = true;
+    state_.reference_latitude_deg = 47.0;
+    state_.reference_longitude_deg = 8.0;
+    state_.reference_altitude_amsl_m = 500.0;
+    state_.geographic_position = swarm_geometry::to_message({47.0, 8.0, 500.0});
     state_.yaw_valid = true;
     state_.landed = true;
     timer_ = peer_->create_wall_timer(std::chrono::milliseconds(20), [this]() {
       std::lock_guard<std::mutex> lock(state_mutex_);
+      const std::optional<swarm_geometry::GlobalPosition> global = swarm_geometry::enu_to_global(
+        {state_.position.x, state_.position.y, state_.position.z}, 47.0, 8.0, 500.0);
+      if (global) {state_.geographic_position = swarm_geometry::to_message(*global);}
       publisher_->publish(state_);
     });
     executor_.add_node(mission_);
@@ -212,6 +225,7 @@ protected:
     return goal;
   }
 
+  std::unique_ptr<ControlledAction<FlyMission>> onboard_;
   std::shared_ptr<MissionExecutionNode> mission_;
   std::shared_ptr<rclcpp::Node> peer_;
   rclcpp::executors::MultiThreadedExecutor executor_{rclcpp::ExecutorOptions(), 3};
@@ -274,8 +288,10 @@ TEST_F(CommandAuthority, TrajectoryPreservesFeedbackAndFailureMeasurements)
   std::shared_ptr<FollowTrajectory::Feedback> feedback = std::make_shared<FollowTrajectory::Feedback>();
   feedback->elapsed_sec = 1.0F;
   feedback->distance_to_target_m = 0.25F;
-  trajectory_->goal()->publish_feedback(feedback);
-  ASSERT_TRUE(wait_until([&received_feedback]() {return received_feedback.load();}));
+  ASSERT_TRUE(wait_until([this, &received_feedback, feedback]() {
+    trajectory_->goal()->publish_feedback(feedback);
+    return received_feedback.load();
+  }));
   std::shared_ptr<FollowTrajectory::Result> result = std::make_shared<FollowTrajectory::Result>();
   result->message = "Tracking failed";
   result->final_distance_m = 2.5F;
@@ -405,6 +421,15 @@ TEST_F(CommandAuthority, UnavailableAndRejectedChildServersReturnFailure)
   EXPECT_EQ(orbit_client->async_get_result(rejected).get().code, rclcpp_action::ResultCode::ABORTED);
 }
 
+TEST_F(CommandAuthority, MissionRejectsUnrepresentableDeadlineBeforeDispatch)
+{
+  const rclcpp_action::Client<Mission>::SharedPtr action_client = client<Mission>("execute_waypoint_mission");
+  Mission::Goal goal = mission_goal();
+  goal.waypoint_timeout_sec = std::numeric_limits<float>::max();
+  EXPECT_EQ(send<Mission>(action_client, goal), nullptr);
+  EXPECT_EQ(onboard_->count(), 0U);
+}
+
 TEST_F(CommandAuthority, MissionOffsetsUseOneOriginAndCompleteOptionalLanding)
 {
   {
@@ -419,24 +444,30 @@ TEST_F(CommandAuthority, MissionOffsetsUseOneOriginAndCompleteOptionalLanding)
   goal.land_after_waypoints = true;
   const rclcpp_action::ClientGoalHandle<Mission>::SharedPtr handle = send<Mission>(action_client, goal);
   ASSERT_NE(handle, nullptr);
-  ASSERT_TRUE(wait_until([this]() {return takeoff_->count() == 1U;}));
-  set_airborne();
-  takeoff_->succeed();
-  ASSERT_TRUE(wait_until([this]() {return navigation_->count() == 1U;}));
-  EXPECT_DOUBLE_EQ(navigation_->goal()->get_goal()->target_position.x, 13.0);
-  EXPECT_DOUBLE_EQ(navigation_->goal()->get_goal()->target_position.z, 4.0);
-  {
-    std::lock_guard<std::mutex> lock(state_mutex_);
-    state_.position.x = 13.0;
-    state_.position.z = 4.0;
-  }
-  navigation_->succeed();
-  ASSERT_TRUE(wait_until([this]() {return navigation_->count() == 2U;}));
-  EXPECT_DOUBLE_EQ(navigation_->goal(1)->get_goal()->target_position.x, 13.0);
-  EXPECT_DOUBLE_EQ(navigation_->goal(1)->get_goal()->target_position.y, 23.0);
-  navigation_->succeed(1);
-  ASSERT_TRUE(wait_until([this]() {return land_->count() == 1U;}));
-  land_->succeed();
+  ASSERT_TRUE(wait_until([this]() {return onboard_->count() == 1U;}));
+  const std::shared_ptr<const FlyMission::Goal> uploaded = onboard_->goal()->get_goal();
+  EXPECT_DOUBLE_EQ(uploaded->takeoff_position.altitude_amsl_m, 504.0);
+  ASSERT_EQ(uploaded->waypoint_positions.size(), 2U);
+  const std::optional<swarm_geometry::Position> first = swarm_geometry::global_to_enu(
+    swarm_geometry::from_message(uploaded->waypoint_positions[0]),
+    swarm_geometry::from_message(uploaded->starting_position));
+  const std::optional<swarm_geometry::Position> second = swarm_geometry::global_to_enu(
+    swarm_geometry::from_message(uploaded->waypoint_positions[1]),
+    swarm_geometry::from_message(uploaded->starting_position));
+  ASSERT_TRUE(first.has_value());
+  ASSERT_TRUE(second.has_value());
+  EXPECT_NEAR((*first)[0], 3.0, 1.0e-8);
+  EXPECT_NEAR((*first)[2], 3.0, 1.0e-8);
+  EXPECT_NEAR((*second)[0], 3.0, 1.0e-8);
+  EXPECT_NEAR((*second)[1], 3.0, 1.0e-8);
+  EXPECT_TRUE(uploaded->land_after_waypoints);
+  EXPECT_EQ(takeoff_->count(), 0U);
+  EXPECT_EQ(navigation_->count(), 0U);
+  EXPECT_EQ(land_->count(), 0U);
+  std::shared_ptr<FlyMission::Result> completed = std::make_shared<FlyMission::Result>();
+  completed->success = true;
+  completed->completed_waypoints = 2;
+  onboard_->goal()->succeed(completed);
   const rclcpp_action::ClientGoalHandle<Mission>::WrappedResult outcome =
     action_client->async_get_result(handle).get();
   EXPECT_EQ(outcome.code, rclcpp_action::ResultCode::SUCCEEDED);
@@ -447,22 +478,20 @@ TEST_F(CommandAuthority, ExplicitLandingPreemptsWaypointMission)
 {
   const rclcpp_action::Client<Mission>::SharedPtr action_client = client<Mission>("execute_waypoint_mission");
   const rclcpp_action::ClientGoalHandle<Mission>::SharedPtr handle = send<Mission>(action_client, mission_goal());
-  ASSERT_TRUE(wait_until([this]() {return takeoff_->count() == 1U;}));
+  ASSERT_TRUE(wait_until([this]() {return onboard_->count() == 1U;}));
   set_airborne();
-  takeoff_->succeed();
-  ASSERT_TRUE(wait_until([this]() {return navigation_->count() == 1U;}));
   const rclcpp_action::Client<Land>::SharedPtr land_client = client<Land>("land");
   const rclcpp_action::ClientGoalHandle<Land>::SharedPtr landing = send<Land>(land_client, Land::Goal());
   ASSERT_NE(landing, nullptr);
-  ASSERT_TRUE(wait_until([this]() {return navigation_->cancellations.load() == 1U;}));
-  navigation_->finish_canceled();
+  ASSERT_TRUE(wait_until([this]() {return onboard_->cancellations.load() == 1U;}));
+  onboard_->finish_canceled();
   ASSERT_TRUE(wait_until([this]() {return land_->count() == 1U;}));
   land_->succeed();
   const rclcpp_action::ClientGoalHandle<Mission>::WrappedResult outcome =
     action_client->async_get_result(handle).get();
   EXPECT_EQ(outcome.code, rclcpp_action::ResultCode::ABORTED);
   EXPECT_EQ(outcome.result->completed_waypoints, 0U);
-  EXPECT_EQ(navigation_->count(), 1U);
+  EXPECT_EQ(onboard_->count(), 1U);
   EXPECT_TRUE(land_client->async_get_result(landing).get().result->success);
 }
 
@@ -495,20 +524,18 @@ TEST_F(CommandAuthority, MissionCancellationWaitsForNavigationTerminalResult)
 {
   const rclcpp_action::Client<Mission>::SharedPtr action_client = client<Mission>("execute_waypoint_mission");
   const rclcpp_action::ClientGoalHandle<Mission>::SharedPtr handle = send<Mission>(action_client, mission_goal());
-  ASSERT_TRUE(wait_until([this]() {return takeoff_->count() == 1U;}));
+  ASSERT_TRUE(wait_until([this]() {return onboard_->count() == 1U;}));
   set_airborne();
-  takeoff_->succeed();
-  ASSERT_TRUE(wait_until([this]() {return navigation_->count() == 1U;}));
   action_client->async_cancel_goal(handle).get();
-  ASSERT_TRUE(wait_until([this]() {return navigation_->cancellations.load() == 1U;}));
+  ASSERT_TRUE(wait_until([this]() {return onboard_->cancellations.load() == 1U;}));
   std::shared_future<rclcpp_action::ClientGoalHandle<Mission>::WrappedResult> outcome =
     action_client->async_get_result(handle);
   EXPECT_EQ(outcome.wait_for(std::chrono::milliseconds(150)), std::future_status::timeout);
-  navigation_->finish_canceled();
+  onboard_->finish_canceled();
   ASSERT_EQ(outcome.wait_for(test_timeout), std::future_status::ready);
   EXPECT_EQ(outcome.get().code, rclcpp_action::ResultCode::CANCELED);
   EXPECT_EQ(outcome.get().result->completed_waypoints, 0U);
-  EXPECT_EQ(navigation_->count(), 1U);
+  EXPECT_EQ(onboard_->count(), 1U);
   EXPECT_EQ(land_->count(), 0U);
 }
 
@@ -524,11 +551,26 @@ TEST_F(CommandAuthority, MissionOrbitFailurePreservesWaypointCountAndSkipsLandin
   goal.orbit_timeout_sec = 30.0F;
   goal.land_after_waypoints = true;
   const rclcpp_action::ClientGoalHandle<Mission>::SharedPtr handle = send<Mission>(action_client, goal);
-  ASSERT_TRUE(wait_until([this]() {return takeoff_->count() == 1U;}));
+  ASSERT_TRUE(wait_until([this]() {return onboard_->count() == 1U;}));
   set_airborne();
-  takeoff_->succeed();
-  ASSERT_TRUE(wait_until([this]() {return navigation_->count() == 1U;}));
-  navigation_->succeed();
+  EXPECT_FALSE(onboard_->goal()->get_goal()->land_after_waypoints);
+  std::shared_ptr<FlyMission::Result> completed = std::make_shared<FlyMission::Result>();
+  completed->success = true;
+  completed->completed_waypoints = 1;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    state_.offboard = false;
+    state_.mission = true;
+  }
+  std::this_thread::sleep_for(std::chrono::milliseconds(60));
+  onboard_->goal()->succeed(completed);
+  std::this_thread::sleep_for(std::chrono::milliseconds(150));
+  EXPECT_EQ(orbit_->count(), 0U);
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    state_.mission = false;
+    state_.holding = true;
+  }
   ASSERT_TRUE(wait_until([this]() {return orbit_->count() == 1U;}));
   std::shared_ptr<OrbitPoint::Result> failure = std::make_shared<OrbitPoint::Result>();
   failure->message = "Orbit hold recovery failed";
@@ -541,21 +583,21 @@ TEST_F(CommandAuthority, MissionOrbitFailurePreservesWaypointCountAndSkipsLandin
   EXPECT_EQ(land_->count(), 0U);
 }
 
-TEST_F(CommandAuthority, MissionCannotAdvanceWithInvalidState)
+TEST_F(CommandAuthority, FailedOnboardMissionPreservesProgressAndSkipsLanding)
 {
   const rclcpp_action::Client<Mission>::SharedPtr action_client = client<Mission>("execute_waypoint_mission");
   const rclcpp_action::ClientGoalHandle<Mission>::SharedPtr handle = send<Mission>(action_client, mission_goal());
-  ASSERT_TRUE(wait_until([this]() {return takeoff_->count() == 1U;}));
-  {
-    std::lock_guard<std::mutex> lock(state_mutex_);
-    state_.position_valid = false;
-  }
-  std::this_thread::sleep_for(std::chrono::milliseconds(60));
-  takeoff_->succeed();
+  ASSERT_TRUE(wait_until([this]() {return onboard_->count() == 1U;}));
+  std::shared_ptr<FlyMission::Result> failure = std::make_shared<FlyMission::Result>();
+  failure->completed_waypoints = 1;
+  failure->message = "Native mission stop unconfirmed";
+  onboard_->goal()->abort(failure);
   const rclcpp_action::ClientGoalHandle<Mission>::WrappedResult outcome =
     action_client->async_get_result(handle).get();
   EXPECT_EQ(outcome.code, rclcpp_action::ResultCode::ABORTED);
-  EXPECT_EQ(navigation_->count(), 0U);
+  EXPECT_EQ(outcome.result->completed_waypoints, 1U);
+  EXPECT_NE(outcome.result->message.find("stop unconfirmed"), std::string::npos);
+  EXPECT_EQ(land_->count(), 0U);
 }
 
 TEST_F(CommandAuthority, UnconfirmedCancellationAbortsAndBlocksDispatch)
@@ -597,6 +639,64 @@ TEST_F(CommandAuthority, FailedOrbitRecoveryAfterCancellationReturnsFailure)
   EXPECT_EQ(outcome.code, rclcpp_action::ResultCode::ABORTED);
   EXPECT_FALSE(outcome.result->success);
   EXPECT_EQ(outcome.result->message, failure->message);
+}
+
+TEST_F(CommandAuthority, RelativeBodyNavigationDispatchesOneGeographicTarget)
+{
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    state_.yaw_rad = static_cast<float>(std::acos(-1.0) / 2.0);
+  }
+  set_airborne();
+  const rclcpp_action::Client<NavigateTo>::SharedPtr navigation_client = client<NavigateTo>("navigate_to");
+  NavigateTo::Goal goal;
+  goal.frame_id = "relative_body";
+  goal.target_position.x = 3.0;
+  const rclcpp_action::ClientGoalHandle<NavigateTo>::SharedPtr handle = send<NavigateTo>(navigation_client, goal);
+  ASSERT_NE(handle, nullptr);
+  ASSERT_TRUE(wait_until([this]() {return navigation_->count() == 1U;}));
+  const std::shared_ptr<const NavigateTo::Goal> forwarded = navigation_->goal()->get_goal();
+  EXPECT_EQ(forwarded->frame_id, "wgs84");
+  const std::optional<swarm_geometry::Position> target = swarm_geometry::global_to_enu(
+    swarm_geometry::from_message(forwarded->geographic_target), {47.0, 8.0, 500.0});
+  ASSERT_TRUE(target.has_value());
+  EXPECT_NEAR((*target)[0], 0.0, 1.0e-6);
+  EXPECT_NEAR((*target)[1], 3.0, 1.0e-6);
+  EXPECT_DOUBLE_EQ((*target)[2], 0.0);
+  navigation_->succeed();
+  EXPECT_EQ(navigation_client->async_get_result(handle).get().code, rclcpp_action::ResultCode::SUCCEEDED);
+}
+
+TEST_F(CommandAuthority, GeographicNavigationPreservesTheRequestedCoordinates)
+{
+  set_airborne();
+  const rclcpp_action::Client<NavigateTo>::SharedPtr navigation_client = client<NavigateTo>("navigate_to");
+  NavigateTo::Goal goal;
+  goal.frame_id = "wgs84";
+  goal.geographic_target = swarm_geometry::to_message({47.000123456789, 8.000234567891, 503.0});
+  const rclcpp_action::ClientGoalHandle<NavigateTo>::SharedPtr handle = send<NavigateTo>(navigation_client, goal);
+  ASSERT_NE(handle, nullptr);
+  ASSERT_TRUE(wait_until([this]() {return navigation_->count() == 1U;}));
+  EXPECT_EQ(navigation_->goal()->get_goal()->geographic_target, goal.geographic_target);
+  navigation_->succeed();
+  EXPECT_EQ(navigation_client->async_get_result(handle).get().code, rclcpp_action::ResultCode::SUCCEEDED);
+}
+
+TEST_F(CommandAuthority, RelativeNavigationWithoutGeographicPositionCannotDispatch)
+{
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    state_.global_position_valid = false;
+  }
+  set_airborne();
+  const rclcpp_action::Client<NavigateTo>::SharedPtr navigation_client = client<NavigateTo>("navigate_to");
+  NavigateTo::Goal goal;
+  goal.frame_id = "relative_enu";
+  goal.target_position.x = 3.0;
+  const rclcpp_action::ClientGoalHandle<NavigateTo>::SharedPtr handle = send<NavigateTo>(navigation_client, goal);
+  ASSERT_NE(handle, nullptr);
+  EXPECT_EQ(navigation_client->async_get_result(handle).get().code, rclcpp_action::ResultCode::ABORTED);
+  EXPECT_EQ(navigation_->count(), 0U);
 }
 
 }  // namespace

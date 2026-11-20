@@ -10,6 +10,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(swarm_interfaces REQUIRED)
+find_package(swarm_geometry REQUIRED)
 
 add_executable(mission_execution_node
   src/geometry.cpp
@@ -21,7 +22,7 @@ target_compile_features(mission_execution_node PRIVATE cxx_std_17)
 enable_project_cpp_diagnostics(mission_execution_node)
 enable_project_cpp_logging(mission_execution_node)
 ament_target_dependencies(mission_execution_node SYSTEM
-  geometry_msgs rclcpp rclcpp_action swarm_interfaces
+  geometry_msgs rclcpp rclcpp_action swarm_interfaces swarm_geometry
 )
 
 install(TARGETS mission_execution_node DESTINATION lib/${PROJECT_NAME})
@@ -31,7 +32,7 @@ if(BUILD_TESTING)
   ament_add_gtest(test_geometry test/test_geometry.cpp src/geometry.cpp)
   target_compile_features(test_geometry PRIVATE cxx_std_17)
   enable_project_cpp_diagnostics(test_geometry)
-  ament_target_dependencies(test_geometry SYSTEM geometry_msgs)
+  ament_target_dependencies(test_geometry SYSTEM geometry_msgs swarm_interfaces swarm_geometry)
   target_include_directories(test_geometry PRIVATE include)
 
   ament_add_gtest(test_command_authority
@@ -42,9 +43,10 @@ if(BUILD_TESTING)
   enable_project_cpp_diagnostics(test_command_authority)
   enable_project_cpp_logging(test_command_authority)
   ament_target_dependencies(test_command_authority SYSTEM
-    geometry_msgs rclcpp rclcpp_action swarm_interfaces
+    geometry_msgs rclcpp rclcpp_action swarm_interfaces swarm_geometry
   )
   target_include_directories(test_command_authority PRIVATE include)
+  set_tests_properties(test_command_authority PROPERTIES ENVIRONMENT "ROS_DOMAIN_ID=78")
 endif()
 
 ament_package()

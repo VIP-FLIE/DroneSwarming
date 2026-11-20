@@ -1,8 +1,8 @@
 # Desktop Gazebo SITL with ROS 2 on Raspberry Pi
 
-This setup runs PX4 SITL and Gazebo Harmonic on the Ubuntu 24.04 desktop. The Raspberry Pi runs ROS 2 Jazzy application nodes and the Micro XRCE-DDS Agent. PX4 SITL connects to the Agent over UDP port `8888`. Use either a direct Ethernet link or the existing private router/access point LAN.
+This setup runs PX4 SITL and Gazebo Harmonic on the Ubuntu 24.04 desktop. The Raspberry Pi runs ROS 2 Jazzy application nodes and the Micro XRCE-DDS Agent. PX4 SITL connects to the Agent over UDP port `8888`. Uploaded missions also require a MAVLink stream from the desktop to the Pi on UDP `14540`. Use either a direct Ethernet link or the existing private router/access point LAN.
 
-The project pins PX4 and `px4_msgs` to v1.17.0 and the Micro XRCE-DDS Agent to v2.4.3. Use matching versions on both machines. See [HITL Pi Setup](HITL-PI-SETUP.md) for the Raspberry Pi build environment.
+The project pins PX4 and `px4_msgs` to v1.17.0, Micro XRCE-DDS Agent to v2.4.3, and MAVSDK to 4.2.0. Use matching versions on both machines. See [Raspberry Pi native build](HITL-PI-SETUP.md) for the Pi dependencies. The remote routing procedure has not been validated on physical Raspberry Pi hardware.
 
 | Machine | Direct-link address | Processes |
 | --- | --- | --- |
@@ -88,10 +88,11 @@ ip -4 addr
 ping -c 3 192.168.50.1
 ```
 
-If UFW is active on the Raspberry Pi, allow incoming UDP port `8888` from the desktop on the Ethernet interface. Replace `eth0` with the Raspberry Pi interface name.
+If UFW is active on the Raspberry Pi, allow the DDS and mission ports from the desktop on the Ethernet interface. Replace `eth0` with the Raspberry Pi interface name.
 
 ```bash
 sudo ufw allow in on eth0 from 192.168.50.1 to any port 8888 proto udp
+sudo ufw allow in on eth0 from 192.168.50.1 to any port 14540 proto udp
 ```
 
 ## Option B: Existing router or access point
@@ -126,10 +127,11 @@ ip route get 192.168.1.20
 
 In these examples, `192.168.1.25` is the Pi address and `192.168.1.20` is the desktop address. The route output identifies the interface used to reach the other machine.
 
-If UFW is active on the Raspberry Pi, allow incoming UDP port `8888` from the desktop LAN address. Replace `wlan0` with the Pi's active Wi-Fi or Ethernet interface and replace `192.168.1.20` with the desktop address.
+If UFW is active on the Raspberry Pi, allow the DDS and mission ports from the desktop LAN address. Replace `wlan0` with the Pi's active Wi-Fi or Ethernet interface and replace `192.168.1.20` with the desktop address.
 
 ```bash
 sudo ufw allow in on wlan0 from 192.168.1.20 to any port 8888 proto udp
+sudo ufw allow in on wlan0 from 192.168.1.20 to any port 14540 proto udp
 ```
 
 Start the Raspberry Pi Agent and ROS 2 nodes using the commands in the next section. On the desktop, start PX4 SITL with `./scripts/px4-sitl`. Use the Pi's reserved LAN address in the PX4 client command in the desktop section below.
@@ -157,7 +159,7 @@ export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
 ros2 launch drone_bringup single_vehicle.launch.py enable_flight_commands:=false
 ```
 
-`single_vehicle.launch.py` starts the `vehicle_control` and `mission_execution` nodes. Flight commands remain disabled with `enable_flight_commands:=false`.
+`single_vehicle.launch.py` starts `vehicle_control`, `mission_execution`, and `mission_planner`. Flight commands remain disabled with `enable_flight_commands:=false`; the MAVLink mission socket is not bound in this mode.
 
 ## Start desktop PX4 SITL and Gazebo
 
@@ -179,6 +181,20 @@ uxrce_dds_client start -t udp -h 192.168.50.2 -p 8888
 The `-h` option sets the Agent IP and `-p` sets the Agent UDP port. Keep `ROS_DOMAIN_ID` at `0` on the Pi and PX4 SITL unless both sides are configured with another matching domain ID. PX4 documents the client command and the default SITL address in the [PX4 v1.17 uXRCE-DDS guide](https://docs.px4.io/v1.17/en/middleware/uxrce_dds).
 
 Do not use `./scripts/tmux-session start` for this layout. It starts a local Agent on the desktop.
+
+## Configure the mission link
+
+The first SITL vehicle's default API MAVLink instance uses local desktop UDP 14580 and sends to localhost UDP 14540. At the PX4 shell, redirect that instance to the Pi:
+
+```text
+mavlink stop -u 14580
+mavlink start -x -u 14580 -r 4000000 -f -m onboard -o 14540 -t 192.168.50.2
+mavlink status
+```
+
+Use the Pi's reserved LAN address for Option B. These ports describe the first SITL vehicle; additional instances require separate local and remote ports. The ground-station instance remains separate, and QGroundControl runs on the desktop. Repeat this configuration after restarting PX4.
+
+The pinned PX4 [startup script](https://github.com/PX4/PX4-Autopilot/blob/v1.17.0/ROMFS/px4fmu_common/init.d-posix/px4-rc.mavlink) defines the default ports. Its [MAVLink command implementation](https://github.com/PX4/PX4-Autopilot/blob/v1.17.0/src/modules/mavlink/mavlink_main.cpp) defines the local port, remote port, and partner-address arguments.
 
 ## Verify ROS 2 topics
 
@@ -206,4 +222,13 @@ Set `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` in each Pi ROS 2 terminal. This re
 
 See the [PX4 v1.17 parameter reference](https://docs.px4.io/v1.17/en/advanced_config/parameter_reference.html#UXRCE_DDS_PTCFG) for the parameter values and the [uXRCE-DDS network guidance](https://docs.px4.io/v1.17/en/middleware/uxrce_dds#architecture).
 
-Enable flight commands only in a controlled simulation after confirming PX4 telemetry, the system ID, and the recovery procedure. Use `enable_flight_commands:=true` when launching the application after those checks.
+After configuring both links, confirm the vehicle appears in desktop QGroundControl, passes PX4 preflight checks, and publishes fresh state on the Pi. Stop the flight-disabled launch and start the application from the same sourced Pi environment:
+
+```bash
+ros2 launch drone_bringup single_vehicle.launch.py \
+  enable_flight_commands:=true \
+  mission_connection_url:=udpin://0.0.0.0:14540 \
+  px4_system_id:=1
+```
+
+Submit missions from a sourced Pi terminal using the [root flight procedure](../../README.md#simulation-flight-procedure). The MAVLink autopilot system ID must match `px4_system_id`. The [landing procedure](LINUX.md#stop-a-flight) requires confirmed touchdown and disarming before stopping ROS; uploaded routes can continue after the Pi application exits.
