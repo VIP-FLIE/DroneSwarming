@@ -1,0 +1,17 @@
+extend = "../../src/drone_bringup/ruff.toml"
+
+[lint.per-file-ignores]
+"*.py" = [
+  "CPY001",  # The repository uses a top-level license.
+  "INP001",  # The runner invokes standalone unittest modules.
+  "PT009",   # unittest assertions run without pytest or Python assert statements.
+]
+"test_*.py" = [
+  "D101",    # Test names identify each scenario group.
+  "D102",    # Test names identify each observable assertion.
+  "PLR2004", # Literal boundary values are test inputs and independent oracles.
+  "S311",    # Seeded random inputs require reproducibility, not secrecy.
+]
+"run.py" = [
+  "T201",    # The command reports case progress and artifact locations.
+]

@@ -1,5 +1,7 @@
 # Run individual flight tests
 
+The [blind node torture suite](../../tests/blind_torture/README.md) runs planner, executor, and vehicle-control processes headlessly with synthetic ROS peers in an isolated container. It requires no PX4 or Gazebo process and records malformed-input, concurrency, cancellation, telemetry, and resource-budget results.
+
 Each flight test sends ROS actions through `mission_execution` to `vehicle_control` in the normal PX4 SITL session. The flight
 command runs one case and records its telemetry, action results, and assertions. The existing
 simulation session runs Gazebo, PX4, the XRCE-DDS Agent, and the application. QGroundControl runs

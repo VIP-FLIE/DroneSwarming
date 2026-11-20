@@ -1,0 +1,22 @@
+extend = "../../src/drone_bringup/ruff.toml"
+
+[lint]
+extend-ignore = [
+    "PT009",  # unittest assertions remain active under Python optimization.
+    "TRY003", # Test failures include their reproducer context at the raise site.
+]
+
+[lint.per-file-ignores]
+"harness.py" = [
+    "BLE001", # The supervisor must report executor-thread failures, including shutdown.
+    "S603",   # Executables come from the installed ament index; no shell is used.
+]
+"run.py" = [
+    "S108", # The fixed workspace exists only inside the disposable networkless container.
+    "S603", # Worker names come from local unittest discovery; no shell is used.
+    "T201", # This CLI prints case outcomes and its artifact location.
+]
+"test_*.py" = [
+    "S311", # The fixed seed reproduces malformed test inputs; it is not a secret.
+    "PLR2004", # Literal expected values document the adversarial boundary under test.
+]
