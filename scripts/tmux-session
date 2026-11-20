@@ -60,12 +60,13 @@ fi
 
 printf -v agent_shell_command 'exec env DRONE_RUN_ID=%q DRONE_LOG_ROLE=%q %q' \
     "$run_id" 'xrce-agent' "$repository_root/scripts/sim-shell"
-printf -v px4_shell_command 'exec env DRONE_RUN_ID=%q DRONE_LOG_ROLE=%q PX4_GZ_WORLD=%q %q' \
-    "$run_id" 'px4-sitl' "${PX4_GZ_WORLD:-lawn}" "$repository_root/scripts/sim-shell"
+printf -v px4_shell_command 'exec env DRONE_RUN_ID=%q DRONE_LOG_ROLE=%q PX4_GZ_WORLD=%q PX4_GZ_MODEL=%q %q' \
+    "$run_id" 'px4-sitl' "${PX4_GZ_WORLD:-vip_windy}" "${PX4_GZ_MODEL:-vip_x500}" "$repository_root/scripts/sim-shell"
 printf -v agent_command 'exec env DRONE_RUN_ID=%q DRONE_LOG_ROLE=%q %q' \
     "$run_id" 'xrce-agent' "$repository_root/scripts/xrce-agent"
-printf -v px4_command 'exec env DRONE_RUN_ID=%q DRONE_LOG_ROLE=%q PX4_GZ_WORLD=%q %q' \
-    "$run_id" 'px4-sitl' "${PX4_GZ_WORLD:-lawn}" "$repository_root/scripts/px4-sitl"
+printf -v px4_command 'exec env DRONE_RUN_ID=%q DRONE_LOG_ROLE=%q PX4_GZ_WORLD=%q PX4_GZ_MODEL=%q PX4_PARAM_SIM_BAT_DRAIN=%q %q' \
+    "$run_id" 'px4-sitl' "${PX4_GZ_WORLD:-vip_windy}" "${PX4_GZ_MODEL:-vip_x500}" \
+    "${PX4_PARAM_SIM_BAT_DRAIN:-900}" "$repository_root/scripts/px4-sitl"
 printf -v application_command 'exec env DRONE_RUN_ID=%q DRONE_LOG_ROLE=%q %q' \
     "$run_id" 'application' "$repository_root/scripts/sim-shell"
 printf -v cli_command 'exec env DRONE_RUN_ID=%q DRONE_LOG_ROLE=%q %q' \

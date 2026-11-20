@@ -5,7 +5,10 @@ repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 if [[ ! -f /.dockerenv && ! -f /run/.containerenv && -z "${REMOTE_CONTAINERS:-}" ]]; then
     export DRONE_LOG_ROLE=px4-sitl
     exec "$repository_root/scripts/sim-shell" \
-        env "PX4_GZ_WORLD=${PX4_GZ_WORLD:-lawn}" /workspace/scripts/px4-sitl
+        env "PX4_GZ_WORLD=${PX4_GZ_WORLD:-vip_windy}" \
+        "PX4_GZ_MODEL=${PX4_GZ_MODEL:-vip_x500}" \
+        "PX4_PARAM_SIM_BAT_DRAIN=${PX4_PARAM_SIM_BAT_DRAIN:-900}" \
+        /workspace/scripts/px4-sitl
 fi
 
 run_id="${DRONE_RUN_ID:-}"
@@ -14,12 +17,14 @@ if [[ ! "$run_id" =~ ^[0-9]{8}T[0-9]{6}Z(-[1-9][0-9]*)?$ ]]; then
     exit 2
 fi
 
-px4_rootfs=/opt/PX4-Autopilot/build/px4_sitl_default/rootfs
+px4_build_dir=/opt/PX4-Autopilot/build/px4_sitl_default
+px4_rootfs="$px4_build_dir/rootfs"
 lock_file="$px4_rootfs/.drone-sitl.lock"
 exec flock -n -E 75 "$lock_file" bash -c '
 set -Eeuo pipefail
 run_id="$1"
 px4_rootfs="$2"
+px4_build_dir="$(dirname -- "$px4_rootfs")"
 run_directory="/workspace/run-logs/$run_id"
 run_log_directory="$run_directory/px4/log"
 # PX4 SITL uses rootfs/log; fs/microsd/log is the SD-card path used by other builds.
@@ -76,7 +81,7 @@ for px4_log_directory in "${px4_log_directories[@]}"; do
     ln -s -- "$run_log_directory" "$px4_log_directory"
 done
 
-selected_world="${PX4_GZ_WORLD:-lawn}"
+selected_world="${PX4_GZ_WORLD:-vip_windy}"
 if [[ ! "$selected_world" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]]; then
     printf "Invalid PX4_GZ_WORLD: %s\n" "$selected_world" >&2
     exit 2
@@ -97,6 +102,29 @@ elif [[ ! -f "$px4_world" ]]; then
     exit 1
 fi
 printf "Gazebo world: %s\n" "$selected_world"
-exec env PX4_PARAM_SDLOG_MODE=2 PX4_GZ_WORLD="$selected_world" \
-    make -C /opt/PX4-Autopilot px4_sitl gz_x500
+selected_model="${PX4_GZ_MODEL:-vip_x500}"
+if [[ ! "$selected_model" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]]; then
+    printf "Invalid PX4_GZ_MODEL: %s\n" "$selected_model" >&2
+    exit 2
+fi
+if [[ "$selected_model" == vip_x500 ]]; then
+    px4_model=x500
+    px4_models=/workspace/worlds/models/px4-vip-x500
+else
+    px4_model="$selected_model"
+    px4_models=/opt/PX4-Autopilot/Tools/simulation/gz/models
+fi
+if [[ ! -f "$px4_models/$px4_model/model.sdf" ]]; then
+    printf "Gazebo model not found: %s\n" "$selected_model" >&2
+    exit 1
+fi
+# PX4 stores generated airframes beside rootfs in the build tree. 
+if ! compgen -G "$px4_build_dir/etc/init.d-posix/airframes/*_gz_${px4_model}" >/dev/null; then
+    printf "PX4 Gazebo airframe not found for model: %s\n" "$selected_model" >&2
+    exit 1
+fi
+printf "Gazebo model: %s\n" "$selected_model"
+exec env PX4_PARAM_SDLOG_MODE=2 \
+    "PX4_PARAM_SIM_BAT_DRAIN=${PX4_PARAM_SIM_BAT_DRAIN:-900}" PX4_GZ_WORLD="$selected_world" \
+    PX4_GZ_MODELS="$px4_models" make -C /opt/PX4-Autopilot px4_sitl "gz_$px4_model"
 ' px4-sitl "$run_id" "$px4_rootfs"

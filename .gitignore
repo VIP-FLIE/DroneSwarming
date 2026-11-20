@@ -5,6 +5,7 @@ log/
 run-logs/
 
 *.png
+!worlds/**/*.png
 
 # Generated Graphviz architecture diagram outputs.
 docs/architecture/generated/

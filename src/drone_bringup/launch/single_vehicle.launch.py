@@ -18,12 +18,19 @@ def generate_launch_description() -> LaunchDescription:
             'namespace', default_value='', description='Application ROS namespace'
         ),
         DeclareLaunchArgument(
+            'vehicle_id',
+            default_value='',
+            description='Plan assignment ID; empty derives it from the namespace',
+        ),
+        DeclareLaunchArgument('maximum_plan_altitude_m', default_value='30.0'),
+        DeclareLaunchArgument('maximum_plan_distance_m', default_value='100.0'),
+        DeclareLaunchArgument(
             'px4_topic_prefix', default_value='/fmu', description='PX4 DDS topic prefix'
         ),
         DeclareLaunchArgument(
             'log_level',
             default_value='info',
-            description='Runtime ROS log threshold for both application nodes',
+            description='Runtime ROS log threshold for all application nodes',
         ),
         DeclareLaunchArgument(
             'px4_system_id', default_value='1', description='PX4 MAVLink system ID'
@@ -99,6 +106,34 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
+    mission_planner = Node(
+        package='mission_planner',
+        executable='mission_planner_node',
+        name='mission_planner',
+        namespace=namespace,
+        output='screen',
+        arguments=['--ros-args', '--log-level', log_level],
+        parameters=[
+            {
+                'maximum_altitude_m': ParameterValue(
+                    LaunchConfiguration('maximum_plan_altitude_m'), value_type=float
+                ),
+                'maximum_horizontal_distance_m': ParameterValue(
+                    LaunchConfiguration('maximum_plan_distance_m'), value_type=float
+                ),
+                'max_orbit_radius_m': ParameterValue(
+                    LaunchConfiguration('max_orbit_radius_m'), value_type=float
+                ),
+                'max_orbit_speed_mps': ParameterValue(
+                    LaunchConfiguration('max_orbit_speed_mps'), value_type=float
+                ),
+                'max_orbit_center_distance_m': ParameterValue(
+                    LaunchConfiguration('max_orbit_center_distance_m'), value_type=float
+                ),
+            }
+        ],
+    )
+
     mission_execution = Node(
         package='mission_execution',
         executable='mission_execution_node',
@@ -110,6 +145,13 @@ def generate_launch_description() -> LaunchDescription:
             {
                 'telemetry_timeout_sec': ParameterValue(
                     LaunchConfiguration('telemetry_timeout_sec'), value_type=float
+                ),
+                'vehicle_id': LaunchConfiguration('vehicle_id'),
+                'maximum_plan_altitude_m': ParameterValue(
+                    LaunchConfiguration('maximum_plan_altitude_m'), value_type=float
+                ),
+                'maximum_plan_distance_m': ParameterValue(
+                    LaunchConfiguration('maximum_plan_distance_m'), value_type=float
                 ),
                 'starting_position_timeout_sec': ParameterValue(
                     LaunchConfiguration('starting_position_timeout_sec'), value_type=float
@@ -127,4 +169,6 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
-    return LaunchDescription([*launch_arguments, vehicle_control, mission_execution])
+    return LaunchDescription(
+        [*launch_arguments, vehicle_control, mission_planner, mission_execution]
+    )

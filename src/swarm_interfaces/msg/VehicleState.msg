@@ -13,3 +13,11 @@ bool landed
 bool battery_available
 float32 battery_percentage
 uint64 setpoint_publication_count
+# Revision changes when the local position frame or its geographic reference resets.
+uint64 local_frame_revision
+# Geographic coordinates of the local_enu origin. Altitude is meters AMSL.
+# These fields are usable only when global_reference_valid is true.
+bool global_reference_valid
+float64 reference_latitude_deg
+float64 reference_longitude_deg
+float64 reference_altitude_amsl_m

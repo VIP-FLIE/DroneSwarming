@@ -176,7 +176,7 @@ VehicleControlNode::VehicleControlNode()
     std::chrono::milliseconds(100), std::bind(&VehicleControlNode::publish_state, this));
 
   takeoff_server_ = rclcpp_action::create_server<Takeoff>(
-    this, "takeoff",
+    this, "vehicle_control/takeoff",
     [this](const rclcpp_action::GoalUUID &, std::shared_ptr<const Takeoff::Goal> goal) {
       if (!std::isfinite(goal->altitude_m) || goal->altitude_m <= 0.0F) {
         RCLCPP_WARN(
@@ -198,7 +198,7 @@ VehicleControlNode::VehicleControlNode()
     });
 
   navigation_server_ = rclcpp_action::create_server<NavigateTo>(
-    this, "navigate_to",
+    this, "vehicle_control/navigate_to",
     [this](const rclcpp_action::GoalUUID &, std::shared_ptr<const NavigateTo::Goal> goal) {
       const Position target_position{
         goal->target_position.x, goal->target_position.y, goal->target_position.z};
@@ -246,7 +246,7 @@ VehicleControlNode::VehicleControlNode()
     });
 
   follow_trajectory_server_ = rclcpp_action::create_server<FollowTrajectory>(
-    this, "follow_trajectory",
+    this, "vehicle_control/follow_trajectory",
     [this](const rclcpp_action::GoalUUID &,
     std::shared_ptr<const FollowTrajectory::Goal> goal) {
       std::string validation_error;
@@ -315,7 +315,7 @@ VehicleControlNode::VehicleControlNode()
     });
 
   orbit_server_ = rclcpp_action::create_server<OrbitPoint>(
-    this, "orbit_point",
+    this, "vehicle_control/orbit_point",
     [this](const rclcpp_action::GoalUUID &, std::shared_ptr<const OrbitPoint::Goal> goal) {
       const double radius_m = static_cast<double>(goal->radius_m);
       const double speed_mps = static_cast<double>(goal->tangential_speed_mps);
@@ -357,7 +357,7 @@ VehicleControlNode::VehicleControlNode()
     });
 
   land_server_ = rclcpp_action::create_server<Land>(
-    this, "land",
+    this, "vehicle_control/land",
     [this](const rclcpp_action::GoalUUID &, std::shared_ptr<const Land::Goal> goal) {
       if (!std::isfinite(goal->timeout_sec) || goal->timeout_sec < 0.0F) {
         RCLCPP_WARN(
@@ -744,6 +744,16 @@ void VehicleControlNode::publish_state()
   state.yaw_rad = static_cast<float>(telemetry.yaw_enu_rad);
   state.yaw_valid = telemetry.yaw_valid && state.position_valid;
   state.setpoint_publication_count = telemetry.setpoint_publication_count;
+  state.local_frame_revision = telemetry.local_frame_revision;
+  state.global_reference_valid = state.position_valid && telemetry.xy_global && telemetry.z_global &&
+    std::isfinite(telemetry.reference_latitude_deg) &&
+    std::isfinite(telemetry.reference_longitude_deg) &&
+    std::isfinite(telemetry.reference_altitude_amsl_m) &&
+    telemetry.reference_latitude_deg >= -90.0 && telemetry.reference_latitude_deg <= 90.0 &&
+    telemetry.reference_longitude_deg >= -180.0 && telemetry.reference_longitude_deg <= 180.0;
+  state.reference_latitude_deg = telemetry.reference_latitude_deg;
+  state.reference_longitude_deg = telemetry.reference_longitude_deg;
+  state.reference_altitude_amsl_m = telemetry.reference_altitude_amsl_m;
   const std::chrono::steady_clock::time_point current_time = std::chrono::steady_clock::now();
   const std::chrono::steady_clock::duration status_age = current_time - telemetry.status_received;
   const std::chrono::steady_clock::duration land_age = current_time - telemetry.land_state_received;

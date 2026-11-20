@@ -3,12 +3,14 @@
 #include <cmath>
 #include <cstdint>
 #include <memory>
+#include <functional>
 #include <optional>
 #include <thread>
 #include <vector>
 
 #include <gtest/gtest.h>
 #include <px4_msgs/msg/vehicle_command.hpp>
+#include <px4_msgs/msg/vehicle_local_position.hpp>
 #include <px4_msgs/msg/vehicle_command_ack.hpp>
 #include <px4_msgs/msg/trajectory_setpoint.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -197,6 +199,67 @@ TEST(Px4Adapter, ConvertsOptionalEnuYawToNedSetpointYaw)
     }
     ASSERT_EQ(2U, published_setpoints.size());
     EXPECT_TRUE(std::isnan(published_setpoints.back().yaw));
+    executor.remove_node(node);
+  }
+  rclcpp::shutdown();
+}
+
+TEST(Px4Adapter, RevisesTheLocalFrameOnlyWhenItsReferenceOrResetChanges)
+{
+  rclcpp::init(0, nullptr);
+  {
+    const std::shared_ptr<rclcpp::Node> node = std::make_shared<rclcpp::Node>("frame_revision_test");
+    Px4Adapter adapter(*node, "/frame_test/fmu", 1);
+    const rclcpp::Publisher<px4_msgs::msg::VehicleLocalPosition>::SharedPtr publisher =
+      node->create_publisher<px4_msgs::msg::VehicleLocalPosition>(
+      "/frame_test/fmu/out/vehicle_local_position_v1",
+      rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().transient_local());
+    rclcpp::executors::SingleThreadedExecutor executor;
+    executor.add_node(node);
+    const std::chrono::steady_clock::time_point connection_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (publisher->get_subscription_count() == 0U &&
+      std::chrono::steady_clock::now() < connection_deadline)
+    {
+      executor.spin_some();
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_EQ(publisher->get_subscription_count(), 1U);
+    px4_msgs::msg::VehicleLocalPosition position;
+    position.xy_valid = true;
+    position.z_valid = true;
+    position.xy_global = true;
+    position.z_global = true;
+    position.ref_lat = 47.0;
+    position.ref_lon = 8.0;
+    position.ref_alt = 500.0F;
+    position.ref_timestamp = 1;
+    const std::function<void(float)> publish_and_wait = [&](const float north_m) {
+        position.x = north_m;
+        publisher->publish(position);
+        const std::chrono::steady_clock::time_point deadline =
+          std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (adapter.telemetry().position_enu[1] != static_cast<double>(north_m) &&
+          std::chrono::steady_clock::now() < deadline)
+        {
+          executor.spin_some();
+          std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        EXPECT_DOUBLE_EQ(adapter.telemetry().position_enu[1], static_cast<double>(north_m));
+      };
+    publish_and_wait(1.0F);
+    const std::uint64_t initial_revision = adapter.telemetry().local_frame_revision;
+    EXPECT_GT(initial_revision, 0U);
+    publish_and_wait(2.0F);
+    EXPECT_EQ(adapter.telemetry().local_frame_revision, initial_revision);
+    position.ref_lon += 0.001;
+    position.ref_timestamp = 2;
+    publish_and_wait(3.0F);
+    EXPECT_EQ(adapter.telemetry().local_frame_revision, initial_revision + 1U);
+    ++position.xy_reset_counter;
+    publish_and_wait(4.0F);
+    EXPECT_EQ(adapter.telemetry().local_frame_revision, initial_revision + 2U);
+    EXPECT_DOUBLE_EQ(adapter.telemetry().reference_longitude_deg, position.ref_lon);
     executor.remove_node(node);
   }
   rclcpp::shutdown();

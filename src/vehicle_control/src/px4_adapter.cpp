@@ -56,6 +56,18 @@ struct Px4Adapter::Implementation
       [this](const px4_msgs::msg::VehicleLocalPosition & message) {
         const std::chrono::steady_clock::time_point received = std::chrono::steady_clock::now();
         std::lock_guard<std::mutex> lock(mutex);
+        const bool has_frame_changed = !telemetry.has_position ||
+          message.ref_timestamp != telemetry.reference_timestamp ||
+          message.xy_reset_counter != telemetry.xy_reset_counter ||
+          message.z_reset_counter != telemetry.z_reset_counter ||
+          message.xy_global != telemetry.xy_global || message.z_global != telemetry.z_global ||
+          (message.xy_global && message.z_global &&
+          (message.ref_lat != telemetry.reference_latitude_deg ||
+          message.ref_lon != telemetry.reference_longitude_deg ||
+          static_cast<double>(message.ref_alt) != telemetry.reference_altitude_amsl_m));
+        if (has_frame_changed) {
+          ++telemetry.local_frame_revision;
+        }
         telemetry.position_enu = ned_to_enu({
           static_cast<double>(message.x), static_cast<double>(message.y),
           static_cast<double>(message.z)});

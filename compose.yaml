@@ -19,9 +19,13 @@ services:
     stdin_open: true
     tty: true
     environment:
-      PX4_GZ_WORLD: ${PX4_GZ_WORLD:-lawn}
+      PX4_GZ_WORLD: ${PX4_GZ_WORLD:-vip_windy}
+      PX4_GZ_MODEL: ${PX4_GZ_MODEL:-vip_x500}
+      PX4_PARAM_SIM_BAT_DRAIN: ${PX4_PARAM_SIM_BAT_DRAIN:-900}
     volumes:
       - .:/workspace:rw
+      - ./px4/server.config:/opt/PX4-Autopilot/src/modules/simulation/gz_bridge/server.config:ro
+      - ./px4/gz_env.sh:/opt/PX4-Autopilot/build/px4_sitl_default/rootfs/gz_env.sh:ro
       - development_build:/workspace/build
       - development_install:/workspace/install
       - development_log:/workspace/log
@@ -57,11 +61,15 @@ services:
       DISPLAY: ${DISPLAY:-}
       XAUTHORITY: /dev/null
       NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics,display
-      PX4_GZ_WORLD: ${PX4_GZ_WORLD:-lawn}
+      PX4_GZ_WORLD: ${PX4_GZ_WORLD:-vip_windy}
+      PX4_GZ_MODEL: ${PX4_GZ_MODEL:-vip_x500}
+      PX4_PARAM_SIM_BAT_DRAIN: ${PX4_PARAM_SIM_BAT_DRAIN:-900}
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:ro
       - ./src:/workspace/src:rw
       - ./scripts:/workspace/scripts:ro
+      - ./px4/server.config:/opt/PX4-Autopilot/src/modules/simulation/gz_bridge/server.config:ro
+      - ./px4/gz_env.sh:/opt/PX4-Autopilot/build/px4_sitl_default/rootfs/gz_env.sh:ro
       - ./worlds:/workspace/worlds:ro
       - ./run-logs:/workspace/run-logs:rw
 

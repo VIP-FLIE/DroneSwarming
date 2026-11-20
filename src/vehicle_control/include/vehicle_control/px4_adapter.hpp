@@ -37,6 +37,7 @@ struct VehicleTelemetry
   std::uint64_t reference_timestamp{0};
   std::uint8_t xy_reset_counter{0};
   std::uint8_t z_reset_counter{0};
+  std::uint64_t local_frame_revision{0};
   std::uint64_t setpoint_publication_count{0};
   bool landed{false};
   bool battery_available{false};

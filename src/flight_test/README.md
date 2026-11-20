@@ -1,7 +1,7 @@
 # Individual flight tests
 
 The [flight test guide](../../docs/testing/README.md) gives the setup, run, reset, and log
-inspection commands. Each case sends application ROS actions to an already running PX4 SITL
+inspection commands. Each case sends command actions exclusively to `mission_execution` in an already running PX4 SITL
 simulation. The package does not start, stop, or reset PX4, Gazebo, or the application.
 
 Run one case from pane 3 of `scripts/tmux-session` or `scripts/tmux-session start`:
@@ -33,9 +33,23 @@ create one explicitly named directory.
 | FT-05 | Fly altitude steps, land |
 | FT-06 | Cancel navigation, hold, land |
 
+Every operation below follows `flight_test -> mission_execution -> vehicle_control`. FT-01 uses
+`execute_waypoint_mission`; its takeoff, navigation, and landing are child operations. FT-00 uses
+`mission_execution/takeoff` and `mission_execution/land`. FT-02, FT-04, and FT-05 add
+`mission_execution/follow_trajectory`. FT-03 adds `mission_execution/orbit_point`, including its
+cancellation and confirmed hold recovery. FT-06 adds `mission_execution/navigate_to`, including
+cancellation and the continuing hold/setpoint checks. Every recovery landing uses
+`mission_execution/land`, which can interrupt an unfinished request.
+
+The runner's direct `VehicleState` subscription records read-only telemetry for metrics and
+assertions. Position, yaw, validity flags, timestamps, and setpoint counts remain unchanged.
+Measured state may inform the next test intent; that intent still enters mission execution.
+The runner creates no clients for `vehicle_control/*`.
+
 The runner waits for fresh landed `local_enu` telemetry and the required action servers before
 sending the first goal. Each case checks its own measured outcomes and ends landed, disarmed, and
-outside Offboard. A failed case attempts a landing action if the vehicle is airborne or remains in
+outside Offboard. Explicit landing and FT-01 wait up to 15 seconds after the action result for
+the independent state topic to confirm all three conditions. A failed case attempts a landing action if the vehicle is airborne or remains in
 Offboard. The next case can use the same running simulation; its takeoff action starts a new
 one-second setpoint prestream and requests Offboard when needed.
 

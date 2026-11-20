@@ -4,7 +4,11 @@ The current vertical slice supports one PX4 vehicle. `swarm_coordination` is an 
 
 ## Initial vehicle
 
-Use `drone_bringup` to start `vehicle_control` and `mission_execution`. Flight commands default to disabled. See the root [simulation flight procedure](../../README.md#simulation-flight-procedure) for PX4 SITL commands and the example square mission.
+Use `drone_bringup` to start `vehicle_control`, `mission_execution`, and `mission_planner`. Flight commands default to disabled. See the root [simulation flight procedure](../../README.md#simulation-flight-procedure) for PX4 SITL commands and the example square mission.
+
+## Fleet plan input
+
+Version 2 [JSON plans](../../src/mission_planner/README.md) contain explicit per-vehicle assignments. Submit the same document to each executor namespace. Relative paths use each vehicle's captured start; shared-origin and GPS paths use geographic anchors and AMSL heights. The planner performs no discovery, automatic allocation, synchronized start, or collision avoidance. Two-namespace ROS integration tests exercise assignment selection and coordinate translation with simulated action backends. Multi-vehicle PX4 flight validation remains required.
 
 ## Planned development order
 

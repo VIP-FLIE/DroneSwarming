@@ -18,6 +18,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/OrbitPoint.action"
   "action/ExecuteWaypointMission.action"
   "action/FollowTrajectory.action"
+  "action/ExecuteFlightPlan.action"
+  "srv/PlanFlight.srv"
   DEPENDENCIES geometry_msgs std_msgs
 )
 

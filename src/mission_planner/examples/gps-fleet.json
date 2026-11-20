@@ -1,0 +1,49 @@
+{
+  "version": 2,
+  "missions": [
+    {
+      "vehicle_ids": [
+        "uav_1"
+      ],
+      "frame_id": "wgs84",
+      "takeoff_altitude_m": 3.0,
+      "waypoint_acceptance_radius_m": 0.5,
+      "path": {
+        "type": "waypoints",
+        "points": [
+          [
+            47.397742,
+            8.545594
+          ],
+          [
+            47.39776,
+            8.545594
+          ]
+        ]
+      },
+      "altitude_amsl_m": 491.0
+    },
+    {
+      "vehicle_ids": [
+        "uav_2"
+      ],
+      "frame_id": "wgs84",
+      "takeoff_altitude_m": 3.0,
+      "waypoint_acceptance_radius_m": 0.5,
+      "path": {
+        "type": "waypoints",
+        "points": [
+          [
+            47.397742,
+            8.54563
+          ],
+          [
+            47.39776,
+            8.54563
+          ]
+        ]
+      },
+      "altitude_amsl_m": 493.0
+    }
+  ]
+}

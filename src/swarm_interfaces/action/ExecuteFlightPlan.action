@@ -1,0 +1,16 @@
+# JSON document content, read from a file by the submitting client.
+# The configured vehicle_id selects one assignment from a version 2 fleet plan.
+string plan_json
+---
+bool success
+uint32 completed_waypoints
+# True only when the orbit and Offboard hold both completed successfully.
+bool orbit_completed
+string message
+---
+uint32 current_waypoint
+uint32 completed_waypoints
+float32 distance_to_target_m
+# Orbit progress in complete revolutions; zero when the mission is not orbiting.
+float32 orbit_completed_revolutions
+string status

@@ -8,13 +8,17 @@ ROS 2 control software for PX4 search-and-rescue drones. The project targets Ubu
 
 | Package | Responsibility |
 | --- | --- |
-| `swarm_interfaces` | Application messages and actions. Positions use `local_enu`. |
-| `vehicle_control` | PX4 DDS topics, command acknowledgements, telemetry, frame conversion, and reusable takeoff, navigation, and landing actions. |
-| `mission_execution` | Sequences takeoff, absolute waypoint targets derived from launch-relative offsets, and optional landing. |
+| `swarm_interfaces` | Application messages, actions, and planning service. Execution positions use `local_enu`. |
+| `mission_planner` | Decodes versioned JSON fleet assignments and translates relative or GPS paths into per-vehicle instructions. |
+| `vehicle_control` | PX4 adapter, state publication, frame conversion, and execution of internal vehicle operations. |
+| `mission_execution` | Sole application command authority. Admits intent, checks state, serializes operations, preempts for landing, and executes waypoint missions. |
+| `flight_test` | Sends all flight-test intent through mission execution and records read-only vehicle telemetry. |
 | `swarm_coordination` | Empty scaffold for future peer health and task coordination. |
 | `drone_bringup` | Launches the application nodes with separate application namespace and PX4 topic-prefix settings. |
 
 PX4 retains low-level flight control, preflight checks, and failsafes. `vehicle_control` sends position setpoints in Offboard mode. `mission_execution` uses ROS 2 actions and does not depend on PX4 messages.
+
+Callers use `/execute_waypoint_mission` or `/mission_execution/{takeoff,navigate_to,follow_trajectory,orbit_point,land}`. Only mission execution calls `/vehicle_control/<operation>`. An explicit `/mission_execution/land` request interrupts an active route and waits for child termination before landing. JSON file callers use `/mission_execution/execute_flight_plan`. The executor calls the planning-only service and executes its translated instructions. The [JSON schema guide](src/mission_planner/README.md) documents fleet assignments, relative coordinates, GPS/AMSL coordinates, and file submission. Swarm coordination, operator arbitration, and perception inputs remain planned.
 
 Position actions leave yaw uncontrolled unless the caller requests `NavigateTo.look_at_target`, `FollowTrajectory.control_yaw`, or `OrbitPoint.face_center`. `vehicle_control` checks yaw telemetry and target error for requested yaw control. PX4 receives an unspecified yaw setpoint for ordinary Offboard position commands.
 
@@ -45,7 +49,7 @@ With no command argument, `scripts/sim-shell` opens an interactive shell. With a
 Run the unit tests and ROS launch-file lint checks:
 
 ```bash
-colcon test --packages-select vehicle_control mission_execution drone_bringup
+colcon test
 colcon test-result --verbose
 ```
 
@@ -72,8 +76,7 @@ Start the tmux simulation session from a host terminal:
 ```
 
 The session starts the XRCE-DDS Agent and PX4 SITL with Gazebo Harmonic. It opens a sourced container shell for the application in pane 2 and a sourced ROS 2 CLI shell in pane 3. Confirm that the simulated vehicle and telemetry appear in QGroundControl before starting the flight-enabled application.
-PX4 uses the flat `lawn` world with a grid and sky by default. Set `PX4_GZ_WORLD` before launch
-to select another world; see [Gazebo worlds](worlds/README.md).
+PX4 uses the flat `vip_windy` world and project-owned `vip_x500` model by default. The world has a textured grid, a cloudy sky, and 5 m/s wind with no aerial obstacles. Set `PX4_GZ_WORLD` or `PX4_GZ_MODEL` before launch to choose another world or PX4-supported model; see [Gazebo worlds](worlds/README.md).
 Run `./scripts/tmux-session` to build the workspace and open sourced container Bash shells in all
 four panes. Start the Agent and PX4 manually with `./scripts/xrce-agent` and `./scripts/px4-sitl` in
 their respective panes. Pane 3 accepts ROS 2 CLI commands and `./scripts/test-flights` commands.
@@ -98,6 +101,17 @@ ros2 action send_goal /execute_waypoint_mission \
 The mission climbs 3 m, flies a 3 m square at 3 m relative to the position captured at mission start, then requests PX4 auto-land. Each waypoint offset is added to that same mission origin. The mission executor converts each offset to an absolute `local_enu` target, and `vehicle_control` converts it to PX4 NED setpoints.
 
 Press `Ctrl-b`, then `d` to detach from tmux. Run `tmux attach-session -t drone-swarming` to return to the session.
+
+## JSON flight plans
+
+With the controlled simulation and flight-enabled application running, submit a version 2 fleet file:
+
+```bash
+ros2 run mission_planner submit_flight_plan \
+  /workspace/src/mission_planner/examples/relative-fleet.json
+```
+
+The root executor selects `uav_1`, flies its relative square, and lands. Use `--namespace /uav_2` to submit the same file to a second configured vehicle. Fleet files contain explicit per-vehicle assignments; delivery, synchronized starts, and collision avoidance are outside the implemented planner. See the [schema and examples](src/mission_planner/README.md).
 
 ## Run logs
 
@@ -124,6 +138,7 @@ The v1.17 Offboard topic and timestamp behavior follows the [PX4 v1.17 ROS 2 Off
 
 ## Project guides
 
+- [Codebase tour: ROS 2 and PX4](docs/architecture/CODEBASE-TOUR.md)
 - [Native Raspberry Pi setup](docs/setup/HITL-PI-SETUP.md)
 - [Architecture diagrams](docs/architecture/README.md)
 - [Linux and Docker setup](docs/setup/LINUX.md)

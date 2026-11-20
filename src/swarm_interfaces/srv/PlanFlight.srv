@@ -1,0 +1,18 @@
+# Pure translation request. No flight action is issued by the planner.
+string plan_json
+string vehicle_id
+# One fresh snapshot captured by mission execution before planning.
+swarm_interfaces/VehicleState starting_state
+---
+bool success
+string message
+# Every offset uses the request's single starting position in local_enu meters.
+float32 takeoff_altitude_m
+geometry_msgs/Point[] waypoint_offsets
+float32 position_tolerance_m
+bool orbit_after_waypoints
+geometry_msgs/Point orbit_center_offset
+float32 orbit_radius_m
+float32 orbit_tangential_speed_mps
+float32 orbit_revolutions
+float32 orbit_timeout_sec
