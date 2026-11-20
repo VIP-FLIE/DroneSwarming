@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+artifact_directory="$(mktemp -d "$repository_root/run-logs/seeing-torture-$(date -u +%Y%m%dT%H%M%SZ)-XXXXXX")"
+image="${SEEING_TORTURE_IMAGE:-drone-swarming:px4-v1.17.0}"
+
+printf 'Seeing torture artifacts: %s\n' "$artifact_directory"
+docker run --rm --init --network none --cpus 2 --memory 3g --pids-limit 256 \
+    --mount "type=bind,src=$repository_root,dst=/source,readonly" \
+    --mount "type=bind,src=$artifact_directory,dst=/artifacts" \
+    --env ROS_DOMAIN_ID=83 --env ROS_LOCALHOST_ONLY=1 \
+    --env RMW_IMPLEMENTATION=rmw_fastrtps_cpp \
+    --env ROS_LOG_DIR=/artifacts/ros --env RCUTILS_COLORIZED_OUTPUT=0 \
+    "$image" bash -c '
+set -Ee -o pipefail
+source /opt/ros/jazzy/setup.bash
+source /opt/px4_ros2/install/setup.bash
+mkdir -p /tmp/seeing-workspace/src
+cp -a /source/src/. /tmp/seeing-workspace/src/
+cd /tmp/seeing-workspace
+colcon build --symlink-install --packages-up-to vehicle_control mission_execution mission_planner \
+    --cmake-args -DBUILD_TESTING=ON 2>&1 | tee /artifacts/build.log
+source install/setup.bash
+python3 /source/tests/seeing_torture/run.py --output /artifacts "$@"
+' seeing-torture "$@"

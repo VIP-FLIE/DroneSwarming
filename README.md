@@ -149,6 +149,7 @@ The v1.17 Offboard topic and timestamp behavior follows the [PX4 v1.17 ROS 2 Off
 - [Linux and Docker setup](docs/setup/LINUX.md)
 - [Simulation architecture](docs/simulation/HOW-IT-WORKS.md)
 - [Individual flight tests](docs/testing/README.md)
+- [Single-drone readiness and hardware qualification plan](docs/testing/SINGLE-DRONE-READINESS.md)
 - [Gazebo world resources](worlds/README.md)
 - [Neovim LSP setup](docs/development/NEOVIM.md)
 - [tmux simulation session](docs/development/TMUX.md)
